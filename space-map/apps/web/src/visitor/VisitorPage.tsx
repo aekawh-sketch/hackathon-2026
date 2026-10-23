@@ -88,8 +88,9 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
   const [category, setCategory] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [from, setFrom] = useState<Endpoint | null>(null);
-  const [to, setTo] = useState<string | null>(null);
-  const [pickingFrom, setPickingFrom] = useState(false);
+  const [to, setTo] = useState<Endpoint | null>(null);
+  /** Какой конец маршрута ставится следующим касанием карты. */
+  const [picking, setPicking] = useState<'from' | 'to' | null>(null);
   const [mode, setMode] = useState<'plan' | '3d'>('plan');
   const [pano, setPano] = useState<PanoState | null>(null);
   const [panoPlace, setPanoPlace] = useState<string | null>(null);
@@ -112,7 +113,7 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
   const route = useMemo(() => {
     if (!from || !to) return null;
     const a = endpointNode(from);
-    const b = placesById.get(to)?.node ?? null;
+    const b = endpointNode(to);
     if (!a || !b) return { ok: false as const, reason: 'not_found' as const };
     return graph.route(a, b);
   }, [from, to, graph]);
@@ -120,7 +121,7 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
   const routeLine = useMemo(() => {
     if (!route?.ok || !from || !to) return null;
     const start = endpointPos(from);
-    const end = placesById.get(to)?.pos;
+    const end = endpointPos(to);
     const line = routePolyline(graph, route.nodes);
     return dedupe([...(start ? [start] : []), ...line, ...(end ? [end] : [])]);
   }, [route]);
@@ -267,48 +268,56 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
     setQuery('');
     setSheetMode('auto');
   };
-  const routeHere = (id: string) => {
-    setTo(id);
+  const routeVisible = !!(to || from);
+
+  // Поставили один конец — следующее касание карты ставит другой, если его ещё нет.
+  const setEnd = (which: 'from' | 'to', e: Endpoint) => {
+    const other = which === 'from' ? to : from;
+    if (which === 'from') setFrom(e);
+    else setTo(e);
     setSelected(null);
-    if (!from) setPickingFrom(true);
+    setPicking(other ? null : which === 'from' ? 'to' : 'from');
     setSheetMode('auto');
   };
-  const routeFromHere = (id: string) => {
-    setFrom({ kind: 'place', id });
-    setSelected(null);
-    setPickingFrom(false);
-    setSheetMode('auto');
-  };
+  const routeHere = (id: string) => setEnd('to', { kind: 'place', id });
+  const routeFromHere = (id: string) => setEnd('from', { kind: 'place', id });
   const clearRoute = () => {
     setFrom(null);
     setTo(null);
-    setPickingFrom(false);
+    setPicking(null);
     setFocusRoute(false);
     setSheetMode('peek');
   };
   const swapRoute = () => {
-    if (!from || from.kind !== 'place' || !to) return;
-    setFrom({ kind: 'place', id: to });
-    setTo(from.id);
+    if (!from || !to) return;
+    setFrom(to);
+    setTo(from);
   };
 
+  const pointEndpoint = (pos: Vec2): Endpoint => {
+    const room = unitAt(doc, level, pos);
+    return { kind: 'point', pos, label: room ? `Точка: ${room.name}` : 'Точка на карте' };
+  };
+
+  /** Какой конец заполнить касанием: явно выбранный, иначе недостающий, пока маршрут открыт. */
+  const endToFill = (): 'from' | 'to' | null => picking ?? (routeVisible ? (!to ? 'to' : !from ? 'from' : null) : null);
+
   const onPlanEmpty = (pos: Vec2) => {
-    if (pickingFrom) {
-      const room = unitAt(doc, level, pos);
-      setFrom({ kind: 'point', pos, label: room ? `Точка: ${room.name}` : 'Точка на карте' });
-      setPickingFrom(false);
-    } else if (selected) {
+    const which = endToFill();
+    if (which) return setEnd(which, pointEndpoint(pos));
+    if (selected) {
       setSelected(null);
       setSheetMode('peek');
     }
   };
 
   const onPlanPlace = (id: string) => {
-    if (pickingFrom) return routeFromHere(id);
+    // Маршрут открыт и оба конца стоят — место становится новым «Куда».
+    const which = endToFill() ?? (routeVisible ? 'to' : null);
+    if (which) return setEnd(which, { kind: 'place', id });
     choosePlace(id);
   };
 
-  const routeVisible = !!(to || from);
   const visibleCategories = doc.categories.filter((c) => doc.places.some((p) => p.category === c.id && !p.hidden));
   const minutes = route?.ok ? Math.max(1, Math.round(route.length / WALK_SPEED / 60)) : 0;
 
@@ -369,21 +378,21 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
         </div>
         <div className="route-ends">
           <div className="route-line" aria-hidden />
-          <button type="button" className={`route-end ${pickingFrom ? 'is-picking' : ''}`} onClick={() => setPickingFrom(true)}>
+          <button type="button" className={`route-end ${picking === 'from' ? 'is-picking' : ''}`} onClick={() => setPicking('from')}>
             <span className="dot dot-from" />
             <span className="route-end-text">
               <small>Откуда</small>
-              {from ? endpointLabel(from) : pickingFrom ? 'Нажмите на карте или на место' : 'Выберите точку'}
+              {from ? endpointLabel(from) : picking === 'from' ? 'Нажмите на карте или на место' : 'Выберите точку'}
             </span>
           </button>
-          <div className="route-end">
+          <button type="button" className={`route-end ${picking === 'to' ? 'is-picking' : ''}`} onClick={() => setPicking('to')}>
             <span className="dot dot-to" />
             <span className="route-end-text">
               <small>Куда</small>
-              {to ? placesById.get(to)?.name : 'Выберите место'}
+              {to ? endpointLabel(to) : picking === 'to' ? 'Нажмите на карте или на место' : 'Выберите место'}
             </span>
-          </div>
-          {from?.kind === 'place' && to && (
+          </button>
+          {from && to && (
             <button type="button" className="icon-btn route-swap" aria-label="Поменять местами" onClick={swapRoute}>
               <Icon name="swap" size={18} />
             </button>
@@ -536,8 +545,9 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
             doc={doc}
             level={level}
             route={routeLine}
-            selectedPlace={selected ?? to}
+            selectedPlace={selected ?? (to?.kind === 'place' ? to.id : null)}
             fromPoint={from ? endpointPos(from) : null}
+            toPoint={to?.kind === 'point' ? to.pos : null}
             category={query.trim() ? null : category}
             insets={insets}
             fitKey={fitKey}
@@ -549,15 +559,15 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
         ) : (
           <ErrorBoundary fallback={<div className="screen-message">Не удалось загрузить 3D. Проверьте интернет и откройте вид снова.</div>}>
             <Suspense fallback={<div className="screen-message"><div className="loader" /></div>}>
-              <Model3DView doc={doc} level={level} route={routeLine} selectedPlace={selected ?? to} onPlaceClick={onPlanPlace} insets={insets} />
+              <Model3DView doc={doc} level={level} route={routeLine} selectedPlace={selected ?? (to?.kind === 'place' ? to.id : null)} onPlaceClick={onPlanPlace} insets={insets} />
             </Suspense>
           </ErrorBoundary>
         )}
-        {pickingFrom && (
+        {picking && (
           <div className="map-banner" role="status" style={desktop ? { left: PANEL_WIDTH + 48 } : undefined}>
-            <Icon name="from" size={18} />
-            Нажмите на карте, откуда идти
-            <button type="button" className="map-banner-btn" onClick={() => setPickingFrom(false)}>
+            <Icon name={picking === 'from' ? 'from' : 'pin'} size={18} />
+            {picking === 'from' ? 'Нажмите на карте, откуда идти' : 'Нажмите на место или точку, куда идти'}
+            <button type="button" className="map-banner-btn" onClick={() => setPicking(null)}>
               Отмена
             </button>
           </div>

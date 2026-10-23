@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEven
 import { Circle, Layer, Stage } from 'react-konva';
 import { Icon } from '../ui/icons.tsx';
 import { BasePlan, gridStyle, PanoDot, pinchView, PlacePin, RouteLine, UnitLabels, useElementSize } from './draw.tsx';
-import { FROM } from './style.ts';
+import { FROM, SELECTED } from './style.ts';
 import { fitBoundsInset, levelBounds, screenToWorld, worldToScreen, zoomAt, type Insets, type Viewport } from './viewport.ts';
 
 export interface PlanCanvasProps {
@@ -14,6 +14,8 @@ export interface PlanCanvasProps {
   selectedPlace?: string | null;
   activePanorama?: string | null;
   fromPoint?: Vec2 | null;
+  /** «Куда» — точка на плане, а не место. */
+  toPoint?: Vec2 | null;
   /** Категория в фильтре — остальные места приглушены. */
   category?: string | null;
   /** Панели поверх карты — «показать всё» вписывает план в свободную часть. */
@@ -32,7 +34,7 @@ const PLACE_HIT = 22;
 const PANO_HIT = 16;
 
 export function PlanCanvas(props: PlanCanvasProps) {
-  const { doc, level, route, selectedPlace, activePanorama, fromPoint, category, insets, fitKey = 0, focus } = props;
+  const { doc, level, route, selectedPlace, activePanorama, fromPoint, toPoint, category, insets, fitKey = 0, focus } = props;
   const wrapRef = useRef<HTMLDivElement>(null);
   const size = useElementSize(wrapRef);
   const [view, setView] = useState<Viewport>({ scale: 20, x: 0, y: 0 });
@@ -177,6 +179,16 @@ export function PlanCanvas(props: PlanCanvasProps) {
                     <>
                       <Circle x={x} y={y} radius={16} fill={FROM} opacity={0.18} />
                       <Circle x={x} y={y} radius={8} fill={FROM} stroke="#FFFFFF" strokeWidth={3} />
+                    </>
+                  );
+                })()}
+              {toPoint &&
+                (() => {
+                  const [x, y] = s(toPoint);
+                  return (
+                    <>
+                      <Circle x={x} y={y} radius={16} fill={SELECTED} opacity={0.2} />
+                      <Circle x={x} y={y} radius={8} fill={SELECTED} stroke="#FFFFFF" strokeWidth={3} />
                     </>
                   );
                 })()}
