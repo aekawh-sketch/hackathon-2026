@@ -1,6 +1,6 @@
 // Общая отрисовка плана для карты посетителя и редактора (один код — ТЗ 4.1).
 // Фигуры рисуются в экранных координатах: толщина линий и размер значков не зависят от зума.
-import type { MapDocument, Vec2 } from '@space-map/map-core';
+import { doorLeaves, doorStyleOf, type DoorLeaf, type MapDocument, type Vec2 } from '@space-map/map-core';
 import { useEffect, useState, type CSSProperties, type RefObject } from 'react';
 import { Circle, Group, Line, Path, Text } from 'react-konva';
 import { categoryIconPath, ICON_PATHS } from '../ui/icons.tsx';
@@ -11,6 +11,7 @@ import {
   OBSTACLE_FILL,
   OBSTACLE_STROKE,
   PANORAMA,
+  PLAN_BG,
   ROUTE,
   ROUTE_CASING,
   SELECTED,
@@ -65,12 +66,14 @@ export interface BasePlanProps {
   selectedUnit?: string | null;
   hoverUnit?: string | null;
   selectedOpening?: string | null;
+  /** Выбранный вырез: `${unitId}#${номер}`. */
+  selectedHole?: string | null;
   /** Помещения, которые нельзя поставить (пересечение) — красная заливка. */
   invalidUnit?: string | null;
 }
 
 /** Полы, стены, проходы и препятствия. */
-export function BasePlan({ doc, level, view, selectedUnit, hoverUnit, selectedOpening, invalidUnit }: BasePlanProps) {
+export function BasePlan({ doc, level, view, selectedUnit, hoverUnit, selectedOpening, selectedHole, invalidUnit }: BasePlanProps) {
   const units = doc.units.filter((u) => u.level === level);
   const flat = (pts: Vec2[]) => flatPoints(view, pts);
   const doorWidth = WALL_WIDTH + 3;
@@ -88,6 +91,25 @@ export function BasePlan({ doc, level, view, selectedUnit, hoverUnit, selectedOp
           perfectDrawEnabled={false}
         />
       ))}
+      {/* Вырезы: внутри — не помещение (колонна, шахта, перегородка), вокруг — стены */}
+      {units.flatMap((u) =>
+        (u.holes ?? []).map((h, i) => {
+          const key = `${u.id}#${i}`;
+          const selected = key === selectedHole;
+          return (
+            <Line
+              key={`hole-${key}`}
+              points={flat(h)}
+              closed
+              fill={selected ? 'rgba(47,91,234,0.12)' : PLAN_BG}
+              stroke={selected ? ROUTE : WALL}
+              strokeWidth={selected ? WALL_WIDTH + 1 : WALL_WIDTH}
+              lineJoin="miter"
+              perfectDrawEnabled={false}
+            />
+          );
+        }),
+      )}
       {doc.obstacles
         .filter((o) => o.level === level)
         .map((o) => (
@@ -110,6 +132,11 @@ export function BasePlan({ doc, level, view, selectedUnit, hoverUnit, selectedOp
                   <Line points={[b[0] - n[0], b[1] - n[1], b[0] + n[0], b[1] + n[1]]} stroke={WALL} strokeWidth={2} lineCap="round" />
                 </>
               )}
+              {/* Створки, как на архитектурном плане: полотно и дуга открывания */}
+              {(() => {
+                const style = doorStyleOf(doc, o);
+                return style ? doorLeaves(o, style).map((leaf, i) => <DoorLeafShape key={i} leaf={leaf} view={view} />) : null;
+              })()}
               {selected && <Line points={[...a, ...b]} stroke={SELECTED} strokeWidth={doorWidth + 4} opacity={0.55} lineCap="round" />}
             </Group>
           );
@@ -133,6 +160,29 @@ export function BasePlan({ doc, level, view, selectedUnit, hoverUnit, selectedOp
 }
 
 /** Названия помещений — в левом верхнем углу, как на архитектурном плане: центр остаётся местам. */
+/** Створка двери: полотно от петли и тонкая дуга, по которой оно открывается. */
+function DoorLeafShape({ leaf, view }: { leaf: DoorLeaf; view: Viewport }) {
+  const [hx, hy] = worldToScreen(view, leaf.hinge);
+  const [tx, ty] = worldToScreen(view, leaf.openTip);
+  // Дуга от закрытого положения к открытому: точки по окружности вокруг петли.
+  const start = Math.atan2(leaf.closedTip[1] - leaf.hinge[1], leaf.closedTip[0] - leaf.hinge[0]);
+  let sweep = leaf.angle - start;
+  if (sweep > Math.PI) sweep -= 2 * Math.PI;
+  if (sweep < -Math.PI) sweep += 2 * Math.PI;
+  const steps = Math.max(2, Math.ceil(Math.abs(sweep) / 0.12));
+  const arc: number[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = start + (sweep * i) / steps;
+    arc.push(...worldToScreen(view, [leaf.hinge[0] + Math.cos(t) * leaf.length, leaf.hinge[1] + Math.sin(t) * leaf.length]));
+  }
+  return (
+    <>
+      {Math.abs(sweep) > 0.02 && <Line points={arc} stroke={WALL} strokeWidth={1} opacity={0.55} dash={[3, 3]} listening={false} />}
+      <Line points={[hx, hy, tx, ty]} stroke={WALL} strokeWidth={2.2} lineCap="round" listening={false} />
+    </>
+  );
+}
+
 export function UnitLabels({ doc, level, view, extra }: { doc: MapDocument; level: string; view: Viewport; extra?: (unitId: string) => string | null }) {
   if (view.scale < 12) return null;
   return (

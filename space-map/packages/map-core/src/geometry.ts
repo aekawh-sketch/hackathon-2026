@@ -68,16 +68,35 @@ export function polygonArea(polygon: Vec2[]): number {
   return Math.abs(sum) / 2;
 }
 
+/** Площадь со знаком: > 0 — обход против часовой стрелки. */
+export function signedArea(polygon: Vec2[]): number {
+  let sum = 0;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    sum += polygon[j]![0] * polygon[i]![1] - polygon[i]![0] * polygon[j]![1];
+  }
+  return sum / 2;
+}
+
 export function polygonEdges(polygon: Vec2[]): [Vec2, Vec2][] {
   return polygon.map((p, i) => [p, polygon[(i + 1) % polygon.length]!] as [Vec2, Vec2]);
 }
 
-/** Отрезок ab не пересекает стен этажа: границы помещений — стены, кроме мест, где стоит проход. */
+/** Контуры помещения: внешний и вырезы. Все они — стены. */
+export function unitRings(unit: { polygon: Vec2[]; holes?: Vec2[][] }): Vec2[][] {
+  return unit.holes?.length ? [unit.polygon, ...unit.holes] : [unit.polygon];
+}
+
+/** Точка внутри помещения и не в вырезе. */
+export function pointInUnit(p: Vec2, unit: { polygon: Vec2[]; holes?: Vec2[][] }): boolean {
+  return pointInPolygon(p, unit.polygon) && !(unit.holes ?? []).some((h) => pointInPolygon(p, h));
+}
+
+/** Отрезок ab не пересекает стен этажа: границы помещений и вырезов — стены, кроме мест, где стоит проход. */
 export function hasLineOfSight(doc: MapDocument, level: string, a: Vec2, b: Vec2, doorTolerance = 0.05): boolean {
   const openings = doc.openings.filter((o) => o.level === level);
   for (const unit of doc.units) {
     if (unit.level !== level) continue;
-    for (const [c, d] of polygonEdges(unit.polygon)) {
+    for (const [c, d] of unitRings(unit).flatMap(polygonEdges)) {
       const hit = segmentIntersection(a, b, c, d);
       if (!hit) continue;
       // Касание концами отрезка (точка стоит на стене) стеной не считаем.
@@ -90,5 +109,5 @@ export function hasLineOfSight(doc: MapDocument, level: string, a: Vec2, b: Vec2
 }
 
 export function unitAt(doc: MapDocument, level: string, p: Vec2) {
-  return doc.units.find((u) => u.level === level && pointInPolygon(p, u.polygon)) ?? null;
+  return doc.units.find((u) => u.level === level && pointInUnit(p, u)) ?? null;
 }

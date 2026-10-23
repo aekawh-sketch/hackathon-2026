@@ -1,5 +1,5 @@
 // 3D-модель этажа из плана — ТЗ 5.18. Стены «выдавливаются» из границ помещений, в проходах — проёмы.
-import { pointSegmentDistance } from './geometry.ts';
+import { pointSegmentDistance, unitRings } from './geometry.ts';
 import type { MapDocument, Vec2 } from './types.ts';
 
 export interface WallSegment {
@@ -10,7 +10,7 @@ export interface WallSegment {
 
 export interface Model3D {
   walls: WallSegment[];
-  floors: { unit: string; polygon: Vec2[]; kind: string }[];
+  floors: { unit: string; polygon: Vec2[]; holes: Vec2[][]; kind: string }[];
   blocks: { id: string; polygon: Vec2[]; height: number }[];
 }
 
@@ -33,9 +33,9 @@ export function buildModel3D(doc: MapDocument, level: string, options: Model3DOp
   const lines = new Map<string, { origin: Vec2; dir: Vec2; intervals: [number, number][] }>();
   for (const unit of doc.units) {
     if (unit.level !== level) continue;
-    for (let i = 0; i < unit.polygon.length; i++) {
-      const a = unit.polygon[i]!;
-      const b = unit.polygon[(i + 1) % unit.polygon.length]!;
+    for (const ring of unitRings(unit)) for (let i = 0; i < ring.length; i++) {
+      const a = ring[i]!;
+      const b = ring[(i + 1) % ring.length]!;
       const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
       if (len < 1e-6) continue;
       let dir: Vec2 = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
@@ -75,7 +75,7 @@ export function buildModel3D(doc: MapDocument, level: string, options: Model3DOp
 
   return {
     walls,
-    floors: doc.units.filter((u) => u.level === level).map((u) => ({ unit: u.id, polygon: u.polygon, kind: u.kind })),
+    floors: doc.units.filter((u) => u.level === level).map((u) => ({ unit: u.id, polygon: u.polygon, holes: u.holes ?? [], kind: u.kind })),
     blocks: doc.obstacles.filter((o) => o.level === level).map((o) => ({ id: o.id, polygon: o.polygon, height: obstacleHeight })),
   };
 }

@@ -53,6 +53,8 @@ export interface Unit {
   name: string;
   walkable: boolean;
   polygon: Vec2[];
+  /** Вырезы внутри помещения: колонна, шахта, атриум; узкий вырез — перегородка. Вокруг — стены, пройти нельзя. */
+  holes?: Vec2[][];
 }
 
 export interface Obstacle {
@@ -68,6 +70,20 @@ export interface Opening {
   kind: 'door' | 'passage' | 'entrance';
   segment: [Vec2, Vec2];
   units: [string, string] | [string];
+  /** Створки двери. Нет — значения по умолчанию (`doorStyleOf`); у проёма без двери не используется. */
+  door?: DoorStyle;
+}
+
+/** Как устроена и нарисована дверь: на плане — полотно и дуга открывания, в 3D — полотно под углом. */
+export interface DoorStyle {
+  /** 1 — обычная дверь, 2 — двустворчатая. */
+  leaves: 1 | 2;
+  /** Куда открывается: 1 — влево от направления segment[0] → segment[1], −1 — вправо. */
+  swing: 1 | -1;
+  /** Петли одностворчатой двери: у segment[0] или у segment[1]. */
+  hinge: 'start' | 'end';
+  /** Насколько открыта: 0 — закрыта, 90 — распахнута. Градусы. */
+  openAngle: number;
 }
 
 export interface NavNode {

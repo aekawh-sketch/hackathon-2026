@@ -16,7 +16,7 @@ import {
 } from '@space-map/map-core';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { loadPublishedMap, panoramaUrls, type LoadedMap } from '../api.ts';
+import { hasOrganizerSession, loadPublishedMap, panoramaUrls, type LoadedMap } from '../api.ts';
 import type { PanoMarker } from '../panorama/PanoramaViewer.tsx';
 import { PlanCanvas } from '../plan/PlanCanvas.tsx';
 import { ErrorBoundary } from '../ui/ErrorBoundary.tsx';
@@ -298,11 +298,20 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
     </div>
   );
 
-  const editLink = offlineDemo ? (
-    <Link to="/app/editor" className="icon-btn" aria-label="Редактор площадки" title="Редактор площадки">
+  // Вход в кабинет с карты. Вошедший организатор сразу попадает в редактор этой площадки
+  // (чужую площадку редактор не откроет — проверка владения на сервере), остальные — на вход в кабинет.
+  // Карта, встроенная в чужой сайт, кнопку не показывает.
+  const embedded = window.self !== window.top;
+  const edit = offlineDemo
+    ? { to: '/app/editor', label: 'Редактировать план' }
+    : hasOrganizerSession()
+      ? { to: `/app/venues/${doc.venue.id}`, label: 'Редактировать план' }
+      : { to: '/app', label: 'Кабинет организатора' };
+  const editLink = embedded ? null : (
+    <Link to={edit.to} className="icon-btn" aria-label={edit.label} title={edit.label}>
       <Icon name="edit" size={19} />
     </Link>
-  ) : null;
+  );
 
   let content;
   if (routeVisible) {

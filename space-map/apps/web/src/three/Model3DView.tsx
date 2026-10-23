@@ -1,6 +1,6 @@
 // 3D-вид этажа (ТЗ 5.18): модель строится из плана, без внешних файлов, и выгружается в glTF (.glb).
 // Оформление «макет на столе»: светлые стены с тёмным срезом, мягкие тени, подписи помещений и значки мест.
-import { buildModel3D, type MapDocument, type Vec2 } from '@space-map/map-core';
+import { buildModel3D, doorLeaves, doorStyleOf, type MapDocument, type Vec2 } from '@space-map/map-core';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -37,6 +37,8 @@ export function buildScene(doc: MapDocument, level: string): THREE.Group {
   floors.name = 'floors';
   for (const floor of model.floors) {
     const shape = new THREE.Shape(floor.polygon.map((p) => new THREE.Vector2(p[0], p[1])));
+    // Вырез — дыра и в полу: колонна или шахта не покрыта полом помещения.
+    for (const hole of floor.holes) shape.holes.push(new THREE.Path(hole.map((p) => new THREE.Vector2(p[0], p[1]))));
     const color = UNIT_FLOOR_3D[floor.kind as keyof typeof UNIT_FLOOR_3D] ?? '#EDF1F7';
     const mesh = new THREE.Mesh(
       new THREE.ExtrudeGeometry(shape, { depth: 0.06, bevelEnabled: false }),
@@ -84,6 +86,34 @@ export function buildScene(doc: MapDocument, level: string): THREE.Group {
     lintels.add(mesh);
   }
   root.add(lintels);
+
+  // Полотна дверей: повёрнуты на угол открывания вокруг петли (ТЗ 5.18, настройки створок — doorStyleOf).
+  const doors = new THREE.Group();
+  doors.name = 'doors';
+  const leafMaterial = new THREE.MeshStandardMaterial({ color: '#D9C2A3', roughness: 0.65 });
+  const handleMaterial = new THREE.MeshStandardMaterial({ color: '#5B6475', roughness: 0.3, metalness: 0.6 });
+  for (const o of doc.openings) {
+    if (o.level !== level) continue;
+    const style = doorStyleOf(doc, o);
+    if (!style) continue;
+    for (const [i, leaf] of doorLeaves(o, style).entries()) {
+      const width = Math.max(leaf.length - 0.02, 0.05);
+      // Шарнир в петле: группа повёрнута как створка на плане, полотно сдвинуто вдоль неё.
+      const hinge = new THREE.Group();
+      hinge.position.copy(v3(leaf.hinge, 0.06));
+      hinge.rotation.y = leaf.angle;
+      const panel = new THREE.Mesh(new THREE.BoxGeometry(width, DOOR_HEIGHT - 0.08, 0.045), leafMaterial);
+      panel.position.set(width / 2 + 0.01, (DOOR_HEIGHT - 0.08) / 2, 0);
+      panel.castShadow = true;
+      panel.receiveShadow = true;
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.03, 0.1), handleMaterial);
+      handle.position.set(width - 0.1, 1.0, 0);
+      hinge.add(panel, handle);
+      hinge.name = `door:${o.id}:${i}`;
+      doors.add(hinge);
+    }
+  }
+  root.add(doors);
 
   // Вход — зелёная полоса на полу.
   for (const o of doc.openings) {

@@ -8,3 +8,4 @@ build/
 target/
 *.log
 space-map/tools/.cache/
+space-map/services/api/data/

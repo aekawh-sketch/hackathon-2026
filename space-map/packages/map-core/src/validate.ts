@@ -26,6 +26,7 @@ export function validateReferences(doc: MapDocument): Issue[] {
   doc.units.forEach((u, i) => {
     need(levels.has(u.level), `units[${i}].level`, `нет этажа ${u.level}`);
     need(u.polygon.length >= 3, `units[${i}].polygon`, 'меньше трёх вершин');
+    u.holes?.forEach((h, j) => need(h.length >= 3, `units[${i}].holes[${j}]`, 'меньше трёх вершин'));
   });
   doc.obstacles.forEach((o, i) => need(levels.has(o.level), `obstacles[${i}].level`, `нет этажа ${o.level}`));
   doc.openings.forEach((o, i) => {

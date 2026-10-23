@@ -43,7 +43,7 @@ space-map/
   docs/                  STATUS (что готово), DECISIONS (решения при реализации)
   packages/map-core/     TS без UI: типы карты, геометрия, граф, подсказки меток, прогулка, валидация, поиск, 3D-модель
   apps/web/              React-приложение: /m/:slug — посетитель, /app/* — кабинет (пока заглушка)
-  services/api/          пусто — следующий шаг
+  services/api/          Fastify + Drizzle + PostgreSQL: вход, площадки, черновик с ревизией, публикация, панорамы, серии кадров
   services/worker/       пусто — воркер склейки на Hugin
   infra/                 пусто — docker-compose, nginx
   tools/                 fetch-demo-panoramas.sh
@@ -56,8 +56,13 @@ cd space-map
 npm install
 npm test            # map-core (22 теста) + web (4 теста)
 npm run typecheck
-npm run dev:web     # http://localhost:5173/m/demo ; QR-якорь: /m/demo?a=ENTRANCE
+npm run dev:web     # http://localhost:5173/m/demo ; QR-якорь: /m/demo?a=ENTRANCE ; кабинет — /app
 npx -w apps/web vite build
+
+# бэкенд (базы spacemap и spacemap_test, services/api/.env по образцу .env.example)
+npm run seed -w services/api   # миграции + демо-организатор + опубликованная площадка demo
+npm run dev:api                # :8080, OpenAPI — /api/docs; Vite проксирует /api, /p, /files
+npm test -w services/api       # 12 тестов на базе spacemap_test
 ```
 
 Локально: Node 22, Python 3.13, PostgreSQL 16 (Homebrew, запущен), Docker Desktop. Hugin на Mac не установлен — только в контейнере воркера.

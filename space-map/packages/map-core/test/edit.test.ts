@@ -9,6 +9,7 @@ import {
   movePlace,
   NavGraph,
   overlappingUnits,
+  placeDoor,
   polygonsOverlap,
   rebuildGraph,
   rectPolygon,
@@ -64,17 +65,20 @@ describe('граф из плана', () => {
 });
 
 describe('создание помещения', () => {
-  it('новая комната у коридора получает дверь и попадает в маршруты', () => {
+  it('новая комната без двери не попадает в маршруты; дверь ставится вручную', () => {
     const base = rebuildGraph(demoVenue(), L);
     // Справа от коридора: 30–34 × 4–8.
     const { doc, id } = createRoom(base, L, rectPolygon([30, 4], [34, 8]), { name: 'Кладовая' });
     expect(doc.units.find((u) => u.id === id)?.name).toBe('Кладовая');
-    const door = doc.openings.find((o) => o.units.includes(id as never));
-    expect(door).toBeDefined();
-    expect(door!.units).toContain('u-corridor');
+    expect(doc.openings.some((o) => o.units.includes(id as never))).toBe(false);
     const { doc: withPlace, id: place } = addPlace(doc, L, [32, 6], 'room', 'Склад');
-    expect(routeLength(withPlace, 'p-entrance', place).ok).toBe(true);
-    expect(validateReferences(withPlace)).toEqual([]);
+    expect(routeLength(withPlace, 'p-entrance', place).ok).toBe(false);
+
+    const door = placeDoor(withPlace, id, 'u-corridor')!;
+    const withDoor = rebuildGraph(door.doc, L);
+    expect(withDoor.openings.find((o) => o.id === door.id)!.units).toContain('u-corridor');
+    expect(routeLength(withDoor, 'p-entrance', place).ok).toBe(true);
+    expect(validateReferences(withDoor)).toEqual([]);
   });
 
   it('пересечение с существующими помещениями находится', () => {
@@ -84,24 +88,27 @@ describe('создание помещения', () => {
 });
 
 describe('сдвиг и форма', () => {
-  it('сдвиг уносит места внутри, оторванная дверь заменяется новой', () => {
+  it('сдвиг уносит места внутри; оторванная дверь пропадает, новую ставят вручную', () => {
     const base = rebuildGraph(demoVenue(), L);
     const { doc: withRoom, id } = createRoom(base, L, rectPolygon([30, 4], [34, 8]));
-    const placed = addPlace(withRoom, L, [32, 6], 'room', 'Склад');
+    const withDoor = rebuildGraph(placeDoor(withRoom, id, 'u-corridor')!.doc, L);
+    const placed = addPlace(withDoor, L, [32, 6], 'room', 'Склад');
     // Вниз на 4 м: 30–34 × 0–4 — коридор уже не рядом, зато граничит с выставочным залом.
     const moved = translateUnit(placed.doc, id, [0, -4]);
     const place = moved.places.find((p) => p.id === placed.id)!;
     expect(place.pos).toEqual([32, 2]);
-    const doors = moved.openings.filter((o) => o.units.includes(id as never));
-    expect(doors).toHaveLength(1);
-    expect(doors[0]!.units).toContain('u-c');
-    expect(routeLength(moved, 'p-entrance', placed.id).ok).toBe(true);
-    expect(validateReferences(moved)).toEqual([]);
+    expect(moved.openings.some((o) => o.units.includes(id as never))).toBe(false);
+    expect(routeLength(moved, 'p-entrance', placed.id).ok).toBe(false);
+    const reconnected = rebuildGraph(placeDoor(moved, id, 'u-c')!.doc, L);
+    expect(routeLength(reconnected, 'p-entrance', placed.id).ok).toBe(true);
+    expect(validateReferences(reconnected)).toEqual([]);
   });
 
   it('изменение размера сохраняет дверь на общей стене', () => {
     const base = rebuildGraph(demoVenue(), L);
-    const { doc, id } = createRoom(base, L, rectPolygon([30, 4], [34, 8]));
+    const created = createRoom(base, L, rectPolygon([30, 4], [34, 8]));
+    const id = created.id;
+    const doc = placeDoor(created.doc, id, 'u-corridor')!.doc;
     const resized = resizeRect(doc, id, 6, 5);
     const unit = resized.units.find((u) => u.id === id)!;
     expect(unit.polygon).toContainEqual([36, 9]);

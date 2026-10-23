@@ -1,10 +1,21 @@
 // Холст редактора: выбор, перетаскивание помещений и мест, вершины, рисование комнат, двери.
 // Жесты свои (Pointer Events), Konva только рисует: одинаково работает мышью, пером и пальцем.
 import {
-  addDoor,
+  addHole,
   addPlace,
   createRoom,
+  holeAt,
+  moveHole,
+  placeEntrance,
+  pointInUnit,
+  splitUnit,
+  dragOpeningEdge,
   GRID,
+  openingSpan,
+  placeDoor,
+  rebuildGraph,
+  slideOpening,
+  type DoorPreset,
   isAxisRect,
   movePlace,
   overlappingUnits,
@@ -23,14 +34,20 @@ import {
   type Vec2,
 } from '@space-map/map-core';
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
-import { Layer, Line, Rect, Stage, Text } from 'react-konva';
+import { Circle, Layer, Line, Rect, Stage, Text } from 'react-konva';
 import { BasePlan, flatPoints, gridStyle, PanoDot, pinchView, PlacePin, UnitLabels, useElementSize } from '../plan/draw.tsx';
 import { ROUTE } from '../plan/style.ts';
 import { fitBoundsInset, levelBounds, screenToWorld, worldToScreen, zoomAt, type Insets, type Viewport } from '../plan/viewport.ts';
 import { Icon } from '../ui/icons.tsx';
 
-export type Tool = 'select' | 'room' | 'place' | 'door';
-export type Selection = { kind: 'unit' | 'place' | 'opening'; id: string } | null;
+export type Tool = 'select' | 'room' | 'place' | 'door' | 'split' | 'hole';
+/** Вырез выбирается как `{ kind: 'hole', id: '<unitId>#<номер>' }`. */
+export type Selection = { kind: 'unit' | 'place' | 'opening' | 'hole'; id: string } | null;
+
+export function holeRef(id: string): { unitId: string; index: number } {
+  const at = id.lastIndexOf('#');
+  return { unitId: id.slice(0, at), index: Number(id.slice(at + 1)) };
+}
 
 export interface EditorCanvasProps {
   doc: MapDocument;
@@ -39,6 +56,8 @@ export interface EditorCanvasProps {
   selection: Selection;
   showGraph: boolean;
   placeCategory: string;
+  /** Настройки новой двери: тип и насколько открыта. */
+  doorPreset: DoorPreset;
   insets: Insets;
   fitKey: number;
   onSelect: (s: Selection) => void;
@@ -53,12 +72,31 @@ type Drag =
   | { kind: 'unit'; id: string; start: Vec2 }
   | { kind: 'vertex'; id: string; index: number; original: Vec2[] }
   | { kind: 'place'; id: string; start: Vec2; origin: Vec2 }
-  | { kind: 'draw'; start: Vec2 };
+  | { kind: 'draw'; start: Vec2 }
+  | { kind: 'doorEdge'; id: string; edge: 0 | 1 }
+  | { kind: 'doorSlide'; id: string; start: Vec2 }
+  | { kind: 'cut'; start: Vec2 }
+  | { kind: 'holeDraw'; start: Vec2; unitId: string }
+  | { kind: 'holeMove'; unitId: string; index: number; start: Vec2 };
 
 interface Preview {
   doc?: MapDocument;
   invalidUnit?: string | null;
   draft?: { polygon: Vec2[]; invalid: boolean } | null;
+  /** Разрез: проведённая линия, продлённая до стен (chord), и почему нельзя. */
+  cut?: { line: [Vec2, Vec2]; chord: [Vec2, Vec2] | null; message: string | null; unitId: string | null } | null;
+}
+
+/** Шаг привязки для разрезов и вырезов: мельче сетки комнат — колонна бывает 0,4 м. */
+const FINE = 0.1;
+
+/** Почти горизонтальная или вертикальная линия выравнивается по оси — так режут планы. */
+function axisSnap(a: Vec2, b: Vec2): Vec2 {
+  const dx = Math.abs(b[0] - a[0]);
+  const dy = Math.abs(b[1] - a[1]);
+  if (dx < dy * 0.25) return [a[0], b[1]];
+  if (dy < dx * 0.25) return [b[0], a[1]];
+  return b;
 }
 
 const TAP = 7;
@@ -116,6 +154,17 @@ export function EditorCanvas(props: EditorCanvasProps) {
     const tol = 10 / view.scale;
     return doc.openings.find((o) => o.level === level && pointSegmentDistance(w, o.segment[0], o.segment[1]) <= tol);
   };
+  /** Ручка на краю выбранной двери: 0 — segment[0], 1 — segment[1]. */
+  const selectedOpening = selection?.kind === 'opening' ? doc.openings.find((o) => o.id === selection.id) : undefined;
+  const hitDoorEdge = (s: Vec2): 0 | 1 | -1 => {
+    if (!selectedOpening) return -1;
+    for (const edge of [0, 1] as const) {
+      const q = toScreen(selectedOpening.segment[edge]);
+      if (Math.hypot(q[0] - s[0], q[1] - s[1]) <= handleR + 6) return edge;
+    }
+    return -1;
+  };
+  const hitHole = (s: Vec2) => holeAt(doc, level, toWorld(s));
   const hitUnit = (s: Vec2) => {
     const w = toWorld(s);
     const hits = doc.units.filter((u) => u.level === level && pointInPolygon(w, u.polygon));
@@ -157,6 +206,45 @@ export function EditorCanvas(props: EditorCanvasProps) {
     } else if (d.kind === 'place') {
       const p = snapPoint([d.origin[0] + w[0] - d.start[0], d.origin[1] + w[1] - d.start[1]], GRID / 2);
       updatePreview(`p:${p}`, () => ({ doc: movePlace(doc, d.id, p) }));
+    } else if (d.kind === 'doorEdge') {
+      // Тянем край: дверь растягивается или сужается вдоль своей стены, другой край на месте.
+      const next = dragOpeningEdge(doc, d.id, d.edge, w);
+      const o = next.openings.find((x) => x.id === d.id)!;
+      updatePreview(`de:${o.segment}`, () => ({ doc: next }));
+    } else if (d.kind === 'doorSlide') {
+      const span = openingSpan(doc, d.id);
+      if (!span) return;
+      const [a, b] = span.wall;
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const delta = ((w[0] - d.start[0]) * (b[0] - a[0]) + (w[1] - d.start[1]) * (b[1] - a[1])) / len;
+      const next = slideOpening(doc, d.id, delta);
+      const o = next.openings.find((x) => x.id === d.id)!;
+      updatePreview(`ds:${o.segment}`, () => ({ doc: next }));
+    } else if (d.kind === 'cut') {
+      const end = axisSnap(d.start, snapPoint(w, FINE));
+      updatePreview(`c:${end}`, () => {
+        const line: [Vec2, Vec2] = [d.start, end];
+        const mid: Vec2 = [(d.start[0] + end[0]) / 2, (d.start[1] + end[1]) / 2];
+        const unit = unitAt(doc, level, mid) ?? unitAt(doc, level, d.start);
+        if (!unit) return { cut: { line, chord: null, message: 'Начните внутри комнаты', unitId: null } };
+        const r = splitUnit(doc, unit.id, d.start, end);
+        if (!r.ok) return { cut: { line, chord: null, message: r.message, unitId: unit.id } };
+        return { doc: r.doc, cut: { line, chord: r.chord ?? null, message: null, unitId: unit.id } };
+      });
+    } else if (d.kind === 'holeDraw') {
+      const p = snapPoint(w, FINE);
+      const polygon = rectPolygon(d.start, p);
+      updatePreview(`h:${p}`, () => {
+        const r = addHole(doc, d.unitId, polygon);
+        return r.ok ? { doc: r.doc, draft: { polygon, invalid: false } } : { draft: { polygon, invalid: true } };
+      });
+    } else if (d.kind === 'holeMove') {
+      const delta: Vec2 = [snap(w[0] - d.start[0], FINE), snap(w[1] - d.start[1], FINE)];
+      updatePreview(`hm:${delta}`, () => {
+        if (delta[0] === 0 && delta[1] === 0) return null;
+        const r = moveHole(doc, d.unitId, d.index, delta);
+        return r.ok ? { doc: r.doc } : { invalidUnit: d.unitId };
+      });
     } else if (d.kind === 'draw') {
       const p = snapPoint(w);
       const polygon = rectPolygon(d.start, p);
@@ -173,6 +261,32 @@ export function EditorCanvas(props: EditorCanvasProps) {
     const p = preview;
     clearPreview();
     if (!moved) return tapAt(d, s, w);
+    if (d.kind === 'cut') {
+      const cut = p?.cut;
+      if (!cut || !p?.doc) return props.onToast(cut?.message ?? 'Проведите линию поперёк комнаты — от стены до стены');
+      const added = p.doc.units.find((u) => !doc.units.some((x) => x.id === u.id));
+      props.onCommit(p.doc, cut.unitId ? { kind: 'unit', id: cut.unitId } : null);
+      props.onToast(`Комната разделена${added ? `: «${added.name}»` : ''}. Дверь между частями поставьте инструментом «Дверь»`);
+      return props.onToolDone();
+    }
+    if (d.kind === 'holeDraw') {
+      const draft = p?.draft;
+      if (!draft) return;
+      const r = addHole(doc, d.unitId, draft.polygon);
+      if (!r.ok) return props.onToast(r.message);
+      props.onCommit(r.doc, { kind: 'hole', id: `${d.unitId}#${r.index}` });
+      props.onToast('Вырез готов. Узкий вырез работает как перегородка');
+      return props.onToolDone();
+    }
+    if (d.kind === 'holeMove') {
+      if (!p?.doc) return p?.invalidUnit ? props.onToast('Вырез должен остаться внутри комнаты — вернул на место') : undefined;
+      return props.onCommit(p.doc, { kind: 'hole', id: `${d.unitId}#${d.index}` });
+    }
+    if (d.kind === 'doorEdge' || d.kind === 'doorSlide') {
+      if (!p?.doc) return;
+      // Середина двери сдвинулась — узлы маршрута у двери тоже.
+      return props.onCommit(rebuildGraph(p.doc, level), { kind: 'opening', id: d.id });
+    }
     if (d.kind === 'unit' || d.kind === 'vertex') {
       if (!p?.doc) return;
       if (p.invalidUnit) return props.onToast('Помещения не должны пересекаться — вернул на место');
@@ -196,6 +310,8 @@ export function EditorCanvas(props: EditorCanvasProps) {
 
   const tapAt = (d: Drag, s: Vec2, w: Vec2) => {
     if (tool === 'room') return props.onToast('Проведите пальцем или мышью, чтобы нарисовать комнату');
+    if (tool === 'split') return props.onToast('Проведите линию поперёк комнаты — от стены до стены');
+    if (tool === 'hole') return props.onToast('Протяните прямоугольник внутри комнаты');
     if (tool === 'place') {
       const unit = unitAt(doc, level, w);
       if (!unit || !unit.walkable) return props.onToast('Нажмите внутри помещения');
@@ -215,15 +331,28 @@ export function EditorCanvas(props: EditorCanvasProps) {
           const b = near[j]!;
           const walls = sharedWalls(a.polygon, b.polygon).filter(([p, q]) => pointSegmentDistance(w, p, q) < tol);
           if (walls.length === 0) continue;
-          const next = addDoor(doc, a.id, b.id, w);
-          if (next === doc) continue;
-          const door = next.openings[next.openings.length - 1]!;
-          props.onCommit(next, { kind: 'opening', id: door.id });
-          return props.onToast(`Дверь: ${a.name} ↔ ${b.name}`);
+          // Дверь встаёт по центру свободного куска стены, с настройками из панели «Новая дверь».
+          const placed = placeDoor(doc, a.id, b.id, w, props.doorPreset);
+          if (!placed) return props.onToast('На этой стене нет места для двери');
+          props.onCommit(rebuildGraph(placed.doc, level), { kind: 'opening', id: placed.id });
+          return props.onToast(`${props.doorPreset.type === 'passage' ? 'Проём' : 'Дверь'} по центру стены: ${a.name} ↔ ${b.name}. Края можно тянуть`);
         }
       }
-      return props.onToast('Нажмите на общую стену двух помещений');
+      // Стена одного помещения — наружная: дверь станет входом с улицы.
+      const outer = near.sort(
+        (x, y) =>
+          Math.min(...x.polygon.map((_, i) => pointSegmentDistance(w, x.polygon[i]!, x.polygon[(i + 1) % x.polygon.length]!))) -
+          Math.min(...y.polygon.map((_, i) => pointSegmentDistance(w, y.polygon[i]!, y.polygon[(i + 1) % y.polygon.length]!))),
+      )[0];
+      if (outer) {
+        const placed = placeEntrance(doc, outer.id, w, props.doorPreset);
+        if (!placed) return props.onToast('На этой стене нет места для входа');
+        props.onCommit(rebuildGraph(placed.doc, level), { kind: 'opening', id: placed.id });
+        return props.onToast(`Вход с улицы в «${outer.name}» — по центру наружной стены`);
+      }
+      return props.onToast('Нажмите на стену помещения');
     }
+    if (d.kind === 'holeMove') return props.onSelect({ kind: 'hole', id: `${d.unitId}#${d.index}` });
     if (d.kind === 'place') return props.onSelect({ kind: 'place', id: d.id });
     const opening = hitOpening(s);
     if (opening) return props.onSelect({ kind: 'opening', id: opening.id });
@@ -246,14 +375,23 @@ export function EditorCanvas(props: EditorCanvasProps) {
     const w = toWorld(s);
     let mode: Drag = { kind: 'pan' };
     if (tool === 'room') mode = { kind: 'draw', start: snapPoint(w) };
-    else if (tool === 'select') {
+    else if (tool === 'split') mode = { kind: 'cut', start: snapPoint(w, FINE) };
+    else if (tool === 'hole') {
+      const unit = doc.units.find((u) => u.level === level && pointInUnit(w, u));
+      if (unit) mode = { kind: 'holeDraw', start: snapPoint(w, FINE), unitId: unit.id };
+    } else if (tool === 'select') {
       const v = hitVertex(s);
+      const edge = hitDoorEdge(s);
       const place = hitPlace(s);
       const opening = hitOpening(s);
       const unit = hitUnit(s);
+      const hole = hitHole(s);
       if (v >= 0 && selectedUnit) mode = { kind: 'vertex', id: selectedUnit.id, index: v, original: selectedUnit.polygon };
+      else if (edge >= 0 && selectedOpening) mode = { kind: 'doorEdge', id: selectedOpening.id, edge: edge as 0 | 1 };
       else if (place) mode = { kind: 'place', id: place.id, start: w, origin: place.pos };
+      else if (opening && opening.id === selectedOpening?.id) mode = { kind: 'doorSlide', id: opening.id, start: w };
       else if (opening) mode = { kind: 'tap' };
+      else if (hole) mode = { kind: 'holeMove', unitId: hole.unit.id, index: hole.index, start: w };
       else if (unit) mode = { kind: 'unit', id: unit.id, start: w };
     }
     drag.current = { mode, startScreen: s, moved: false, pointerId: e.pointerId };
@@ -348,6 +486,7 @@ export function EditorCanvas(props: EditorCanvasProps) {
                 selectedUnit={selection?.kind === 'unit' ? selection.id : null}
                 hoverUnit={tool === 'select' ? hover : null}
                 selectedOpening={selection?.kind === 'opening' ? selection.id : null}
+                selectedHole={selection?.kind === 'hole' ? selection.id : null}
                 invalidUnit={preview?.invalidUnit ?? null}
               />
               <UnitLabels doc={shown} level={level} view={view} extra={dims} />
@@ -358,6 +497,24 @@ export function EditorCanvas(props: EditorCanvasProps) {
                   if (!a || !b || a.level !== level) return null;
                   return <Line key={e.id} points={flatPoints(view, [a.pos, b.pos])} stroke={ROUTE} strokeWidth={1.2} opacity={0.45} dash={[4, 4]} />;
                 })}
+              {preview?.cut && (
+                <>
+                  <Line
+                    points={flatPoints(view, preview.cut.chord ?? preview.cut.line)}
+                    stroke={preview.cut.message ? '#E5484D' : ROUTE}
+                    strokeWidth={3}
+                    dash={[10, 6]}
+                    lineCap="round"
+                  />
+                  {preview.cut.message &&
+                    (() => {
+                      const [x, y] = toScreen(preview.cut.line[1]);
+                      return (
+                        <Text x={x - 110} y={y + 12} width={220} align="center" text={preview.cut.message} fontSize={13} fontStyle="600" fill="#B42318" stroke="#FFFFFF" strokeWidth={3} fillAfterStrokeEnabled />
+                      );
+                    })()}
+                </>
+              )}
               {preview?.draft && (
                 <>
                   <Line
@@ -437,6 +594,37 @@ export function EditorCanvas(props: EditorCanvasProps) {
                     />
                   );
                 })}
+              {tool === 'select' &&
+                selectedOpening &&
+                (() => {
+                  // Ручки на краях выбранной двери и её ширина — меняется прямо во время растягивания.
+                  const o = shown.openings.find((x) => x.id === selectedOpening.id);
+                  if (!o) return null;
+                  const [a, b] = o.segment.map(toScreen) as [Vec2, Vec2];
+                  const width = Math.hypot(o.segment[1][0] - o.segment[0][0], o.segment[1][1] - o.segment[0][1]);
+                  const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+                  const off: Vec2 = [((b[1] - a[1]) / len) * 22, (-(b[0] - a[0]) / len) * 22];
+                  return (
+                    <>
+                      {[a, b].map(([x, y], i) => (
+                        <Circle key={i} x={x} y={y} radius={handleR} fill="#FFFFFF" stroke={ROUTE} strokeWidth={2.5} shadowColor="#0E1726" shadowBlur={4} shadowOpacity={0.2} />
+                      ))}
+                      <Text
+                        x={(a[0] + b[0]) / 2 + off[0] - 40}
+                        y={(a[1] + b[1]) / 2 + off[1] - 8}
+                        width={80}
+                        align="center"
+                        text={`${fmt(width)} м`}
+                        fontSize={13}
+                        fontStyle="600"
+                        fill="#1E46C7"
+                        stroke="#FFFFFF"
+                        strokeWidth={3}
+                        fillAfterStrokeEnabled
+                      />
+                    </>
+                  );
+                })()}
             </Layer>
           </Stage>
         )}

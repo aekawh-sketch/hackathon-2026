@@ -1,16 +1,19 @@
-// Редактор демо-площадки: помещения, места и двери. Пока нет сервера — сохраняет в браузер,
-// и карта посетителя `/m/demo` в этом же браузере сразу показывает изменения.
-import { deleteOpening, deletePlace, deleteUnit, rebuildGraph, refreshPanoramaMarkers, translateUnit, overlappingUnits, validateReferences, type MapDocument } from '@space-map/map-core';
+// Редактор площадки: помещения, места и двери.
+// Площадка организатора хранится на сервере (автосохранение с ревизией, ТЗ 7.2);
+// демо без сервера (`/app/editor`) — в браузере, и `/m/demo` в этом же браузере видит изменения, если API недоступен.
+import { DEFAULT_DOOR_PRESET, deleteHole, deleteOpening, deletePlace, deleteUnit, rebuildGraph, refreshPanoramaMarkers, translateUnit, overlappingUnits, validateReferences, type DoorPreset, type MapDocument } from '@space-map/map-core';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Link } from 'react-router';
-import { builtInDemo } from '../api.ts';
+import { Link, useParams } from 'react-router';
+import { ApiError, builtInDemo, venuesApi, type VenueSummary } from '../api.ts';
 import { clearEditedDemo, loadEditedDemo, saveEditedDemo } from '../demoStore.ts';
+import { PublishDialog } from '../organizer/PublishDialog.tsx';
 import { ErrorBoundary } from '../ui/ErrorBoundary.tsx';
 import { Icon, type IconName } from '../ui/icons.tsx';
 import { Sheet, useMediaQuery, type SheetMode } from '../ui/Sheet.tsx';
-import { EditorCanvas, type Selection, type Tool } from './EditorCanvas.tsx';
+import { EditorCanvas, holeRef, type Selection, type Tool } from './EditorCanvas.tsx';
 import { Inspector } from './Inspector.tsx';
 import { useHistory } from './useHistory.ts';
+import { useServerSave, type SaveStatus } from './useServerSave.ts';
 
 const Model3DView = lazy(() => import('../three/Model3DView.tsx'));
 
@@ -19,21 +22,95 @@ const TOOLS: { id: Tool; icon: IconName; label: string; key: string }[] = [
   { id: 'room', icon: 'square', label: 'Комната', key: 'R' },
   { id: 'place', icon: 'pin', label: 'Место', key: 'P' },
   { id: 'door', icon: 'doorAdd', label: 'Дверь', key: 'D' },
+  { id: 'split', icon: 'split', label: 'Разделить', key: 'S' },
+  { id: 'hole', icon: 'hole', label: 'Вырез', key: 'H' },
 ];
 
 const TOOL_HINT: Record<Tool, string> = {
   select: 'Нажмите на помещение, место или дверь. Тяните, чтобы сдвинуть.',
   room: 'Протяните прямоугольник на свободном месте плана',
   place: 'Нажмите внутри помещения, чтобы поставить место',
-  door: 'Нажмите на общую стену двух помещений',
+  door: 'Нажмите на стену: общая стена — дверь между помещениями, наружная — вход с улицы',
+  split: 'Проведите линию поперёк комнаты — она станет двумя. Дверь между ними поставьте сами',
+  hole: 'Протяните прямоугольник внутри комнаты: колонна, шахта или перегородка',
 };
 
+/** Демо без сервера: правки живут в этом браузере. */
 export default function EditorPage() {
+  return <Editor initial={() => loadEditedDemo() ?? builtInDemo()} />;
+}
+
+/** Площадка организатора: черновик с сервера, автосохранение с ревизией. */
+export function ServerEditorPage() {
+  const { id = '' } = useParams();
+  const [state, setState] = useState<{ venue: VenueSummary; doc: MapDocument; revision: number } | { error: string } | null>(null);
+
+  useEffect(() => {
+    setState(null);
+    Promise.all([venuesApi.get(id), venuesApi.draft(id)])
+      .then(([venue, draft]) => setState({ venue, doc: draft.doc, revision: draft.revision }))
+      .catch((err) => setState({ error: err instanceof ApiError ? err.message : 'Не удалось открыть площадку' }));
+  }, [id]);
+
+  if (!state) {
+    return (
+      <div className="screen-message">
+        <div className="loader" aria-label="Загрузка площадки" />
+      </div>
+    );
+  }
+  if ('error' in state) {
+    return (
+      <div className="screen-message">
+        <div>
+          <p>{state.error}</p>
+          <Link to="/app" className="btn btn-secondary">
+            К моим площадкам
+          </Link>
+        </div>
+      </div>
+    );
+  }
+  return <Editor key={id} initial={() => state.doc} server={{ venue: state.venue, revision: state.revision }} />;
+}
+
+function saveStatusText(s: SaveStatus): ReactNode {
+  switch (s.kind) {
+    case 'pending':
+    case 'saving':
+      return 'Сохраняем…';
+    case 'saved':
+      return (
+        <>
+          <Icon name="check" size={13} /> {s.publishedVersion !== null ? 'Сохранено и опубликовано' : 'Сохранено'}
+        </>
+      );
+    case 'error':
+      return s.message;
+    case 'conflict':
+      return 'Карту изменили в другом окне';
+    default:
+      return null;
+  }
+}
+
+interface EditorProps {
+  initial: () => MapDocument;
+  /** Есть — площадка на сервере; нет — демо в браузере. */
+  server?: { venue: VenueSummary; revision: number };
+}
+
+function Editor({ initial, server }: EditorProps) {
   const desktop = useMediaQuery('(min-width: 900px)');
-  const history = useHistory<MapDocument>(() => loadEditedDemo() ?? builtInDemo());
+  const history = useHistory<MapDocument>(initial);
   const { doc } = history;
+  const [venue, setVenue] = useState<VenueSummary | null>(server?.venue ?? null);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const remote = useServerSave(server?.venue.id ?? null, server?.revision ?? 0, doc);
   const level = doc.levels[0]?.id ?? 'L1';
   const [tool, setTool] = useState<Tool>('select');
+  // Настройки новой двери: тип и насколько открыта — применяются в момент постановки.
+  const [doorPreset, setDoorPreset] = useState<DoorPreset>(DEFAULT_DOOR_PRESET);
   const [selection, setSelection] = useState<Selection>(null);
   const [view, setView] = useState<'plan' | '3d'>('plan');
   const [showGraph, setShowGraph] = useState(false);
@@ -54,8 +131,9 @@ export default function EditorPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Автосохранение в браузер после каждой правки (и после отмены).
+  // Демо: автосохранение в браузер после каждой правки (и после отмены). Площадку сохраняет useServerSave.
   useEffect(() => {
+    if (server) return;
     if (firstSave.current) {
       firstSave.current = false;
       return;
@@ -85,7 +163,12 @@ export default function EditorPage() {
         ? doc.units.some((u) => u.id === selection.id)
         : selection.kind === 'place'
           ? doc.places.some((p) => p.id === selection.id)
-          : doc.openings.some((o) => o.id === selection.id);
+          : selection.kind === 'hole'
+            ? (() => {
+                const { unitId, index } = holeRef(selection.id);
+                return !!doc.units.find((u) => u.id === unitId)?.holes?.[index];
+              })()
+            : doc.openings.some((o) => o.id === selection.id);
     if (!exists) setSelection(null);
   }, [doc, selection]);
 
@@ -119,7 +202,9 @@ export default function EditorPage() {
         const next =
           selection.kind === 'unit'
             ? deleteUnit(doc, selection.id)
-            : selection.kind === 'place'
+            : selection.kind === 'hole'
+              ? deleteHole(doc, holeRef(selection.id).unitId, holeRef(selection.id).index)
+              : selection.kind === 'place'
               ? rebuildGraph(deletePlace(doc, selection.id), level)
               : rebuildGraph(deleteOpening(doc, selection.id), level);
         commit(next, null);
@@ -156,7 +241,7 @@ export default function EditorPage() {
       const issues = next?.schema === 2 ? validateReferences(next) : [{ path: '', message: 'не карта' }];
       if (issues.length > 0) return showToast('Файл не похож на карту площадки');
       history.reset(next);
-      setSaved(saveEditedDemo(next) ? 'saved' : 'error');
+      if (!server) setSaved(saveEditedDemo(next) ? 'saved' : 'error');
       setSelection(null);
       setFitKey((k) => k + 1);
       showToast('Карта загружена из файла');
@@ -203,8 +288,25 @@ export default function EditorPage() {
     { icon: 'layers', label: 'Сетка маршрутов', onClick: () => setShowGraph((g) => !g), pressed: showGraph },
     { icon: 'download', label: 'Скачать карту (JSON)', onClick: download },
     { icon: 'external', label: 'Загрузить карту из файла', onClick: () => fileRef.current?.click() },
-    { icon: 'reset', label: 'Сбросить демо', onClick: () => setConfirmReset(true), danger: true },
+    ...(server
+      ? [{ icon: 'external' as IconName, label: venue?.publishedVersion !== null ? 'Ссылка и код для сайта' : 'Опубликовать', onClick: () => setPublishOpen(true) }]
+      : [{ icon: 'reset' as IconName, label: 'Сбросить демо', onClick: () => setConfirmReset(true), danger: true }]),
   ];
+
+  const visitorUrl = venue ? `/m/${venue.slug}` : '/m/demo';
+
+  const resolveConflict = async (keep: 'mine' | 'theirs') => {
+    try {
+      const theirs = await remote.resolveConflict(keep);
+      if (theirs) {
+        history.reset(theirs);
+        setSelection(null);
+        showToast('Загружена версия из другого окна');
+      }
+    } catch {
+      showToast('Нет связи с сервером — попробуйте ещё раз');
+    }
+  };
 
   return (
     <div className={`editor ${desktop ? 'is-desktop' : 'is-mobile'}`}>
@@ -217,6 +319,7 @@ export default function EditorPage() {
             selection={selection}
             showGraph={showGraph}
             placeCategory={doc.categories.find((c) => c.id === 'room')?.id ?? doc.categories[0]?.id ?? ''}
+            doorPreset={doorPreset}
             insets={insets}
             fitKey={fitKey}
             onSelect={select}
@@ -238,13 +341,20 @@ export default function EditorPage() {
       </main>
 
       <header className="editor-top">
-        <Link to="/m/demo" className="icon-btn" aria-label="К карте посетителя" title="К карте посетителя">
+        <Link
+          to={server ? '/app' : '/m/demo'}
+          className="icon-btn"
+          aria-label={server ? 'К моим площадкам' : 'К карте посетителя'}
+          title={server ? 'К моим площадкам' : 'К карте посетителя'}
+        >
           <Icon name="back" />
         </Link>
         <div className="editor-title">
-          <strong>{desktop ? 'Редактор площадки' : 'Редактор'}</strong>
-          <small>
-            {saved === 'saved' ? (
+          <strong>{server ? (venue?.name ?? doc.venue.name) : desktop ? 'Редактор площадки' : 'Редактор'}</strong>
+          <small className={server && (remote.status.kind === 'error' || remote.status.kind === 'conflict') ? 'save-problem' : undefined}>
+            {server ? (
+              (saveStatusText(remote.status) ?? (venue?.publishedVersion !== null ? `Опубликована · /m/${venue?.slug}` : 'Черновик — ещё не опубликована'))
+            ) : saved === 'saved' ? (
               <>
                 <Icon name="check" size={13} /> Сохранено в браузере
               </>
@@ -280,7 +390,18 @@ export default function EditorPage() {
                 <Icon name={m.icon} />
               </button>
             ))}
-          {desktop ? (
+          {desktop && server ? (
+            <>
+              {venue?.publishedVersion !== null && (
+                <a href={visitorUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">
+                  <Icon name="eye" size={18} /> Карта посетителя
+                </a>
+              )}
+              <button type="button" className="btn btn-primary" onClick={() => setPublishOpen(true)}>
+                <Icon name="external" size={18} /> {venue?.publishedVersion !== null ? 'Ссылка и код' : 'Опубликовать'}
+              </button>
+            </>
+          ) : desktop ? (
             <>
               <button type="button" className="btn btn-ghost" onClick={() => setConfirmReset(true)}>
                 Сбросить
@@ -327,12 +448,12 @@ export default function EditorPage() {
         <>
           <div className="tool-rail">{toolbar}</div>
           <aside className="inspector" aria-label="Свойства">
-            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} />
+            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} />
           </aside>
         </>
       ) : (
         <Sheet mode={sheetMode} onModeChange={setSheetMode} desktop={false} peekHeight={118} topGap={64} onHeight={setSheetHeight} label="Инструменты и свойства" header={toolbar}>
-          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} />
+          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} />
         </Sheet>
       )}
 
@@ -352,6 +473,32 @@ export default function EditorPage() {
         <div key={toast.id} className="toast" role="status" style={!desktop ? { bottom: sheetHeight + 16 } : undefined}>
           {toast.text}
         </div>
+      )}
+
+      {publishOpen && venue && (
+        <PublishDialog
+          venue={venue}
+          onClose={() => setPublishOpen(false)}
+          onPublished={setVenue}
+        />
+      )}
+
+      {remote.status.kind === 'conflict' && (
+        <Modal onClose={() => {}}>
+          <h2>Карту изменили в другом окне</h2>
+          <p>
+            {remote.status.updatedBy ? `${remote.status.updatedBy} сохранил(а) свою версию.` : 'Кто-то сохранил свою версию.'} Ваши последние
+            правки пока не сохранены. Чью версию оставить?
+          </p>
+          <div className="row end">
+            <button type="button" className="btn btn-ghost" onClick={() => void resolveConflict('theirs')}>
+              Взять версию из другого окна
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => void resolveConflict('mine')}>
+              Оставить мою
+            </button>
+          </div>
+        </Modal>
       )}
 
       {confirmReset && (
@@ -387,7 +534,7 @@ function Modal({ children, onClose }: { children: ReactNode; onClose: () => void
   );
 }
 
-/** Горячие клавиши работают и в русской раскладке: м → V, к → R, з → P, в → D. */
+/** Горячие клавиши работают и в русской раскладке: м → V, к → R, з → P, в → D, ы → S, р → H. */
 function layoutKey(key: string): string | undefined {
-  return ({ м: 'V', к: 'R', з: 'P', в: 'D' } as Record<string, string>)[key.toLowerCase()];
+  return ({ м: 'V', к: 'R', з: 'P', в: 'D', ы: 'S', р: 'H' } as Record<string, string>)[key.toLowerCase()];
 }

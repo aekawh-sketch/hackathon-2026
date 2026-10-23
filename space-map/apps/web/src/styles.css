@@ -1703,3 +1703,279 @@ button.insp-row:hover {
     transition: none !important;
   }
 }
+
+/* ── Кабинет организатора: вход, площадки, публикация ── */
+
+.auth-page {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: 16px;
+}
+
+.auth-card {
+  width: min(400px, 100%);
+  padding: 24px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.auth-tabs {
+  display: flex;
+  margin: 18px 0 14px;
+}
+
+.auth-tabs button {
+  flex: 1;
+}
+
+.auth-submit {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.auth-foot {
+  margin: 14px 0 0;
+  text-align: center;
+}
+
+.org-page {
+  min-height: 100dvh;
+}
+
+.org-top {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  padding-top: max(12px, env(safe-area-inset-top));
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.org-main {
+  width: min(880px, 100%);
+  margin: 0 auto;
+  padding: 20px 16px 40px;
+}
+
+.org-create {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.org-create .field {
+  flex: 1;
+  margin: 0;
+}
+
+.org-empty,
+.org-foot {
+  margin-top: 18px;
+  text-align: center;
+}
+
+.venue-list {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.venue-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.venue-card-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.venue-card-main strong {
+  font-size: 16px;
+}
+
+.venue-card-main small {
+  flex-basis: 100%;
+}
+
+.venue-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pill.pill-ok {
+  background: #e7f7ee;
+  color: #0b7a3c;
+}
+
+.publish-modal {
+  width: min(520px, 100%);
+}
+
+.copy-row {
+  display: flex;
+  gap: 8px;
+}
+
+.copy-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.publish-modal textarea {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12.5px;
+  resize: vertical;
+}
+
+.save-problem {
+  color: var(--danger);
+}
+
+@media (max-width: 600px) {
+  .org-create {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .venue-card-actions .btn {
+    flex: 1;
+  }
+}
+
+/* ── Двери: выбор вариантов и рисунок створок ── */
+
+.insp-seg {
+  display: flex;
+  width: 100%;
+}
+
+.insp-seg button {
+  flex: 1;
+  min-width: 0;
+  padding-inline: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.insp-wide {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.door-glyph {
+  display: block;
+  width: 100%;
+  max-width: 260px;
+  height: auto;
+  margin: 0 auto 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.dg-wall {
+  stroke: #1f2a3d;
+  stroke-width: 5;
+  stroke-linecap: butt;
+}
+
+.dg-jamb {
+  stroke: #1f2a3d;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.dg-leaf {
+  stroke: #1f2a3d;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.dg-arc {
+  fill: none;
+  stroke: #1f2a3d;
+  stroke-width: 1.2;
+  stroke-dasharray: 4 4;
+  opacity: 0.6;
+}
+
+.dg-label {
+  fill: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ── Вход одной кнопкой ── */
+
+.auth-guest {
+  width: 100%;
+  margin-top: 18px;
+}
+
+.auth-guest-hint {
+  margin: 8px 0 0;
+  text-align: center;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 2px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.auth-divider + .auth-tabs {
+  margin-top: 12px;
+}
+
+.guest-note {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  font-size: 14px;
+}
+
+.swatch.hole-swatch {
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  color: #1f2a3d;
+  border: 2px solid #1f2a3d;
+}

@@ -1,7 +1,7 @@
 // Правка плана в редакторе: помещения (создать, сдвинуть, изменить форму, удалить), места, двери и граф.
 // Все функции чистые: принимают документ и возвращают новый — так работают «Отменить / Повторить».
 import { acceptSuggestions } from './panorama.ts';
-import { distance, hasLineOfSight, pointInPolygon, pointSegmentDistance, polygonArea, polygonEdges, segmentIntersection } from './geometry.ts';
+import { distance, hasLineOfSight, pointInPolygon, pointInUnit, pointSegmentDistance, polygonArea, polygonEdges, segmentIntersection, signedArea, unitRings } from './geometry.ts';
 import type { MapDocument, NavEdge, NavNode, Opening, Place, Unit, UnitKind, Vec2 } from './types.ts';
 
 /** Шаг сетки редактора, метры. */
@@ -226,7 +226,7 @@ export interface CreateRoomOptions {
   kind?: UnitKind;
 }
 
-/** Новое помещение. Возвращает документ и ID; дверь и граф достраиваются сами. */
+/** Новое помещение. Возвращает документ и ID; граф достраивается сам, дверь организатор ставит вручную. */
 export function createRoom(doc: MapDocument, level: string, polygon: Vec2[], options: CreateRoomOptions = {}): { doc: MapDocument; id: string } {
   const id = newId(doc, 'u');
   const kind = options.kind ?? 'room';
@@ -239,23 +239,21 @@ export function createRoom(doc: MapDocument, level: string, polygon: Vec2[], opt
     walkable: kind !== 'service',
     polygon: polygon.map(round2v),
   };
-  let next: MapDocument = { ...doc, units: [...doc.units, unit] };
-  next = autoConnect(next, id);
-  return { doc: rebuildGraph(next, level), id };
+  return { doc: rebuildGraph({ ...doc, units: [...doc.units, unit] }, level), id };
 }
 
 export function updateUnit(doc: MapDocument, id: string, patch: Partial<Pick<Unit, 'name' | 'kind' | 'walkable'>>): MapDocument {
   let next: MapDocument = { ...doc, units: doc.units.map((u) => (u.id === id ? { ...u, ...patch } : u)) };
   if (patch.walkable !== undefined || patch.kind !== undefined) {
     const unit = next.units.find((u) => u.id === id);
-    if (unit) next = rebuildGraph(autoConnect(next, id), unit.level);
+    if (unit) next = rebuildGraph(next, unit.level);
   }
   return next;
 }
 
 /**
- * Сдвиг помещения вместе со всем, что внутри: места, препятствия, панорамы, QR-якоря и его двери.
- * Двери, оторвавшиеся от соседей, исчезают; если комната осталась без входа — дверь ставится заново.
+ * Сдвиг помещения вместе со всем, что внутри: вырезы, места, препятствия, панорамы, QR-якоря и его двери.
+ * Двери, оторвавшиеся от соседей, исчезают — новую организатор ставит сам.
  */
 export function translateUnit(doc: MapDocument, id: string, delta: Vec2): MapDocument {
   const unit = doc.units.find((u) => u.id === id);
@@ -268,7 +266,7 @@ export function translateUnit(doc: MapDocument, id: string, delta: Vec2): MapDoc
   const before = new Set(doc.openings.map((o) => o.id));
   const moved: MapDocument = {
     ...doc,
-    units: doc.units.map((u) => (u.id === id ? { ...u, polygon: u.polygon.map(move) } : u)),
+    units: doc.units.map((u) => (u.id === id ? { ...u, polygon: u.polygon.map(move), ...(u.holes ? { holes: u.holes.map((h) => h.map(move)) } : {}) } : u)),
     places: doc.places.map((p) => (same(p.level) && inside(p.pos) ? { ...p, pos: move(p.pos), polygon: p.polygon?.map(move) ?? null } : p)),
     obstacles: doc.obstacles.map((o) => (same(o.level) && inside(centroid(o.polygon)) ? { ...o, polygon: o.polygon.map(move) } : o)),
     panoramas: doc.panoramas.map((pa) => (same(pa.level) && inside(pa.pos) ? { ...pa, pos: move(pa.pos) } : pa)),
@@ -278,12 +276,17 @@ export function translateUnit(doc: MapDocument, id: string, delta: Vec2): MapDoc
   return afterGeometryChange(moved, unit.level, id, before);
 }
 
-/** Новая форма помещения (перетаскивание вершин, ширина и глубина в инспекторе). */
+/** Новая форма помещения (перетаскивание вершин, ширина и глубина в инспекторе). Вырезы, оставшиеся снаружи, пропадают. */
 export function setUnitPolygon(doc: MapDocument, id: string, polygon: Vec2[]): MapDocument {
   const unit = doc.units.find((u) => u.id === id);
   if (!unit || polygon.length < 3 || polygonArea(polygon) < 0.5) return doc;
   const before = new Set(doc.openings.map((o) => o.id));
-  const next: MapDocument = { ...doc, units: doc.units.map((u) => (u.id === id ? { ...u, polygon: polygon.map(round2v) } : u)) };
+  const shape = polygon.map(round2v);
+  const holes = unit.holes?.filter((h) => h.every((p) => strictlyInside(p, shape)));
+  const next: MapDocument = {
+    ...doc,
+    units: doc.units.map((u) => (u.id === id ? { ...u, polygon: shape, ...(holes ? { holes } : {}) } : u)),
+  };
   return afterGeometryChange(next, unit.level, id, before);
 }
 
@@ -295,13 +298,9 @@ export function resizeRect(doc: MapDocument, id: string, width: number, depth: n
   return setUnitPolygon(doc, id, rectPolygon([b.minX, b.minY], [b.minX + width, b.minY + depth]));
 }
 
-function afterGeometryChange(doc: MapDocument, level: string, changed: string, openingsBefore: Set<string>): MapDocument {
-  let next = reconcileOpenings(doc);
-  // Помещения, потерявшие дверь, и само изменённое — подключаем заново.
-  const lost = doc.openings.filter((o) => openingsBefore.has(o.id) && !next.openings.some((n) => n.id === o.id));
-  const touched = new Set<string>([changed, ...lost.flatMap((o) => [...o.units])]);
-  for (const id of touched) next = autoConnect(next, id);
-  return rebuildGraph(next, level);
+/** После изменения формы: двери, ушедшие со своей стены, превращаются в стену; граф — заново. Новых дверей сами не ставим. */
+function afterGeometryChange(doc: MapDocument, level: string, _changed: string, _openingsBefore: Set<string>): MapDocument {
+  return rebuildGraph(reconcileOpenings(doc), level);
 }
 
 /** Удалить помещение с дверями и всем, что внутри. */
@@ -310,10 +309,9 @@ export function deleteUnit(doc: MapDocument, id: string): MapDocument {
   if (!unit) return doc;
   const inside = (p: Vec2) => pointInPolygon(p, unit.polygon);
   const same = (lvl: string) => lvl === unit.level;
-  const goneOpenings = doc.openings.filter((o) => hasUnit(o, id));
   const gonePlaces = new Set(doc.places.filter((p) => same(p.level) && inside(p.pos)).map((p) => p.id));
   const gonePanos = new Set(doc.panoramas.filter((p) => same(p.level) && inside(p.pos)).map((p) => p.id));
-  let next: MapDocument = {
+  const next: MapDocument = {
     ...doc,
     units: doc.units.filter((u) => u.id !== id),
     openings: doc.openings.filter((o) => !hasUnit(o, id)),
@@ -328,7 +326,6 @@ export function deleteUnit(doc: MapDocument, id: string): MapDocument {
         links: pa.links.filter((l) => !gonePanos.has(l.to)),
       })),
   };
-  for (const o of goneOpenings) for (const u of o.units) if (u !== id) next = autoConnect(next, u);
   return rebuildGraph(next, unit.level);
 }
 
@@ -400,7 +397,7 @@ export function rebuildGraph(doc: MapDocument, level: string): MapDocument {
   const keepIds = new Set(nodes.map((n) => n.id));
   const edges: NavEdge[] = doc.graph.edges.filter((e) => keepIds.has(e.from) && keepIds.has(e.to));
   const byUnit = new Map<string, NavNode[]>(units.map((u) => [u.id, []]));
-  const unitOf = (p: Vec2) => units.find((u) => pointInPolygon(p, u.polygon));
+  const unitOf = (p: Vec2) => units.find((u) => pointInUnit(p, u));
 
   let edgeNo = 0;
   const edgeId = () => `ae-${level}-${++edgeNo}`;
@@ -449,6 +446,16 @@ export function rebuildGraph(doc: MapDocument, level: string): MapDocument {
     return { ...pa, node: node.id };
   });
 
+  // Узлы у вогнутых углов комнаты и у углов вырезов: путь огибает колонну или угол Г-образной комнаты,
+  // а не обрывается, когда двери не видят друг друга.
+  for (const unit of units) {
+    cornerPoints(unit).forEach((pos, i) => {
+      const node: NavNode = { id: `an-corner-${unit.id}-${i}`, level, pos, origin: 'auto' };
+      nodes.push(node);
+      byUnit.get(unit.id)!.push(node);
+    });
+  }
+
   const next: MapDocument = { ...doc, places, panoramas, graph: { nodes, edges } };
   for (const unit of units) {
     const list = byUnit.get(unit.id)!;
@@ -456,7 +463,7 @@ export function rebuildGraph(doc: MapDocument, level: string): MapDocument {
       for (let j = i + 1; j < list.length; j++) {
         const a = list[i]!;
         const b = list[j]!;
-        if (pointInPolygon(midpoint([a.pos, b.pos]), unit.polygon) && hasLineOfSight(next, level, a.pos, b.pos)) link(a, b);
+        if (pointInUnit(midpoint([a.pos, b.pos]), unit) && hasLineOfSight(next, level, a.pos, b.pos)) link(a, b);
       }
     }
   }
@@ -470,6 +477,39 @@ export function refreshPanoramaMarkers(doc: MapDocument): MapDocument {
   // acceptSuggestions мог добавить новые переходы — оставляем только прежние.
   const links = new Map(doc.panoramas.map((pa) => [pa.id, pa.links]));
   return { ...next, panoramas: next.panoramas.map((pa) => ({ ...pa, links: links.get(pa.id) ?? pa.links })) };
+}
+
+const CORNER_OFFSET = 0.4;
+
+/**
+ * Точки обхода углов: у вогнутых вершин внешнего контура и у выпуклых вершин вырезов —
+ * сдвиг на CORNER_OFFSET внутрь проходимой части по биссектрисе угла.
+ */
+function cornerPoints(unit: Unit): Vec2[] {
+  const out: Vec2[] = [];
+  unitRings(unit).forEach((ring, ringIndex) => {
+    const orientation = Math.sign(signedArea(ring));
+    ring.forEach((v, i) => {
+      const prev = ring[(i - 1 + ring.length) % ring.length]!;
+      const next = ring[(i + 1) % ring.length]!;
+      const turn = (v[0] - prev[0]) * (next[1] - v[1]) - (v[1] - prev[1]) * (next[0] - v[0]);
+      // Внешний контур: нужен поворот против обхода (вогнутый угол); вырез: по обходу (колонна выпирает в комнату).
+      const needed = ringIndex === 0 ? turn * orientation < -EPS : turn * orientation > EPS;
+      if (!needed) return;
+      const a = unitVec(sub(prev, v));
+      const b = unitVec(sub(next, v));
+      const bis = unitVec(add(a, b));
+      if (Math.hypot(bis[0], bis[1]) < EPS) return;
+      const pos = round2v(add(v, scale(bis, -CORNER_OFFSET)));
+      if (pointInUnit(pos, unit)) out.push(pos);
+    });
+  });
+  return out;
+}
+
+function unitVec(a: Vec2): Vec2 {
+  const len = Math.hypot(a[0], a[1]);
+  return len < EPS ? [0, 0] : [a[0] / len, a[1] / len];
 }
 
 function hasUnit(o: Opening, unitId: string): boolean {

@@ -1,13 +1,28 @@
 // Свойства выбранного: помещение, место или дверь. Без выбора — сводка по площадке.
 import {
-  addDoor,
+  centerOpening,
+  deleteHole,
+  pointInUnit,
+  rectPolygon,
+  setHolePolygon,
   deleteOpening,
+  doorLeaves,
+  doorStyleOf,
+  doorTypeOf,
+  fillOpening,
+  openingSides,
+  placeDoor,
+  setDoorType,
+  setOpeningWidth,
+  updateDoorStyle,
+  type DoorPreset,
+  type DoorStyle,
+  type DoorType,
   deletePlace,
   deleteUnit,
   duplicateUnit,
   isAxisRect,
   neighbours,
-  pointInPolygon,
   polygonArea,
   polygonBounds,
   rebuildGraph,
@@ -25,7 +40,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { UNIT_FILL } from '../plan/style.ts';
 import { CategoryBadge, Icon } from '../ui/icons.tsx';
-import type { Selection } from './EditorCanvas.tsx';
+import { holeRef, type Selection, type Tool } from './EditorCanvas.tsx';
 
 export interface InspectorProps {
   doc: MapDocument;
@@ -34,10 +49,16 @@ export interface InspectorProps {
   onSelect: (s: Selection) => void;
   onCommit: (doc: MapDocument, select?: Selection) => void;
   onToast: (message: string) => void;
+  tool: Tool;
+  /** Настройки новой двери — показываются, пока выбран инструмент «Дверь». */
+  doorPreset: DoorPreset;
+  onDoorPreset: (p: DoorPreset) => void;
+  onExitTool: () => void;
 }
 
 export function Inspector(props: InspectorProps) {
   const { doc, selection } = props;
+  if (!selection && props.tool === 'door') return <DoorPresetPanel {...props} />;
   if (selection?.kind === 'unit') {
     const unit = doc.units.find((u) => u.id === selection.id);
     if (unit) return <UnitPanel {...props} unit={unit} />;
@@ -45,6 +66,11 @@ export function Inspector(props: InspectorProps) {
   if (selection?.kind === 'place') {
     const place = doc.places.find((p) => p.id === selection.id);
     if (place) return <PlacePanel {...props} place={place} />;
+  }
+  if (selection?.kind === 'hole') {
+    const ref = holeRef(selection.id);
+    const unit = doc.units.find((u) => u.id === ref.unitId);
+    if (unit?.holes?.[ref.index]) return <HolePanel {...props} unit={unit} index={ref.index} />;
   }
   if (selection?.kind === 'opening') {
     const opening = doc.openings.find((o) => o.id === selection.id);
@@ -113,7 +139,7 @@ function UnitPanel({ doc, unit, onSelect, onCommit, onToast }: InspectorProps & 
   const doors = doc.openings.filter((o) => (o.units as readonly string[]).includes(unit.id));
   const connected = new Set(doors.flatMap((o) => [...o.units]));
   const near = neighbours(doc, unit.id);
-  const inside = doc.places.filter((p) => p.level === unit.level && pointInPolygon(p.pos, unit.polygon));
+  const inside = doc.places.filter((p) => p.level === unit.level && pointInUnit(p.pos, unit));
   const name = (id: string) => doc.units.find((u) => u.id === id)?.name ?? '—';
 
   return (
@@ -165,6 +191,26 @@ function UnitPanel({ doc, unit, onSelect, onCommit, onToast }: InspectorProps & 
           Площадь <b>{fmt(polygonArea(unit.polygon))} м²</b>
           {rect ? ' · левый нижний угол на месте' : ' · форму меняйте ручками на плане'}
         </p>
+        {(unit.holes?.length ?? 0) > 0 && (
+          <ul className="insp-list">
+            {unit.holes!.map((h, i) => {
+              const hb = polygonBounds(h);
+              return (
+                <li key={i}>
+                  <button type="button" className="insp-row" onClick={() => onSelect({ kind: 'hole', id: `${unit.id}#${i}` })}>
+                    <Icon name="hole" size={18} />
+                    <span className="insp-row-text">
+                      <strong>Вырез {i + 1}</strong>
+                      <small>
+                        {fmt(hb.maxX - hb.minX)} × {fmt(hb.maxY - hb.minY)} м
+                      </small>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </Section>
       <Section title="Двери и проходы">
         {doors.length === 0 && <p className="insp-note warn">Нет ни одной двери — сюда не построится маршрут.</p>}
@@ -200,9 +246,10 @@ function UnitPanel({ doc, unit, onSelect, onCommit, onToast }: InspectorProps & 
                   type="button"
                   className="chip"
                   onClick={() => {
-                    const next = addDoor(doc, unit.id, n.id);
-                    onCommit(rebuildGraph(next, unit.level), { kind: 'unit', id: unit.id });
-                    onToast(`Дверь в «${n.name}» добавлена`);
+                    const placed = placeDoor(doc, unit.id, n.id);
+                    if (!placed) return onToast('На общей стене нет места для двери');
+                    onCommit(rebuildGraph(placed.doc, unit.level), { kind: 'unit', id: unit.id });
+                    onToast(`Дверь в «${n.name}» добавлена по центру стены`);
                   }}
                 >
                   <Icon name="plus" size={14} /> {n.name}
@@ -302,30 +349,133 @@ function PlacePanel({ doc, place, onSelect, onCommit, onToast }: InspectorProps 
   );
 }
 
-// ── Дверь ──
+// ── Вырез ──
 
-function OpeningPanel({ doc, opening, onSelect, onCommit }: InspectorProps & { opening: Opening }) {
-  const names = opening.units.map((id) => doc.units.find((u) => u.id === id)?.name ?? '—');
-  const len = Math.hypot(opening.segment[1][0] - opening.segment[0][0], opening.segment[1][1] - opening.segment[0][1]);
+function HolePanel({ doc, unit, index, onSelect, onCommit, onToast }: InspectorProps & { unit: Unit; index: number }) {
+  const hole = unit.holes![index]!;
+  const b = polygonBounds(hole);
+  const select = { kind: 'hole' as const, id: `${unit.id}#${index}` };
+  const resize = (w: number, h: number) => {
+    const r = setHolePolygon(doc, unit.id, index, rectPolygon([b.minX, b.minY], [b.minX + w, b.minY + h]));
+    if (r.ok) onCommit(r.doc, select);
+    else onToast(r.message);
+  };
   return (
     <div className="insp">
-      <PanelHead icon={<span className="swatch lg door"><Icon name="doorAdd" size={18} /></span>} kicker={opening.kind === 'entrance' ? 'Вход' : 'Проход'} title={names.join(' ↔ ')} onClose={() => onSelect(null)} />
-      <Section>
-        {opening.kind !== 'entrance' && (
-          <label className="field">
-            <span>Вид</span>
-            <select
-              value={opening.kind}
-              onChange={(e) =>
-                onCommit({ ...doc, openings: doc.openings.map((o) => (o.id === opening.id ? { ...o, kind: e.target.value as Opening['kind'] } : o)) }, { kind: 'opening', id: opening.id })
-              }
-            >
-              <option value="door">Дверь</option>
-              <option value="passage">Проход без двери</option>
-            </select>
-          </label>
+      <PanelHead icon={<span className="swatch lg hole-swatch"><Icon name="hole" size={18} /></span>} kicker="Вырез" title={`в «${unit.name}»`} onClose={() => onSelect({ kind: 'unit', id: unit.id })} />
+      <Section title="Размер">
+        {isAxisRect(hole) && (
+          <div className="field-row">
+            <NumberField label="Ширина, м" value={b.maxX - b.minX} step={0.1} onCommit={(w) => resize(w, b.maxY - b.minY)} />
+            <NumberField label="Глубина, м" value={b.maxY - b.minY} step={0.1} onCommit={(h) => resize(b.maxX - b.minX, h)} />
+          </div>
         )}
-        <p className="insp-note">Ширина {fmt(len)} м</p>
+        <p className="insp-note">
+          Внутри выреза нет помещения: пройти нельзя, место не поставить, маршрут обходит его. Узкий вырез (10–20 см) работает как
+          перегородка. Тяните вырез на плане, чтобы сдвинуть.
+        </p>
+      </Section>
+      <div className="insp-actions">
+        <button type="button" className="btn btn-danger" onClick={() => onCommit(deleteHole(doc, unit.id, index), { kind: 'unit', id: unit.id })}>
+          <Icon name="trash" size={18} /> Убрать вырез
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Дверь ──
+
+const DOOR_TYPES: { value: DoorType; label: string }[] = [
+  { value: 'single', label: 'Дверь' },
+  { value: 'double', label: 'Двустворчатая' },
+  { value: 'passage', label: 'Проём' },
+];
+
+const DOOR_ANGLES: { value: number; label: string }[] = [
+  { value: 90, label: 'Открыта' },
+  { value: 45, label: 'Приоткрыта' },
+  { value: 0, label: 'Закрыта' },
+];
+
+const nearestAngle = (deg: number) => DOOR_ANGLES.reduce((a, b) => (Math.abs(b.value - deg) < Math.abs(a.value - deg) ? b : a)).value;
+
+/** Настройки новой двери: пока выбран инструмент «Дверь», каждая новая дверь ставится такой. */
+function DoorPresetPanel({ doorPreset, onDoorPreset, onExitTool }: InspectorProps) {
+  const style: DoorStyle | null =
+    doorPreset.type === 'passage' ? null : { leaves: doorPreset.type === 'double' ? 2 : 1, swing: 1, hinge: 'start', openAngle: doorPreset.openAngle };
+  return (
+    <div className="insp">
+      <PanelHead icon={<span className="swatch lg door"><Icon name="doorAdd" size={18} /></span>} kicker="Инструмент «Дверь»" title="Новая дверь" onClose={onExitTool} />
+      <Section>
+        <DoorGlyph style={style} width={doorPreset.type === 'double' ? 1.6 : doorPreset.type === 'passage' ? 1.2 : 0.9} />
+        <Choice label="Тип" value={doorPreset.type} options={DOOR_TYPES} onChange={(type) => onDoorPreset({ ...doorPreset, type })} />
+        {doorPreset.type !== 'passage' && (
+          <Choice label="Створка" value={doorPreset.openAngle} options={DOOR_ANGLES} onChange={(openAngle) => onDoorPreset({ ...doorPreset, openAngle })} />
+        )}
+        <p className="insp-note">
+          Нажмите на общую стену двух помещений — дверь встанет по центру свободной части стены и откроется в меньшее помещение. Потом края можно тянуть.
+        </p>
+      </Section>
+    </div>
+  );
+}
+
+function OpeningPanel({ doc, opening, onSelect, onCommit, onToast }: InspectorProps & { opening: Opening }) {
+  const names = opening.units.map((id) => doc.units.find((u) => u.id === id)?.name ?? '—');
+  const len = Math.hypot(opening.segment[1][0] - opening.segment[0][0], opening.segment[1][1] - opening.segment[0][1]);
+  const type = doorTypeOf(opening);
+  const style = doorStyleOf(doc, opening);
+  const sides = openingSides(doc, opening);
+  const select = { kind: 'opening' as const, id: opening.id };
+  // Середина и ширина двери влияют на узлы маршрута — граф строим заново.
+  const commit = (next: MapDocument) => {
+    if (next === doc) return onToast('Здесь больше нет места — дверь упёрлась в угол или соседнюю дверь');
+    onCommit(rebuildGraph(next, opening.level), select);
+  };
+  return (
+    <div className="insp">
+      <PanelHead
+        icon={<span className="swatch lg door"><Icon name="doorAdd" size={18} /></span>}
+        kicker={opening.kind === 'entrance' ? 'Вход с улицы' : type === 'passage' ? 'Проём' : 'Дверь'}
+        title={names.join(' ↔ ')}
+        onClose={() => onSelect(null)}
+      />
+      <Section>
+        <DoorGlyph style={style} width={len} />
+        <Choice label="Тип" value={type} options={DOOR_TYPES} onChange={(t) => commit(setDoorType(doc, opening.id, t))} />
+        {style && (
+          <>
+            <Choice label="Створка" value={nearestAngle(style.openAngle)} options={DOOR_ANGLES} onChange={(openAngle) => commit(updateDoorStyle(doc, opening.id, { openAngle }))} />
+            <Choice
+              label="Открывается"
+              value={style.swing}
+              options={sides.map((s) => ({ value: s.side, label: s.unit ? `в «${s.unit.name}»` : 'наружу' }))}
+              onChange={(swing) => commit(updateDoorStyle(doc, opening.id, { swing }))}
+            />
+            {style.leaves === 1 && (
+              <button
+                type="button"
+                className="btn btn-secondary insp-wide"
+                onClick={() => commit(updateDoorStyle(doc, opening.id, { hinge: style.hinge === 'start' ? 'end' : 'start' }))}
+              >
+                <Icon name="swap" size={17} /> Петли с другой стороны
+              </button>
+            )}
+          </>
+        )}
+      </Section>
+      <Section title="Ширина">
+        <NumberField label="Ширина, м" value={len} step={0.05} digits={2} onCommit={(w) => commit(setOpeningWidth(doc, opening.id, w))} />
+        <div className="row">
+          <button type="button" className="btn btn-secondary" onClick={() => commit(centerOpening(doc, opening.id))}>
+            По центру стены
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={() => commit(fillOpening(doc, opening.id))}>
+            На всю стену
+          </button>
+        </div>
+        <p className="insp-note">Тяните круглые ручки на краях двери, чтобы растянуть её, или саму дверь — чтобы сдвинуть вдоль стены.</p>
       </Section>
       <div className="insp-actions">
         <button type="button" className="btn btn-danger" onClick={() => onCommit(rebuildGraph(deleteOpening(doc, opening.id), opening.level), null)}>
@@ -399,13 +549,16 @@ function TextField(props: { label: string; value: string; onCommit: (v: string) 
   );
 }
 
-function NumberField(props: { label: string; value: number; onCommit: (v: number) => void }) {
-  const [draft, setDraft] = useState(fmt(props.value));
-  useEffect(() => setDraft(fmt(props.value)), [props.value]);
+/** Число с шагом step (по умолчанию 0,5 м — размеры помещений), digits — знаков после запятой на экране. */
+function NumberField(props: { label: string; value: number; onCommit: (v: number) => void; step?: number; digits?: number }) {
+  const step = props.step ?? 0.5;
+  const show = (n: number) => fmt(n, props.digits);
+  const [draft, setDraft] = useState(show(props.value));
+  useEffect(() => setDraft(show(props.value)), [props.value]);
   const commit = () => {
     const v = Number(draft.replace(',', '.'));
-    if (Number.isFinite(v) && Math.abs(v - props.value) > 1e-6) props.onCommit(Math.round(v * 2) / 2);
-    else setDraft(fmt(props.value));
+    if (Number.isFinite(v) && Math.abs(v - props.value) > 1e-6) props.onCommit(Math.round(v / step) * step);
+    else setDraft(show(props.value));
   };
   return (
     <label className="field">
@@ -434,6 +587,61 @@ function Toggle({ label, hint, checked, onChange }: { label: string; hint?: stri
   );
 }
 
-function fmt(n: number): string {
-  return (Math.round(n * 10) / 10).toLocaleString('ru-RU');
+/** Несколько вариантов в одну строку — быстрее выпадающего списка на телефоне. */
+function Choice<T extends string | number>({ label, value, options, onChange }: { label: string; value: T; options: { value: T; label: string }[]; onChange: (v: T) => void }) {
+  return (
+    <div className="field">
+      <span>{label}</span>
+      <div className="segmented insp-seg" role="group" aria-label={label}>
+        {options.map((o) => (
+          <button key={String(o.value)} type="button" aria-pressed={o.value === value} onClick={() => o.value !== value && onChange(o.value)}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Рисунок двери, как она выглядит на плане: стена, проём, створки и дуга открывания. */
+function DoorGlyph({ style, width }: { style: DoorStyle | null; width: number }) {
+  const W = 220;
+  const H = 96;
+  const k = Math.min(70 / Math.max(width, 0.3), 90); // пикселей на метр
+  const half = (width * k) / 2;
+  const cx = W / 2;
+  const wallY = 66;
+  // Створки считаем тем же кодом, что и план: проём вдоль оси x, открывается «вверх» на рисунке.
+  const opening: Opening = { id: 'glyph', level: '', kind: style ? 'door' : 'passage', segment: [[-width / 2, 0], [width / 2, 0]], units: ['a'] };
+  const leaves = style ? doorLeaves(opening, style) : [];
+  const toSvg = (p: [number, number]) => [cx + p[0] * k, wallY - p[1] * k] as const;
+  return (
+    <svg className="door-glyph" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={style ? 'Вид двери на плане' : 'Проём без двери'}>
+      <line x1={8} y1={wallY} x2={cx - half} y2={wallY} className="dg-wall" />
+      <line x1={cx + half} y1={wallY} x2={W - 8} y2={wallY} className="dg-wall" />
+      <line x1={cx - half} y1={wallY - 6} x2={cx - half} y2={wallY + 6} className="dg-jamb" />
+      <line x1={cx + half} y1={wallY - 6} x2={cx + half} y2={wallY + 6} className="dg-jamb" />
+      {leaves.map((leaf, i) => {
+        const [hx, hy] = toSvg(leaf.hinge);
+        const [ox, oy] = toSvg(leaf.openTip);
+        const [cxs, cys] = toSvg(leaf.closedTip);
+        const r = leaf.length * k;
+        const sweepFlag = (leaf.closedTip[0] - leaf.hinge[0]) * (leaf.openTip[1] - leaf.hinge[1]) > 0 ? 0 : 1;
+        return (
+          <g key={i}>
+            {style!.openAngle > 1 && <path d={`M ${cxs} ${cys} A ${r} ${r} 0 0 ${sweepFlag} ${ox} ${oy}`} className="dg-arc" />}
+            <line x1={hx} y1={hy} x2={ox} y2={oy} className="dg-leaf" />
+          </g>
+        );
+      })}
+      <text x={cx} y={H - 6} textAnchor="middle" className="dg-label">
+        {fmt(width, 2)} м
+      </text>
+    </svg>
+  );
+}
+
+function fmt(n: number, digits = 1): string {
+  const k = 10 ** digits;
+  return (Math.round(n * k) / k).toLocaleString('ru-RU');
 }
