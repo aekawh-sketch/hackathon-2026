@@ -1,21 +1,25 @@
 // Все запросы к серверу — в одном модуле.
 import { acceptSuggestions, demoVenue, type MapDocument, type PanoramaPlacement } from '@space-map/map-core';
+import { loadEditedDemo } from './demoStore.ts';
 
 export interface LoadedMap {
   doc: MapDocument;
   version: number | null;
   /** Карта не с сервера, а встроенная демо-площадка. */
   offlineDemo: boolean;
+  /** Демо-площадка изменена в редакторе этого браузера. */
+  edited: boolean;
 }
 
 export async function loadPublishedMap(slug: string): Promise<LoadedMap> {
   try {
     const latest = await getJson<{ version: number; url: string }>(`/p/${encodeURIComponent(slug)}/latest.json`);
     const doc = await getJson<MapDocument>(latest.url);
-    return { doc, version: latest.version, offlineDemo: false };
+    return { doc, version: latest.version, offlineDemo: false, edited: false };
   } catch (err) {
     if (slug !== 'demo') throw err;
-    return { doc: builtInDemo(), version: null, offlineDemo: true };
+    const edited = loadEditedDemo();
+    return { doc: edited ?? builtInDemo(), version: null, offlineDemo: true, edited: !!edited };
   }
 }
 
@@ -28,7 +32,8 @@ export function builtInDemo(): MapDocument {
 
 export function panoramaUrls(p: PanoramaPlacement): { image: string; preview: string } {
   if (p.pano.startsWith('demo-')) {
-    return { image: `/demo/panoramas/${p.pano}.jpg`, preview: `/demo/panoramas/${p.pano}-preview.jpg` };
+    const base = `${import.meta.env.BASE_URL}demo/panoramas/${p.pano}`;
+    return { image: `${base}.jpg`, preview: `${base}-preview.jpg` };
   }
   return { image: `/files/panoramas/${p.pano}/pano.jpg`, preview: `/files/panoramas/${p.pano}/preview.jpg` };
 }

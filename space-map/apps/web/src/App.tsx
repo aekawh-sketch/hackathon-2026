@@ -14,7 +14,7 @@ export function App() {
         <Route
           path="/app/*"
           element={
-            <Suspense fallback={<div className="screen-message">Загрузка кабинета…</div>}>
+            <Suspense fallback={<div className="screen-message"><div className="loader" aria-label="Загрузка кабинета" /></div>}>
               <OrganizerApp />
             </Suspense>
           }

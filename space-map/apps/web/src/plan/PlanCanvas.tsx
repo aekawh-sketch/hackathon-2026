@@ -1,8 +1,11 @@
+// План для посетителя: жесты (сдвиг, щипок, колесо), касания по местам и панорамам, кнопки масштаба.
 import type { MapDocument, Vec2 } from '@space-map/map-core';
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
-import { Circle, Group, Layer, Line, Stage, Text } from 'react-konva';
-import { categoryIcon, PANORAMA, ROUTE, ROUTE_CASING, SELECTED, UNIT_FILL, WALL } from './style.ts';
-import { fitBounds, levelBounds, polygonCentroid, screenToWorld, worldToScreen, zoomAt, type Viewport } from './viewport.ts';
+import { Circle, Layer, Stage } from 'react-konva';
+import { Icon } from '../ui/icons.tsx';
+import { BasePlan, gridStyle, PanoDot, pinchView, PlacePin, RouteLine, UnitLabels, useElementSize } from './draw.tsx';
+import { FROM } from './style.ts';
+import { fitBoundsInset, levelBounds, screenToWorld, worldToScreen, zoomAt, type Insets, type Viewport } from './viewport.ts';
 
 export interface PlanCanvasProps {
   doc: MapDocument;
@@ -11,45 +14,81 @@ export interface PlanCanvasProps {
   selectedPlace?: string | null;
   activePanorama?: string | null;
   fromPoint?: Vec2 | null;
-  /** Сколько пикселей снизу закрыто шторкой — «показать всё» вписывает план выше. */
-  bottomInset?: number;
+  /** Категория в фильтре — остальные места приглушены. */
+  category?: string | null;
+  /** Панели поверх карты — «показать всё» вписывает план в свободную часть. */
+  insets?: Insets;
   /** Смена значения — снова «показать всё». */
   fitKey?: number;
+  /** Вписать в экран эти точки (маршрут), а не весь этаж. */
+  focus?: Vec2[] | null;
   onPlaceClick?: (id: string) => void;
   onPanoramaClick?: (id: string) => void;
   onEmptyClick?: (world: Vec2) => void;
 }
 
-const TAP_TOLERANCE = 6;
+const TAP_TOLERANCE = 8;
+const PLACE_HIT = 22;
+const PANO_HIT = 16;
 
 export function PlanCanvas(props: PlanCanvasProps) {
-  const { doc, level, route, selectedPlace, activePanorama, fromPoint, bottomInset = 0, fitKey = 0 } = props;
+  const { doc, level, route, selectedPlace, activePanorama, fromPoint, category, insets, fitKey = 0, focus } = props;
   const wrapRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  const size = useElementSize(wrapRef);
   const [view, setView] = useState<Viewport>({ scale: 20, x: 0, y: 0 });
-
   const pointers = useRef(new Map<number, Vec2>());
   const gesture = useRef({ moved: false, start: [0, 0] as Vec2 });
 
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => {
-      if (entry) setSize({ w: entry.contentRect.width, h: entry.contentRect.height });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  useEffect(() => {
+  const insetKey = `${insets?.top ?? 0}:${insets?.right ?? 0}:${insets?.bottom ?? 0}:${insets?.left ?? 0}`;
+  const fit = () => {
     if (!size) return;
-    setView(fitBounds(levelBounds(doc, level), size.w, Math.max(size.h - bottomInset, 120)));
-    // Перевписываем только при смене карты, этажа, размера или по явному запросу.
-  }, [doc.venue.id, level, size?.w, size?.h, bottomInset, fitKey]);
+    const pts = focus && focus.length > 1 ? focus : null;
+    // Короткий маршрут не раздуваем во весь экран: рамка не меньше 14 × 10 м.
+    const grow = (lo: number, hi: number, min: number): [number, number] => {
+      const pad = Math.max(2, (min - (hi - lo)) / 2);
+      return [lo - pad, hi + pad];
+    };
+    const bounds = pts
+      ? (() => {
+          const [minX, maxX] = grow(Math.min(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[0])), 14);
+          const [minY, maxY] = grow(Math.min(...pts.map((p) => p[1])), Math.max(...pts.map((p) => p[1])), 10);
+          return { minX, minY, maxX, maxY };
+        })()
+      : levelBounds(doc, level);
+    setView(fitBoundsInset(bounds, size.w, size.h, insets));
+  };
+
+  // Пока посетитель сам не двигал карту, она вписывается заново при смене размеров и панелей.
+  const touched = useRef(false);
+  useEffect(() => {
+    touched.current = false;
+    fit();
+  }, [doc.venue.id, level, fitKey]);
+  useEffect(() => {
+    if (!touched.current) fit();
+  }, [size?.w, size?.h, insetKey]);
 
   const local = (e: { clientX: number; clientY: number }): Vec2 => {
     const r = wrapRef.current!.getBoundingClientRect();
     return [e.clientX - r.left, e.clientY - r.top];
+  };
+
+  const places = useMemo(() => doc.places.filter((p) => p.level === level && !p.hidden), [doc, level]);
+  const panoramas = useMemo(() => doc.panoramas.filter((p) => p.level === level), [doc, level]);
+  const categories = useMemo(() => new Map(doc.categories.map((c) => [c.id, c])), [doc]);
+
+  const hitTest = (screen: Vec2) => {
+    const near = (p: Vec2, r: number) => {
+      const s = worldToScreen(view, p);
+      return Math.hypot(s[0] - screen[0], s[1] - screen[1]) <= r;
+    };
+    // Сверху — выбранное, потом остальные места, потом панорамы.
+    const ordered = [...places].sort((a, b) => Number(b.id === selectedPlace) - Number(a.id === selectedPlace));
+    const place = ordered.find((p) => near(p.pos, PLACE_HIT));
+    if (place) return { kind: 'place' as const, id: place.id };
+    const pano = panoramas.find((p) => near(p.pos, PANO_HIT));
+    if (pano) return { kind: 'pano' as const, id: pano.id };
+    return null;
   };
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
@@ -57,7 +96,7 @@ export function PlanCanvas(props: PlanCanvasProps) {
     const p = local(e);
     pointers.current.set(e.pointerId, p);
     if (pointers.current.size === 1) gesture.current = { moved: false, start: p };
-    else gesture.current.moved = true; // второй палец — это зум, а не тап
+    else gesture.current.moved = true; // второй палец — это зум, а не касание
   };
 
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
@@ -67,164 +106,122 @@ export function PlanCanvas(props: PlanCanvasProps) {
     if (pointers.current.size === 1) {
       const g = gesture.current;
       if (!g.moved && Math.hypot(p[0] - g.start[0], p[1] - g.start[1]) > TAP_TOLERANCE) g.moved = true;
-      if (g.moved) setView((v) => ({ ...v, x: v.x + p[0] - prev[0], y: v.y + p[1] - prev[1] }));
+      if (g.moved) {
+        touched.current = true;
+        setView((v) => ({ ...v, x: v.x + p[0] - prev[0], y: v.y + p[1] - prev[1] }));
+      }
       pointers.current.set(e.pointerId, p);
       return;
     }
-    const others = [...pointers.current.entries()].filter(([id]) => id !== e.pointerId);
-    const other = others[0]?.[1];
+    const other = [...pointers.current.entries()].find(([id]) => id !== e.pointerId)?.[1];
     pointers.current.set(e.pointerId, p);
-    if (!other) return;
-    const before = Math.hypot(prev[0] - other[0], prev[1] - other[1]);
-    const after = Math.hypot(p[0] - other[0], p[1] - other[1]);
-    const midBefore: Vec2 = [(prev[0] + other[0]) / 2, (prev[1] + other[1]) / 2];
-    const midAfter: Vec2 = [(p[0] + other[0]) / 2, (p[1] + other[1]) / 2];
-    if (before > 0) {
-      setView((v) => {
-        const zoomed = zoomAt(v, midBefore, after / before);
-        return { ...zoomed, x: zoomed.x + midAfter[0] - midBefore[0], y: zoomed.y + midAfter[1] - midBefore[1] };
-      });
-    }
+    touched.current = true;
+    if (other) setView((v) => pinchView(v, prev, p, other));
   };
 
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
-    pointers.current.delete(e.pointerId);
+    const had = pointers.current.delete(e.pointerId);
+    if (!had || pointers.current.size > 0 || gesture.current.moved || e.type === 'pointercancel') return;
+    const screen = local(e);
+    const hit = hitTest(screen);
+    if (hit?.kind === 'place') props.onPlaceClick?.(hit.id);
+    else if (hit?.kind === 'pano') props.onPanoramaClick?.(hit.id);
+    else props.onEmptyClick?.(screenToWorld(view, screen));
   };
 
   const onWheel = (e: WheelEvent<HTMLDivElement>) => {
     const at = local(e);
+    touched.current = true;
     setView((v) => zoomAt(v, at, Math.exp(-e.deltaY * 0.0015)));
   };
 
-  // Konva шлёт click/tap после pointerup, поэтому «был ли сдвиг» берём из жеста.
-  // На тач-экране одно касание может прийти и как tap, и как click — второе отбрасываем.
-  const lastTap = useRef(0);
-  const once = () => {
-    const now = performance.now();
-    if (now - lastTap.current < 400) return false;
-    lastTap.current = now;
-    return true;
-  };
-  const tap = (fn?: () => void) => () => {
-    if (!gesture.current.moved && once()) fn?.();
-  };
-
-  const onStageTap = (e: { target: unknown; currentTarget: unknown; evt: { clientX?: number; clientY?: number; changedTouches?: TouchList } }) => {
-    if (e.target !== e.currentTarget || gesture.current.moved) return; // попали в фигуру или двигали карту
-    if (!once()) return;
-    const touch = e.evt.changedTouches?.[0];
-    const point = touch ?? (e.evt as { clientX: number; clientY: number });
-    props.onEmptyClick?.(screenToWorld(view, local(point)));
+  const zoomButton = (factor: number) => {
+    if (!size) return;
+    touched.current = true;
+    const left = insets?.left ?? 0;
+    const bottom = insets?.bottom ?? 0;
+    setView((v) => zoomAt(v, [left + (size.w - left) / 2, (size.h - bottom) / 2], factor));
   };
 
   const s = (p: Vec2) => worldToScreen(view, p);
-  const flat = (pts: Vec2[]) => pts.flatMap((p) => s(p));
-
-  const units = useMemo(() => doc.units.filter((u) => u.level === level), [doc, level]);
-  const categories = useMemo(() => new Map(doc.categories.map((c) => [c.id, c])), [doc]);
-  const showLabels = view.scale > 14;
-  const showPlaceNames = view.scale > 24;
+  const showPlaceNames = view.scale > 22;
 
   return (
-    <div
-      ref={wrapRef}
-      className="plan-canvas"
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-      onWheel={onWheel}
-    >
-      {size && (
-        <Stage width={size.w} height={size.h} onClick={onStageTap} onTap={onStageTap}>
-          <Layer listening={false}>
-            {units.map((u) => (
-              <Line key={u.id} points={flat(u.polygon)} closed fill={UNIT_FILL[u.kind]} stroke={WALL} strokeWidth={2} />
-            ))}
-            {doc.openings
-              .filter((o) => o.level === level)
-              .map((o) => (
-                <Line key={o.id} points={flat(o.segment)} stroke="#FFFFFF" strokeWidth={5} lineCap="butt" />
-              ))}
-            {doc.obstacles
-              .filter((o) => o.level === level)
-              .map((o) => (
-                <Line key={o.id} points={flat(o.polygon)} closed fill="#CBD5E1" stroke="#94A3B8" strokeWidth={1} />
-              ))}
-            {showLabels &&
-              units.map((u) => {
-                const [x, y] = s(polygonCentroid(u.polygon));
-                return (
-                  <Text key={`l-${u.id}`} x={x - 60} y={y - 7} width={120} align="center" text={u.name} fontSize={12} fill="#475569" />
-                );
-              })}
-            {route && route.length > 1 && (
-              <>
-                <Line points={flat(route)} stroke={ROUTE_CASING} strokeWidth={10} lineCap="round" lineJoin="round" />
-                <Line points={flat(route)} stroke={ROUTE} strokeWidth={5} lineCap="round" lineJoin="round" />
-              </>
-            )}
-          </Layer>
-          <Layer>
-            {doc.panoramas
-              .filter((p) => p.level === level)
-              .map((p) => {
-                const [x, y] = s(p.pos);
-                const active = p.id === activePanorama;
-                return (
-                  <Circle
-                    key={p.id}
-                    x={x}
-                    y={y}
-                    radius={active ? 9 : 7}
-                    fill={PANORAMA}
-                    stroke="#FFFFFF"
-                    strokeWidth={2}
-                    hitStrokeWidth={20}
-                    onClick={tap(() => props.onPanoramaClick?.(p.id))}
-                    onTap={tap(() => props.onPanoramaClick?.(p.id))}
-                  />
-                );
-              })}
-            {fromPoint && (() => {
-              const [x, y] = s(fromPoint);
-              return <Circle x={x} y={y} radius={8} fill="#16A34A" stroke="#FFFFFF" strokeWidth={3} listening={false} />;
-            })()}
-            {doc.places
-              .filter((p) => p.level === level && !p.hidden)
-              .map((p) => {
-                const [x, y] = s(p.pos);
-                const cat = categories.get(p.category);
-                const selected = p.id === selectedPlace;
-                const r = selected ? 17 : 13;
-                return (
-                  <Group
-                    key={p.id}
-                    x={x}
-                    y={y}
-                    onClick={tap(() => props.onPlaceClick?.(p.id))}
-                    onTap={tap(() => props.onPlaceClick?.(p.id))}
-                  >
-                    <Circle radius={r} fill="#FFFFFF" stroke={selected ? SELECTED : (cat?.color ?? WALL)} strokeWidth={selected ? 4 : 2.5} hitStrokeWidth={16} />
-                    <Text x={-r} y={-8} width={2 * r} align="center" text={categoryIcon(cat?.icon ?? '')} fontSize={selected ? 17 : 14} listening={false} />
-                    {(showPlaceNames || selected) && (
-                      <Text x={-70} y={r + 3} width={140} align="center" text={p.name} fontSize={11} fontStyle="bold" fill="#1E293B" listening={false} />
-                    )}
-                  </Group>
-                );
-              })}
-          </Layer>
-        </Stage>
-      )}
-      <button
-        type="button"
-        className="plan-fit"
-        aria-label="Показать всё"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={() => size && setView(fitBounds(levelBounds(doc, level), size.w, Math.max(size.h - bottomInset, 120)))}
+    <div className="plan-wrap">
+      <div
+        ref={wrapRef}
+        className="plan-canvas"
+        style={gridStyle(view)}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onWheel={onWheel}
       >
-        ⤢
-      </button>
+        {size && (
+          <Stage width={size.w} height={size.h} listening={false}>
+            <Layer listening={false}>
+              <BasePlan doc={doc} level={level} view={view} />
+              <UnitLabels doc={doc} level={level} view={view} />
+              {route && <RouteLine view={view} route={route} />}
+            </Layer>
+            <Layer listening={false}>
+              {panoramas.map((p) => {
+                const [x, y] = s(p.pos);
+                return <PanoDot key={p.id} x={x} y={y} active={p.id === activePanorama} />;
+              })}
+              {fromPoint &&
+                (() => {
+                  const [x, y] = s(fromPoint);
+                  return (
+                    <>
+                      <Circle x={x} y={y} radius={16} fill={FROM} opacity={0.18} />
+                      <Circle x={x} y={y} radius={8} fill={FROM} stroke="#FFFFFF" strokeWidth={3} />
+                    </>
+                  );
+                })()}
+              {[...places]
+                .sort((a, b) => Number(a.id === selectedPlace) - Number(b.id === selectedPlace))
+                .map((p) => {
+                  const [x, y] = s(p.pos);
+                  const cat = categories.get(p.category);
+                  return (
+                    <PlacePin
+                      key={p.id}
+                      x={x}
+                      y={y}
+                      color={cat?.color ?? '#4A5568'}
+                      icon={cat?.icon ?? ''}
+                      name={p.name}
+                      selected={p.id === selectedPlace}
+                      showLabel={showPlaceNames}
+                      dim={!!category && p.category !== category && p.id !== selectedPlace}
+                    />
+                  );
+                })}
+            </Layer>
+          </Stage>
+        )}
+      </div>
+      <div className="map-controls" style={{ bottom: (insets?.bottom ?? 0) + 16 }} onPointerDown={(e) => e.stopPropagation()}>
+        <button type="button" className="map-ctl" aria-label="Приблизить" onClick={() => zoomButton(1.4)}>
+          <Icon name="plus" />
+        </button>
+        <button type="button" className="map-ctl" aria-label="Отдалить" onClick={() => zoomButton(1 / 1.4)}>
+          <Icon name="minus" />
+        </button>
+        <button
+          type="button"
+          className="map-ctl"
+          aria-label="Показать всё"
+          onClick={() => {
+            touched.current = false;
+            fit();
+          }}
+        >
+          <Icon name="fit" />
+        </button>
+      </div>
     </div>
   );
 }

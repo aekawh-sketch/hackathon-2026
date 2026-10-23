@@ -5,6 +5,7 @@ import { MarkersPlugin } from '@photo-sphere-viewer/markers-plugin';
 import '@photo-sphere-viewer/core/index.css';
 import '@photo-sphere-viewer/markers-plugin/index.css';
 import { useEffect, useRef } from 'react';
+import { categoryIconPath, ICON_PATHS } from '../ui/icons.tsx';
 
 export interface PanoMarker {
   id: string;
@@ -12,7 +13,9 @@ export interface PanoMarker {
   yaw: number;
   pitch: number;
   label: string;
+  /** Иконка категории (имя из набора иконок). */
   icon?: string;
+  color?: string;
 }
 
 export interface PanoramaViewerProps {
@@ -39,6 +42,7 @@ export default function PanoramaViewer({ imageUrl, previewUrl, markers, initialY
       panorama: previewUrl ?? imageUrl,
       defaultYaw: `${initialYaw}deg`,
       navbar: ['zoom', 'fullscreen'],
+      defaultZoomLvl: 30,
       touchmoveTwoFingers: false,
       mousewheelCtrlKey: false,
       loadingTxt: 'Загрузка…',
@@ -88,7 +92,8 @@ export default function PanoramaViewer({ imageUrl, previewUrl, markers, initialY
         position: { yaw: `${m.yaw}deg`, pitch: `${m.pitch}deg` },
         element: markerElement(m),
         anchor: m.kind === 'link' ? 'center center' : 'bottom center',
-        tooltip: { content: escapeHtml(m.label), position: 'top center' },
+        // У мест подпись уже под значком, подсказка нужна только стрелкам переходов.
+        ...(m.kind === 'link' ? { tooltip: { content: escapeHtml(m.label), position: 'top center' } } : {}),
       })),
     );
   }, [markers]);
@@ -102,8 +107,30 @@ function markerElement(m: PanoMarker): HTMLElement {
   el.type = 'button';
   el.className = m.kind === 'link' ? 'pano-link' : 'pano-place';
   el.setAttribute('aria-label', m.label);
-  el.textContent = m.kind === 'link' ? '⬆' : (m.icon ?? '📍');
+  if (m.kind === 'place' && m.color) el.style.setProperty('--marker', m.color);
+  el.appendChild(svgIcon(m.kind === 'link' ? ICON_PATHS.chevronUp : categoryIconPath(m.icon ?? '')));
+  if (m.kind === 'place') {
+    const label = document.createElement('span');
+    label.className = 'pano-place-label';
+    label.textContent = m.label;
+    el.appendChild(label);
+  }
   return el;
+}
+
+function svgIcon(d: string): SVGSVGElement {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2.2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', d);
+  svg.appendChild(path);
+  return svg;
 }
 
 function escapeHtml(s: string): string {

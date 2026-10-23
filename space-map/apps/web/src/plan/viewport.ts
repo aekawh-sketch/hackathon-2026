@@ -57,3 +57,20 @@ export function polygonCentroid(polygon: Vec2[]): Vec2 {
   const n = polygon.length;
   return [polygon.reduce((s, p) => s + p[0], 0) / n, polygon.reduce((s, p) => s + p[1], 0) / n];
 }
+
+export interface Insets {
+  top?: number;
+  right?: number;
+  bottom?: number;
+  left?: number;
+}
+
+/** «Показать всё» с учётом панелей поверх карты: план вписывается в свободную часть экрана. */
+export function fitBoundsInset(b: Bounds, width: number, height: number, inset: Insets = {}, padding = 28): Viewport {
+  const left = inset.left ?? 0;
+  const top = inset.top ?? 0;
+  const w = Math.max(width - left - (inset.right ?? 0), 120);
+  const h = Math.max(height - top - (inset.bottom ?? 0), 120);
+  const v = fitBounds(b, w, h, padding);
+  return { ...v, x: v.x + left, y: v.y + top };
+}

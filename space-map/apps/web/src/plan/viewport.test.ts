@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fitBounds, screenToWorld, worldToScreen, zoomAt, type Viewport } from './viewport.ts';
+import { fitBounds, fitBoundsInset, screenToWorld, worldToScreen, zoomAt, type Viewport } from './viewport.ts';
 
 describe('viewport', () => {
   const v: Viewport = { scale: 25, x: 40, y: 300 };
@@ -31,5 +31,17 @@ describe('viewport', () => {
     expect(x1).toBeLessThanOrEqual(370.1);
     expect(y0).toBeGreaterThanOrEqual(0);
     expect(y1).toBeLessThanOrEqual(600);
+  });
+});
+
+describe('вписывание с панелями', () => {
+  it('план уходит из-под левой панели и нижней шторки', () => {
+    const b = { minX: 0, minY: 0, maxX: 10, maxY: 10 };
+    const v = fitBoundsInset(b, 1000, 600, { left: 400, bottom: 0 });
+    const [x0] = worldToScreen(v, [0, 0]);
+    expect(x0).toBeGreaterThan(400);
+    const m = fitBoundsInset(b, 400, 800, { bottom: 300 });
+    const [, yBottom] = worldToScreen(m, [0, 0]);
+    expect(yBottom).toBeLessThanOrEqual(500);
   });
 });
