@@ -1,8 +1,24 @@
-// Редактор площадки: помещения, места и двери.
+// Редактор площадки: помещения, места, двери и точки съёмки панорам.
 // Площадка организатора хранится на сервере (автосохранение с ревизией, ТЗ 7.2);
 // демо без сервера (`/app/editor`) — в браузере, и `/m/demo` в этом же браузере видит изменения, если API недоступен.
-import { DEFAULT_DOOR_PRESET, deleteHole, deleteOpening, deletePlace, deleteUnit, rebuildGraph, refreshPanoramaMarkers, translateUnit, overlappingUnits, validateReferences, type DoorPreset, type MapDocument } from '@space-map/map-core';
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  captureRoute,
+  DEFAULT_DOOR_PRESET,
+  deleteHole,
+  deleteOpening,
+  deletePlace,
+  deleteUnit,
+  rebuildGraph,
+  refreshCapturePoints,
+  refreshPanoramaMarkers,
+  removeCapturePoint,
+  translateUnit,
+  overlappingUnits,
+  validateReferences,
+  type DoorPreset,
+  type MapDocument,
+} from '@space-map/map-core';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 import { ApiError, builtInDemo, venuesApi, type VenueSummary } from '../api.ts';
 import { clearEditedDemo, loadEditedDemo, saveEditedDemo } from '../demoStore.ts';
@@ -16,6 +32,7 @@ import { useHistory } from './useHistory.ts';
 import { useServerSave, type SaveStatus } from './useServerSave.ts';
 
 const Model3DView = lazy(() => import('../three/Model3DView.tsx'));
+const CaptureGuide = lazy(() => import('../capture/CaptureGuide.tsx'));
 
 const TOOLS: { id: Tool; icon: IconName; label: string; key: string }[] = [
   { id: 'select', icon: 'cursor', label: 'Выбор', key: 'V' },
@@ -24,6 +41,7 @@ const TOOLS: { id: Tool; icon: IconName; label: string; key: string }[] = [
   { id: 'door', icon: 'doorAdd', label: 'Дверь', key: 'D' },
   { id: 'split', icon: 'split', label: 'Разделить', key: 'S' },
   { id: 'hole', icon: 'hole', label: 'Вырез', key: 'H' },
+  { id: 'shot', icon: 'camera', label: 'Съёмка', key: 'C' },
 ];
 
 const TOOL_HINT: Record<Tool, string> = {
@@ -33,6 +51,7 @@ const TOOL_HINT: Record<Tool, string> = {
   door: 'Нажмите на стену: общая стена — дверь между помещениями, наружная — вход с улицы',
   split: 'Проведите линию поперёк комнаты — она станет двумя. Дверь между ними поставьте сами',
   hole: 'Протяните прямоугольник внутри комнаты: колонна, шахта или перегородка',
+  shot: 'Точки панорам рассчитаны по плану. Нажмите в помещении — своя точка; тяните точку, чтобы сдвинуть',
 };
 
 /** Демо без сервера: правки живут в этом браузере. */
@@ -102,7 +121,8 @@ interface EditorProps {
 
 function Editor({ initial, server }: EditorProps) {
   const desktop = useMediaQuery('(min-width: 900px)');
-  const history = useHistory<MapDocument>(initial);
+  // План съёмки считается сразу: у карт, сохранённых до него, точек ещё нет.
+  const history = useHistory<MapDocument>(() => refreshCapturePoints(initial()));
   const { doc } = history;
   const [venue, setVenue] = useState<VenueSummary | null>(server?.venue ?? null);
   const [publishOpen, setPublishOpen] = useState(false);
@@ -114,6 +134,9 @@ function Editor({ initial, server }: EditorProps) {
   const [selection, setSelection] = useState<Selection>(null);
   const [view, setView] = useState<'plan' | '3d'>('plan');
   const [showGraph, setShowGraph] = useState(false);
+  const [showShots, setShowShots] = useState(true);
+  /** Экран камеры с маршрутом съёмки: с какой точки (null — от входа). */
+  const [guide, setGuide] = useState<{ from: string | null } | null>(null);
   const [toast, setToast] = useState<{ text: string; id: number } | null>(null);
   const [saved, setSaved] = useState<'saved' | 'error' | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -143,7 +166,7 @@ function Editor({ initial, server }: EditorProps) {
 
   const commit = useCallback(
     (next: MapDocument, select?: Selection) => {
-      const withMarkers = refreshPanoramaMarkers(next);
+      const withMarkers = refreshPanoramaMarkers(refreshCapturePoints(next));
       history.commit(withMarkers);
       if (select !== undefined) setSelection(select);
     },
@@ -168,7 +191,9 @@ function Editor({ initial, server }: EditorProps) {
                 const { unitId, index } = holeRef(selection.id);
                 return !!doc.units.find((u) => u.id === unitId)?.holes?.[index];
               })()
-            : doc.openings.some((o) => o.id === selection.id);
+            : selection.kind === 'shot'
+              ? !!doc.capturePoints?.some((p) => p.id === selection.id && p.origin !== 'removed')
+              : doc.openings.some((o) => o.id === selection.id);
     if (!exists) setSelection(null);
   }, [doc, selection]);
 
@@ -204,6 +229,8 @@ function Editor({ initial, server }: EditorProps) {
             ? deleteUnit(doc, selection.id)
             : selection.kind === 'hole'
               ? deleteHole(doc, holeRef(selection.id).unitId, holeRef(selection.id).index)
+              : selection.kind === 'shot'
+              ? removeCapturePoint(doc, selection.id)
               : selection.kind === 'place'
               ? rebuildGraph(deletePlace(doc, selection.id), level)
               : rebuildGraph(deleteOpening(doc, selection.id), level);
@@ -240,7 +267,7 @@ function Editor({ initial, server }: EditorProps) {
       const next = JSON.parse(await file.text()) as MapDocument;
       const issues = next?.schema === 2 ? validateReferences(next) : [{ path: '', message: 'не карта' }];
       if (issues.length > 0) return showToast('Файл не похож на карту площадки');
-      history.reset(next);
+      history.reset(refreshCapturePoints(next));
       if (!server) setSaved(saveEditedDemo(next) ? 'saved' : 'error');
       setSelection(null);
       setFitKey((k) => k + 1);
@@ -252,7 +279,7 @@ function Editor({ initial, server }: EditorProps) {
 
   const reset = () => {
     clearEditedDemo();
-    history.reset(builtInDemo());
+    history.reset(refreshCapturePoints(builtInDemo()));
     setSelection(null);
     setConfirmReset(false);
     setSaved(null);
@@ -283,9 +310,18 @@ function Editor({ initial, server }: EditorProps) {
 
   const insets = desktop ? { top: 76, left: 96, right: 372, bottom: 0 } : { top: 64, bottom: sheetHeight };
 
+  // Порядок съёмки: номера точек на плане и пунктир маршрута между ними.
+  const shotPlan = useMemo(() => {
+    const route = captureRoute(doc, level);
+    const labels = new Map(route.order.map((id, i) => [id, String(i + 1)]));
+    return { labels, legs: route.legs.map((l) => l.line) };
+  }, [doc, level]);
+  const openGuide = (from: string | null) => setGuide({ from });
+
   const menuItems: { icon: IconName; label: string; onClick: () => void; pressed?: boolean; danger?: boolean }[] = [
     ...(desktop ? [] : [{ icon: (view === 'plan' ? 'cube' : 'map') as IconName, label: view === 'plan' ? 'Показать в 3D' : 'Вернуться к плану', onClick: () => setView(view === 'plan' ? '3d' : 'plan') }]),
     { icon: 'layers', label: 'Сетка маршрутов', onClick: () => setShowGraph((g) => !g), pressed: showGraph },
+    { icon: 'camera', label: 'Точки съёмки', onClick: () => setShowShots((v) => !v), pressed: showShots },
     { icon: 'download', label: 'Скачать карту (JSON)', onClick: download },
     { icon: 'external', label: 'Загрузить карту из файла', onClick: () => fileRef.current?.click() },
     ...(server
@@ -299,7 +335,7 @@ function Editor({ initial, server }: EditorProps) {
     try {
       const theirs = await remote.resolveConflict(keep);
       if (theirs) {
-        history.reset(theirs);
+        history.reset(refreshCapturePoints(theirs));
         setSelection(null);
         showToast('Загружена версия из другого окна');
       }
@@ -322,6 +358,9 @@ function Editor({ initial, server }: EditorProps) {
             doorPreset={doorPreset}
             insets={insets}
             fitKey={fitKey}
+            showShots={showShots}
+            shotLabels={shotPlan.labels}
+            shotRoute={shotPlan.legs}
             onSelect={select}
             onCommit={(next, s) => {
               commit(next, s);
@@ -448,12 +487,12 @@ function Editor({ initial, server }: EditorProps) {
         <>
           <div className="tool-rail">{toolbar}</div>
           <aside className="inspector" aria-label="Свойства">
-            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} />
+            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} />
           </aside>
         </>
       ) : (
         <Sheet mode={sheetMode} onModeChange={setSheetMode} desktop={false} peekHeight={118} topGap={64} onHeight={setSheetHeight} label="Инструменты и свойства" header={toolbar}>
-          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} />
+          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} />
         </Sheet>
       )}
 
@@ -473,6 +512,14 @@ function Editor({ initial, server }: EditorProps) {
         <div key={toast.id} className="toast" role="status" style={!desktop ? { bottom: sheetHeight + 16 } : undefined}>
           {toast.text}
         </div>
+      )}
+
+      {guide && (
+        <ErrorBoundary fallback={<div className="screen-message">Не удалось открыть камеру.</div>}>
+          <Suspense fallback={<div className="screen-message"><div className="loader" /></div>}>
+            <CaptureGuide doc={doc} level={level} startId={guide.from} onClose={() => setGuide(null)} />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       {publishOpen && venue && (
@@ -534,7 +581,7 @@ function Modal({ children, onClose }: { children: ReactNode; onClose: () => void
   );
 }
 
-/** Горячие клавиши работают и в русской раскладке: м → V, к → R, з → P, в → D, ы → S, р → H. */
+/** Горячие клавиши работают и в русской раскладке: м → V, к → R, з → P, в → D, ы → S, р → H, с → C. */
 function layoutKey(key: string): string | undefined {
-  return ({ м: 'V', к: 'R', з: 'P', в: 'D', ы: 'S', р: 'H' } as Record<string, string>)[key.toLowerCase()];
+  return ({ м: 'V', к: 'R', з: 'P', в: 'D', ы: 'S', р: 'H', с: 'C' } as Record<string, string>)[key.toLowerCase()];
 }

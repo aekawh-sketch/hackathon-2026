@@ -4,6 +4,8 @@ import {
   NavGraph,
   nearestVisibleNode,
   normalize180,
+  routeDirectionInPanorama,
+  routeInPanorama,
   routePolyline,
   searchPlaces,
   unitAt,
@@ -27,6 +29,8 @@ const PanoramaViewer = lazy(() => import('../panorama/PanoramaViewer.tsx'));
 const Model3DView = lazy(() => import('../three/Model3DView.tsx'));
 
 const WALK_SPEED = 1.2; // м/с, ТЗ 4.4
+/** Поворот на 90° «стоит» метр пути: из почти равных маршрутов выбираем тот, где меньше поворотов. */
+const TURN_PENALTY = 1;
 const DESKTOP = '(min-width: 900px)';
 const PANEL_WIDTH = 392;
 
@@ -74,7 +78,7 @@ export function VisitorPage() {
 function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; anchorCode: string | null; offlineDemo: boolean; edited: boolean }) {
   const level = doc.levels[0]?.id ?? 'L1';
   const levelName = doc.levels[0]?.name ?? '';
-  const graph = useMemo(() => new NavGraph(doc), [doc]);
+  const graph = useMemo(() => new NavGraph(doc, { turnPenalty: TURN_PENALTY }), [doc]);
   const placesById = useMemo(() => new Map(doc.places.map((p) => [p.id, p])), [doc]);
   const categories = useMemo(() => new Map(doc.categories.map((c) => [c.id, c])), [doc]);
   const scaled = doc.venue.scaleClass === 'scaled';
@@ -180,6 +184,18 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
 
   const current = pano ? panoById.get(pano.ids[pano.index]!) : undefined;
   const currentRoom = current ? unitAt(doc, current.level, current.pos)?.name : undefined;
+
+  // Соседи по маршруту: в прогулке — по её порядку, в одиночной панораме — если она стоит на маршруте.
+  const routeNeighbours = useMemo(() => {
+    if (!current || !routeLine) return null;
+    const ids = pano?.tour ? pano.ids : (walk?.segments.flat() ?? []);
+    const i = pano?.tour ? pano.index : ids.indexOf(current.id);
+    if (i < 0) return { next: null, prev: null };
+    return { next: ids[i + 1] ?? null, prev: ids[i - 1] ?? null };
+  }, [current, routeLine, pano, walk]);
+
+  const panoRoute = useMemo(() => (current && routeLine ? routeInPanorama(doc, current, routeLine) : []), [current, routeLine]);
+
   const panoMarkers: PanoMarker[] = useMemo(() => {
     if (!current) return [];
     const places: PanoMarker[] = current.markers
@@ -189,21 +205,49 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
         const cat = categories.get(p.category);
         return { id: `place:${p.id}`, kind: 'place', yaw: m.yaw, pitch: m.pitch, label: p.name, icon: cat?.icon, color: cat?.color };
       });
+    const next = routeNeighbours?.next ?? null;
+    const prev = routeNeighbours?.prev ?? null;
     const links: PanoMarker[] = current.links
       .filter((l) => l.status === 'accepted' && panoById.has(l.to))
       .map((l) => {
         const target = panoById.get(l.to)!;
         const room = unitAt(doc, target.level, target.pos)?.name;
-        return { id: `link:${l.to}`, kind: 'link', yaw: l.yaw, pitch: -22, label: room ? `Перейти: ${room}` : 'Перейти сюда' };
+        if (routeNeighbours && l.to === next) {
+          return { id: `link:${l.to}`, kind: 'link', yaw: l.yaw, pitch: -22, label: `Дальше по маршруту · ${Math.round(dist(current.pos, target.pos))} м`, route: 'next' };
+        }
+        const label = routeNeighbours && l.to === prev ? 'Назад по маршруту' : room ? `Перейти: ${room}` : 'Перейти сюда';
+        return { id: `link:${l.to}`, kind: 'link', yaw: l.yaw, pitch: -22, label, route: routeNeighbours ? (l.to === prev ? 'prev' : 'off') : undefined };
       });
+    // Маршрут идёт дальше, а перехода туда нет (разрыв в панорамах или конец куска) — стрелка по линии маршрута.
+    if (routeNeighbours && routeLine && !links.some((l) => l.route === 'next')) {
+      const yaw = routeDirectionInPanorama(doc, current, routeLine);
+      const end = routeLine[routeLine.length - 1]!;
+      if (yaw !== null && dist(current.pos, end) > 2) {
+        links.push({
+          id: 'route-next',
+          kind: 'link',
+          yaw,
+          pitch: -22,
+          label: next ? 'Дальше по маршруту — к следующей панораме' : 'Маршрут идёт дальше — панорам там нет',
+          route: 'next',
+        });
+      }
+    }
     return [...places, ...links];
-  }, [current]);
+  }, [current, routeNeighbours, routeLine]);
 
   const onPanoMarker = (m: PanoMarker) => {
     if (!current) return;
     if (m.kind === 'place') {
       setPanoPlace(m.id.slice('place:'.length));
       return;
+    }
+    if (m.id === 'route-next') {
+      const nextId = routeNeighbours?.next;
+      if (!nextId) return setPano(null); // дальше панорам нет — показываем путь на плане
+      if (pano?.tour) return tourStep(1);
+      const nextPano = panoById.get(nextId);
+      return openPanorama(nextId, (nextPano && routeLine && routeDirectionInPanorama(doc, nextPano, routeLine)) ?? 0);
     }
     const target = panoById.get(m.id.slice('link:'.length));
     if (!target) return;
@@ -212,7 +256,7 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
     const yaw = target.heading === null ? 0 : normalize180(worldDir - target.heading);
     if (pano?.tour) {
       const index = pano.ids.indexOf(target.id);
-      if (index >= 0) return setPano({ ...pano, index, yaw });
+      if (index >= 0) return setPano({ ...pano, index, yaw: m.route === 'next' ? yawTowards(target.id, pano.ids[index + 1]) : yaw });
     }
     openPanorama(target.id, yaw);
   };
@@ -561,6 +605,7 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
               previewUrl={panoramaUrls(current).preview}
               initialYaw={pano.yaw}
               markers={panoMarkers}
+              routeLines={panoRoute}
               onMarkerClick={onPanoMarker}
             />
           </Suspense>

@@ -16,19 +16,26 @@ export interface PanoMarker {
   /** Иконка категории (имя из набора иконок). */
   icon?: string;
   color?: string;
+  /**
+   * Стрелка перехода относительно маршрута: next — дальше по маршруту (крупная, с подписью),
+   * prev — назад по маршруту, off — в сторону от маршрута (приглушена). Нет — маршрута нет.
+   */
+  route?: 'next' | 'prev' | 'off';
 }
 
 export interface PanoramaViewerProps {
   imageUrl: string;
   previewUrl?: string;
   markers: PanoMarker[];
+  /** Линия маршрута на полу: куски из точек [yaw, pitch] в градусах. */
+  routeLines?: [number, number][][];
   /** Куда смотреть после загрузки, градусы. */
   initialYaw?: number;
   onMarkerClick?: (marker: PanoMarker) => void;
   onError?: () => void;
 }
 
-export default function PanoramaViewer({ imageUrl, previewUrl, markers, initialYaw = 0, onMarkerClick, onError }: PanoramaViewerProps) {
+export default function PanoramaViewer({ imageUrl, previewUrl, markers, routeLines = [], initialYaw = 0, onMarkerClick, onError }: PanoramaViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
   const callbacks = useRef({ onMarkerClick, onError });
@@ -86,17 +93,27 @@ export default function PanoramaViewer({ imageUrl, previewUrl, markers, initialY
     const viewer = viewerRef.current;
     if (!viewer) return;
     const plugin = viewer.getPlugin<MarkersPlugin>(MarkersPlugin);
-    plugin.setMarkers(
-      markers.map((m) => ({
+    const rad = (deg: number) => (deg * Math.PI) / 180;
+    // Линия маршрута лежит на полу: белая подложка и синяя линия поверх — видна и на светлом полу.
+    const route = routeLines.flatMap((line, i) => {
+      const polyline = line.map(([yaw, pitch]) => [rad(yaw), rad(pitch)] as [number, number]);
+      return [
+        { id: `route-casing:${i}`, polyline, svgStyle: { stroke: 'rgba(255,255,255,0.85)', strokeWidth: '14px', strokeLinecap: 'round', strokeLinejoin: 'round', fill: 'none' } },
+        { id: `route:${i}`, polyline, svgStyle: { stroke: '#2F5BEA', strokeWidth: '8px', strokeLinecap: 'round', strokeLinejoin: 'round', fill: 'none' } },
+      ];
+    });
+    plugin.setMarkers([
+      ...route,
+      ...markers.map((m) => ({
         id: m.id,
         position: { yaw: `${m.yaw}deg`, pitch: `${m.pitch}deg` },
         element: markerElement(m),
         anchor: m.kind === 'link' ? 'center center' : 'bottom center',
-        // У мест подпись уже под значком, подсказка нужна только стрелкам переходов.
-        ...(m.kind === 'link' ? { tooltip: { content: escapeHtml(m.label), position: 'top center' } } : {}),
+        // У мест и у стрелки «Дальше» подпись уже под значком, подсказка нужна остальным стрелкам.
+        ...(m.kind === 'link' && m.route !== 'next' ? { tooltip: { content: escapeHtml(m.label), position: 'top center' } } : {}),
       })),
-    );
-  }, [markers]);
+    ]);
+  }, [markers, routeLines]);
 
   return <div ref={containerRef} className="pano-viewer" />;
 }
@@ -105,11 +122,12 @@ export default function PanoramaViewer({ imageUrl, previewUrl, markers, initialY
 function markerElement(m: PanoMarker): HTMLElement {
   const el = document.createElement('button');
   el.type = 'button';
-  el.className = m.kind === 'link' ? 'pano-link' : 'pano-place';
+  el.className = m.kind === 'link' ? `pano-link${m.route ? ` is-${m.route}` : ''}` : 'pano-place';
   el.setAttribute('aria-label', m.label);
   if (m.kind === 'place' && m.color) el.style.setProperty('--marker', m.color);
   el.appendChild(svgIcon(m.kind === 'link' ? ICON_PATHS.chevronUp : categoryIconPath(m.icon ?? '')));
-  if (m.kind === 'place') {
+  // Цвет — не единственный признак (ТЗ 5.12): у стрелки «Дальше» ещё размер и подпись.
+  if (m.kind === 'place' || m.route === 'next') {
     const label = document.createElement('span');
     label.className = 'pano-place-label';
     label.textContent = m.label;

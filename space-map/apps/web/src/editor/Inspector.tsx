@@ -1,5 +1,12 @@
-// Свойства выбранного: помещение, место или дверь. Без выбора — сводка по площадке.
+// Свойства выбранного: помещение, место, дверь или точка съёмки. Без выбора — сводка по площадке.
 import {
+  activeCapturePoints,
+  captureMinutes,
+  pendingCapturePoints,
+  removeCapturePoint,
+  restoreRemovedCapturePoints,
+  unitAt,
+  type CapturePoint,
   centerOpening,
   deleteHole,
   pointInUnit,
@@ -54,6 +61,10 @@ export interface InspectorProps {
   doorPreset: DoorPreset;
   onDoorPreset: (p: DoorPreset) => void;
   onExitTool: () => void;
+  /** Номера точек съёмки в порядке обхода. */
+  shotLabels: Map<string, string>;
+  /** Открыть подсказку маршрута съёмки на камере — с точки или с начала маршрута. */
+  onOpenGuide: (pointId: string | null) => void;
 }
 
 export function Inspector(props: InspectorProps) {
@@ -76,12 +87,18 @@ export function Inspector(props: InspectorProps) {
     const opening = doc.openings.find((o) => o.id === selection.id);
     if (opening) return <OpeningPanel {...props} opening={opening} />;
   }
+  if (selection?.kind === 'shot') {
+    const point = doc.capturePoints?.find((p) => p.id === selection.id && p.origin !== 'removed');
+    if (point) return <ShotPanel {...props} point={point} />;
+  }
+  if (!selection && props.tool === 'shot') return <CapturePlan {...props} />;
   return <Overview {...props} />;
 }
 
 // ── Сводка ──
 
-function Overview({ doc, level, onSelect, onCommit }: InspectorProps) {
+function Overview(props: InspectorProps) {
+  const { doc, level, onSelect, onCommit } = props;
   const units = doc.units.filter((u) => u.level === level);
   const area = units.reduce((s, u) => s + polygonArea(u.polygon), 0);
   return (
@@ -95,6 +112,7 @@ function Overview({ doc, level, onSelect, onCommit }: InspectorProps) {
           <Stat value={`${Math.round(area)}`} label="м² всего" />
         </div>
       </Section>
+      <CaptureSummary {...props} />
       <Section title="Помещения">
         <ul className="insp-list">
           {units.map((u) => (
@@ -123,12 +141,125 @@ function Overview({ doc, level, onSelect, onCommit }: InspectorProps) {
             <Icon name="pin" size={16} /> <b>Место</b> — нажмите внутри помещения. <Icon name="doorAdd" size={16} /> <b>Дверь</b> — на общую стену.
           </li>
           <li>
+            <Icon name="camera" size={16} /> <b>Съёмка</b> — точки панорам считаются сами по форме комнат и дверям. Можно добавить свою, сдвинуть или убрать.
+          </li>
+          <li>
             <Icon name="eye" size={16} /> Изменения сразу видны на <Link to="/m/demo">карте посетителя</Link> в этом браузере.
           </li>
         </ul>
       </Section>
     </div>
   );
+}
+
+// ── Съёмка панорам ──
+
+/** Сколько снимать: число точек, время, кнопка маршрута съёмки. */
+function CaptureSummary({ doc, level, onCommit, onOpenGuide }: InspectorProps) {
+  const active = activeCapturePoints(doc, level);
+  const pending = pendingCapturePoints(doc, level);
+  const removed = (doc.capturePoints ?? []).filter((p) => p.level === level && p.origin === 'removed').length;
+  const shot = doc.panoramas.filter((p) => p.level === level).length;
+  return (
+    <Section title="Съёмка панорам">
+      <div className="stat-grid">
+        <Stat value={pending.length} label={plural(pending.length, 'точка снять', 'точки снять', 'точек снять')} />
+        <Stat value={`≈ ${captureMinutes(doc, level)}`} label="минут съёмки" />
+        <Stat value={shot} label={plural(shot, 'панорама есть', 'панорамы есть', 'панорам есть')} />
+        <Stat value={active.filter((p) => p.origin === 'manual').length} label="своих точек" />
+      </div>
+      {pending.length > 0 && (
+        <button type="button" className="btn btn-primary insp-wide" onClick={() => onOpenGuide(null)}>
+          <Icon name="route" size={18} /> Маршрут съёмки с камерой
+        </button>
+      )}
+      {removed > 0 && (
+        <button type="button" className="btn btn-secondary insp-wide" onClick={() => onCommit(restoreRemovedCapturePoints(doc, level))}>
+          <Icon name="reset" size={17} /> Вернуть убранные точки · {removed}
+        </button>
+      )}
+      <p className="insp-note">
+        Точки считаются по плану: панорамы закрывают пол каждого помещения, а у дверей стоят так, чтобы соседние панорамы видели друг друга —
+        тогда прогулка по маршруту идёт без разрывов. Мебели и стёкол план не знает — проверьте точки на месте.
+      </p>
+    </Section>
+  );
+}
+
+/** Панель инструмента «Съёмка»: сводка и подсказки. */
+function CapturePlan(props: InspectorProps) {
+  return (
+    <div className="insp">
+      <PanelHead icon={<span className="swatch lg shot"><Icon name="camera" size={18} /></span>} kicker="Инструмент «Съёмка»" title="Точки панорам" onClose={props.onExitTool} />
+      <CaptureSummary {...props} />
+      <Section title="Как править">
+        <ul className="tips">
+          <li>
+            <Icon name="plus" size={16} /> Нажмите внутри помещения — появится своя точка. Рассчитанные рядом пересчитаются.
+          </li>
+          <li>
+            <Icon name="hand" size={16} /> Тяните точку, чтобы сдвинуть: она станет своей и больше не будет двигаться сама.
+          </li>
+          <li>
+            <Icon name="trash" size={16} /> Лишнюю точку выберите и уберите — расчёт не поставит её снова.
+          </li>
+        </ul>
+      </Section>
+    </div>
+  );
+}
+
+function ShotPanel({ doc, point, shotLabels, onSelect, onCommit, onToast, onOpenGuide }: InspectorProps & { point: CapturePoint }) {
+  const room = unitAt(doc, point.level, point.pos)?.name ?? 'вне помещения';
+  const label = shotLabels.get(point.id);
+  const pano = point.panorama ? doc.panoramas.find((p) => p.id === point.panorama) : undefined;
+  return (
+    <div className="insp">
+      <PanelHead
+        icon={<span className="swatch lg shot"><Icon name="camera" size={18} /></span>}
+        kicker={point.origin === 'auto' ? 'Точка съёмки · рассчитана' : 'Точка съёмки · своя'}
+        title={label ? `№ ${label} · ${room}` : room}
+        onClose={() => onSelect(null)}
+      />
+      <Section>
+        <p className="insp-note">
+          {pano
+            ? 'Панорама в этой точке уже снята.'
+            : point.origin === 'auto'
+              ? 'Сервис поставил точку по форме помещения и дверям. Сдвиньте её, если мешает мебель или стекло, — она станет своей.'
+              : 'Точку поставили вручную: расчёт её не двигает и ставит остальные точки вокруг неё.'}
+        </p>
+        <p className="insp-note">
+          Встаньте в точку, держите телефон на уровне глаз и поворачивайтесь вокруг камеры. Координаты: {fmt(point.pos[0])}; {fmt(point.pos[1])} м.
+        </p>
+      </Section>
+      <div className="insp-actions">
+        {!pano && (
+          <button type="button" className="btn btn-primary" onClick={() => onOpenGuide(point.id)}>
+            <Icon name="route" size={18} /> Маршрут с камерой отсюда
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn btn-danger"
+          onClick={() => {
+            onCommit(removeCapturePoint(doc, point.id), null);
+            onToast(point.origin === 'auto' ? 'Точка убрана — расчёт не вернёт её сам' : 'Точка удалена');
+          }}
+        >
+          <Icon name="trash" size={18} /> Убрать точку
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function plural(n: number, one: string, few: string, many: string): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
 }
 
 // ── Помещение ──

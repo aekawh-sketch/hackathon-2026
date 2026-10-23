@@ -1,8 +1,11 @@
 // Холст редактора: выбор, перетаскивание помещений и мест, вершины, рисование комнат, двери.
 // Жесты свои (Pointer Events), Konva только рисует: одинаково работает мышью, пером и пальцем.
 import {
+  activeCapturePoints,
+  addCapturePoint,
   addHole,
   addPlace,
+  moveCapturePoint,
   createRoom,
   holeAt,
   moveHole,
@@ -35,14 +38,14 @@ import {
 } from '@space-map/map-core';
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
 import { Circle, Layer, Line, Rect, Stage, Text } from 'react-konva';
-import { BasePlan, flatPoints, gridStyle, PanoDot, pinchView, PlacePin, UnitLabels, useElementSize } from '../plan/draw.tsx';
+import { BasePlan, CapturePointMark, CaptureRouteLine, flatPoints, gridStyle, PanoDot, pinchView, PlacePin, UnitLabels, useElementSize } from '../plan/draw.tsx';
 import { ROUTE } from '../plan/style.ts';
 import { fitBoundsInset, levelBounds, screenToWorld, worldToScreen, zoomAt, type Insets, type Viewport } from '../plan/viewport.ts';
 import { Icon } from '../ui/icons.tsx';
 
-export type Tool = 'select' | 'room' | 'place' | 'door' | 'split' | 'hole';
-/** Вырез выбирается как `{ kind: 'hole', id: '<unitId>#<номер>' }`. */
-export type Selection = { kind: 'unit' | 'place' | 'opening' | 'hole'; id: string } | null;
+export type Tool = 'select' | 'room' | 'place' | 'door' | 'split' | 'hole' | 'shot';
+/** Вырез выбирается как `{ kind: 'hole', id: '<unitId>#<номер>' }`; `shot` — точка съёмки панорамы. */
+export type Selection = { kind: 'unit' | 'place' | 'opening' | 'hole' | 'shot'; id: string } | null;
 
 export function holeRef(id: string): { unitId: string; index: number } {
   const at = id.lastIndexOf('#');
@@ -60,6 +63,12 @@ export interface EditorCanvasProps {
   doorPreset: DoorPreset;
   insets: Insets;
   fitKey: number;
+  /** Показывать точки съёмки панорам. */
+  showShots: boolean;
+  /** Номера точек в порядке обхода. */
+  shotLabels: Map<string, string>;
+  /** Маршрут съёмки — показывается, пока выбран инструмент «Съёмка» или точка. */
+  shotRoute: Vec2[][];
   onSelect: (s: Selection) => void;
   onCommit: (doc: MapDocument, select?: Selection) => void;
   onToolDone: () => void;
@@ -72,6 +81,7 @@ type Drag =
   | { kind: 'unit'; id: string; start: Vec2 }
   | { kind: 'vertex'; id: string; index: number; original: Vec2[] }
   | { kind: 'place'; id: string; start: Vec2; origin: Vec2 }
+  | { kind: 'shot'; id: string; start: Vec2; origin: Vec2 }
   | { kind: 'draw'; start: Vec2 }
   | { kind: 'doorEdge'; id: string; edge: 0 | 1 }
   | { kind: 'doorSlide'; id: string; start: Vec2 }
@@ -149,6 +159,14 @@ export function EditorCanvas(props: EditorCanvasProps) {
         const q = toScreen(p.pos);
         return Math.hypot(q[0] - s[0], q[1] - s[1]) <= 20;
       });
+  const shotsVisible = props.showShots || tool === 'shot';
+  const hitShot = (s: Vec2) =>
+    shotsVisible
+      ? activeCapturePoints(doc, level).find((p) => {
+          const q = toScreen(p.pos);
+          return Math.hypot(q[0] - s[0], q[1] - s[1]) <= 16;
+        })
+      : undefined;
   const hitOpening = (s: Vec2) => {
     const w = toWorld(s);
     const tol = 10 / view.scale;
@@ -206,6 +224,12 @@ export function EditorCanvas(props: EditorCanvasProps) {
     } else if (d.kind === 'place') {
       const p = snapPoint([d.origin[0] + w[0] - d.start[0], d.origin[1] + w[1] - d.start[1]], GRID / 2);
       updatePreview(`p:${p}`, () => ({ doc: movePlace(doc, d.id, p) }));
+    } else if (d.kind === 'shot') {
+      const p = snapPoint([d.origin[0] + w[0] - d.start[0], d.origin[1] + w[1] - d.start[1]], GRID / 2);
+      updatePreview(`s:${p}`, () => {
+        const r = moveCapturePoint(doc, d.id, p);
+        return r.ok ? { doc: r.doc } : null;
+      });
     } else if (d.kind === 'doorEdge') {
       // Тянем край: дверь растягивается или сужается вдоль своей стены, другой край на месте.
       const next = dragOpeningEdge(doc, d.id, d.edge, w);
@@ -291,6 +315,12 @@ export function EditorCanvas(props: EditorCanvasProps) {
       if (!p?.doc) return;
       if (p.invalidUnit) return props.onToast('Помещения не должны пересекаться — вернул на место');
       props.onCommit(p.doc, { kind: 'unit', id: d.id });
+    } else if (d.kind === 'shot') {
+      if (!p?.doc) {
+        const r = moveCapturePoint(doc, d.id, toWorld(s));
+        return props.onToast(r.ok ? 'Точка осталась на месте' : `${r.message} — вернул на место`);
+      }
+      props.onCommit(p.doc, { kind: 'shot', id: d.id });
     } else if (d.kind === 'place') {
       if (!p?.doc) return;
       const place = p.doc.places.find((x) => x.id === d.id)!;
@@ -303,7 +333,11 @@ export function EditorCanvas(props: EditorCanvasProps) {
       const created = createRoom(doc, level, draft.polygon);
       const doors = created.doc.openings.filter((o) => (o.units as readonly string[]).includes(created.id)).length;
       props.onCommit(created.doc, { kind: 'unit', id: created.id });
-      props.onToast(doors > 0 ? 'Комната создана, дверь поставлена автоматически' : 'Комната создана. Поставьте дверь: инструмент «Дверь»');
+      props.onToast(
+        doors > 0
+          ? 'Комната создана, дверь поставлена автоматически, точки съёмки рассчитаны'
+          : 'Комната создана, точки съёмки рассчитаны. Поставьте дверь: инструмент «Дверь»',
+      );
       props.onToolDone();
     }
   };
@@ -312,6 +346,13 @@ export function EditorCanvas(props: EditorCanvasProps) {
     if (tool === 'room') return props.onToast('Проведите пальцем или мышью, чтобы нарисовать комнату');
     if (tool === 'split') return props.onToast('Проведите линию поперёк комнаты — от стены до стены');
     if (tool === 'hole') return props.onToast('Протяните прямоугольник внутри комнаты');
+    if (tool === 'shot') {
+      if (d.kind === 'shot') return props.onSelect({ kind: 'shot', id: d.id });
+      const r = addCapturePoint(doc, level, snapPoint(w, GRID / 2));
+      if (!r.ok) return props.onToast(r.message);
+      props.onCommit(r.doc, { kind: 'shot', id: r.id });
+      return props.onToast('Своя точка съёмки добавлена. Рассчитанные точки рядом пересчитаны');
+    }
     if (tool === 'place') {
       const unit = unitAt(doc, level, w);
       if (!unit || !unit.walkable) return props.onToast('Нажмите внутри помещения');
@@ -354,6 +395,7 @@ export function EditorCanvas(props: EditorCanvasProps) {
     }
     if (d.kind === 'holeMove') return props.onSelect({ kind: 'hole', id: `${d.unitId}#${d.index}` });
     if (d.kind === 'place') return props.onSelect({ kind: 'place', id: d.id });
+    if (d.kind === 'shot') return props.onSelect({ kind: 'shot', id: d.id });
     const opening = hitOpening(s);
     if (opening) return props.onSelect({ kind: 'opening', id: opening.id });
     if (d.kind === 'unit') return props.onSelect({ kind: 'unit', id: d.id });
@@ -375,6 +417,10 @@ export function EditorCanvas(props: EditorCanvasProps) {
     const w = toWorld(s);
     let mode: Drag = { kind: 'pan' };
     if (tool === 'room') mode = { kind: 'draw', start: snapPoint(w) };
+    else if (tool === 'shot') {
+      const shot = hitShot(s);
+      if (shot) mode = { kind: 'shot', id: shot.id, start: w, origin: shot.pos };
+    }
     else if (tool === 'split') mode = { kind: 'cut', start: snapPoint(w, FINE) };
     else if (tool === 'hole') {
       const unit = doc.units.find((u) => u.level === level && pointInUnit(w, u));
@@ -383,12 +429,16 @@ export function EditorCanvas(props: EditorCanvasProps) {
       const v = hitVertex(s);
       const edge = hitDoorEdge(s);
       const place = hitPlace(s);
+      const shot = hitShot(s);
       const opening = hitOpening(s);
       const unit = hitUnit(s);
       const hole = hitHole(s);
       if (v >= 0 && selectedUnit) mode = { kind: 'vertex', id: selectedUnit.id, index: v, original: selectedUnit.polygon };
       else if (edge >= 0 && selectedOpening) mode = { kind: 'doorEdge', id: selectedOpening.id, edge: edge as 0 | 1 };
+      // Выбранная точка съёмки — впереди места под ней, иначе место впереди точки.
+      else if (shot && selection?.kind === 'shot' && selection.id === shot.id) mode = { kind: 'shot', id: shot.id, start: w, origin: shot.pos };
       else if (place) mode = { kind: 'place', id: place.id, start: w, origin: place.pos };
+      else if (shot) mode = { kind: 'shot', id: shot.id, start: w, origin: shot.pos };
       else if (opening && opening.id === selectedOpening?.id) mode = { kind: 'doorSlide', id: opening.id, start: w };
       else if (opening) mode = { kind: 'tap' };
       else if (hole) mode = { kind: 'holeMove', unitId: hole.unit.id, index: hole.index, start: w };
@@ -461,7 +511,7 @@ export function EditorCanvas(props: EditorCanvasProps) {
     return `${fmt(polygonArea(u.polygon))} м²`;
   };
   const cursor =
-    tool === 'room' ? 'crosshair' : tool === 'place' || tool === 'door' ? 'copy' : hover ? 'move' : 'grab';
+    tool === 'room' ? 'crosshair' : tool === 'place' || tool === 'door' || tool === 'shot' ? 'copy' : hover ? 'move' : 'grab';
 
   return (
     <div className="plan-wrap">
@@ -548,11 +598,27 @@ export function EditorCanvas(props: EditorCanvasProps) {
               )}
             </Layer>
             <Layer listening={false}>
+              {shotsVisible && (tool === 'shot' || selection?.kind === 'shot') && <CaptureRouteLine view={view} legs={props.shotRoute} />}
               {shown.panoramas
                 .filter((p) => p.level === level)
                 .map((p) => {
                   const [x, y] = toScreen(p.pos);
                   return <PanoDot key={p.id} x={x} y={y} />;
+                })}
+              {shotsVisible &&
+                activeCapturePoints(shown, level).map((p) => {
+                  const [x, y] = toScreen(p.pos);
+                  return (
+                    <CapturePointMark
+                      key={p.id}
+                      x={x}
+                      y={y}
+                      label={props.shotLabels.get(p.id) ?? ''}
+                      origin={p.origin === 'auto' ? 'auto' : 'manual'}
+                      shot={p.panorama !== null}
+                      selected={selection?.kind === 'shot' && selection.id === p.id}
+                    />
+                  );
                 })}
               {shown.places
                 .filter((p) => p.level === level)

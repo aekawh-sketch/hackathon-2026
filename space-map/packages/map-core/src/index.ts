@@ -10,3 +10,5 @@ export { demoVenue } from './demo.ts';
 export * from './edit.ts';
 export * from './doors.ts';
 export * from './rooms.ts';
+export * from './capturePoints.ts';
+export * from './routeView.ts';

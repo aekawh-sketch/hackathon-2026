@@ -5,6 +5,7 @@ import { useEffect, useState, type CSSProperties, type RefObject } from 'react';
 import { Circle, Group, Line, Path, Text } from 'react-konva';
 import { categoryIconPath, ICON_PATHS } from '../ui/icons.tsx';
 import {
+  CAPTURE,
   DOOR,
   ENTRANCE,
   LABEL,
@@ -270,6 +271,53 @@ export function PanoDot({ x, y, active }: { x: number; y: number; active?: boole
       <Circle radius={r + 4} fill={PANORAMA} opacity={0.18} />
       <Circle radius={r} fill={PANORAMA} stroke="#FFFFFF" strokeWidth={2} />
       <Path data={ICON_PATHS.pano} x={-12 * s} y={-12 * s} scaleX={s} scaleY={s} stroke="#FFFFFF" strokeWidth={2.4} />
+    </Group>
+  );
+}
+
+/** Маршрут съёмки: пунктир от точки к точке по проходимым местам. */
+export function CaptureRouteLine({ view, legs }: { view: Viewport; legs: Vec2[][] }) {
+  return (
+    <>
+      {legs.map((leg, i) =>
+        leg.length < 2 ? null : (
+          <Group key={i} listening={false}>
+            <Line points={flatPoints(view, leg)} stroke="#FFFFFF" strokeWidth={6} lineCap="round" lineJoin="round" opacity={0.8} />
+            <Line points={flatPoints(view, leg)} stroke={CAPTURE} strokeWidth={2.5} dash={[7, 6]} lineCap="round" lineJoin="round" />
+          </Group>
+        ),
+      )}
+    </>
+  );
+}
+
+/**
+ * Точка съёмки панорамы: номер в порядке обхода. Рассчитанная — пунктирное кольцо (предложение),
+ * поставленная вручную — сплошная заливка; снятая — галочка.
+ */
+export function CapturePointMark(props: { x: number; y: number; label: string; origin: 'auto' | 'manual'; shot: boolean; selected?: boolean }) {
+  const { x, y, label, origin, shot, selected } = props;
+  const r = selected ? 13 : 11;
+  const filled = origin === 'manual' || shot;
+  const s = 13 / 24;
+  return (
+    <Group x={x} y={y} listening={false}>
+      {selected && <Circle radius={r + 6} fill={SELECTED} opacity={0.22} />}
+      <Circle
+        radius={r}
+        fill={filled ? CAPTURE : '#FFFFFF'}
+        stroke={selected ? SELECTED : CAPTURE}
+        strokeWidth={selected ? 3 : 2.2}
+        dash={filled ? undefined : [4, 3]}
+        shadowColor="#0E1726"
+        shadowBlur={4}
+        shadowOpacity={0.18}
+      />
+      {shot ? (
+        <Path data={ICON_PATHS.check} x={-12 * s} y={-12 * s} scaleX={s} scaleY={s} stroke="#FFFFFF" strokeWidth={3.2} />
+      ) : (
+        <Text text={label} x={-r} y={-6.5} width={r * 2} align="center" fontSize={12} fontStyle="700" fontFamily={FONT} fill={filled ? '#FFFFFF' : CAPTURE} />
+      )}
     </Group>
   );
 }

@@ -157,6 +157,24 @@ export interface PanoramaPlacement {
   links: PanoramaLink[];
 }
 
+/**
+ * Точка съёмки фотосферы на плане (ТЗ 5.4, П1). Сервис сам предлагает точки по форме помещений и дверям,
+ * организатор двигает их, добавляет свои и убирает лишние.
+ */
+export interface CapturePoint {
+  id: string;
+  level: string;
+  pos: Vec2;
+  /**
+   * auto — рассчитана по плану и пересчитывается при каждой правке;
+   * manual — поставлена или сдвинута организатором, расчёт её не трогает;
+   * removed — организатор убрал рассчитанную точку: здесь снимать не нужно, расчёт её не вернёт.
+   */
+  origin: 'auto' | 'manual' | 'removed';
+  /** Панорама, снятая в этой точке; null — ещё не снята. */
+  panorama: string | null;
+}
+
 export interface Anchor {
   id: string;
   level: string;
@@ -184,6 +202,8 @@ export interface MapDocument {
   panoramas: PanoramaPlacement[];
   anchors: Anchor[];
   settings: MapSettings;
+  /** План съёмки. Нет у карт, сохранённых до него, — тогда считается при первой правке. */
+  capturePoints?: CapturePoint[];
 }
 
 export const DEFAULT_SETTINGS: MapSettings = { markerRange: 20, linkRange: 15 };

@@ -5,6 +5,11 @@ import type { MapDocument, NavEdge, NavNode, Vec2 } from './types.ts';
 export interface RouteOptions {
   /** Посетитель не видит рёбер «только для персонала». */
   includeStaff?: boolean;
+  /**
+   * Штраф за поворот — столько метров добавляет поворот на 90°. Из почти равных путей выбирается тот,
+   * где меньше поворотов: так ходят люди. 0 — чистый кратчайший путь. Длина в ответе — всегда честные метры.
+   */
+  turnPenalty?: number;
 }
 
 export type RouteResult =
@@ -16,11 +21,23 @@ interface Adjacent {
   edge: NavEdge;
 }
 
+/** Состояние поиска: узел и откуда в него пришли — без штрафа за поворот откуда пришли не важно. */
+interface SearchState {
+  node: string;
+  prev: string | null;
+  cost: number;
+  length: number;
+  back: string | null;
+  edge: NavEdge | null;
+}
+
 export class NavGraph {
   readonly nodes = new Map<string, NavNode>();
   private readonly adjacency = new Map<string, Adjacent[]>();
+  private readonly turnPenalty: number;
 
   constructor(doc: MapDocument, options: RouteOptions = {}) {
+    this.turnPenalty = Math.max(0, options.turnPenalty ?? 0);
     for (const n of doc.graph.nodes) {
       this.nodes.set(n.id, n);
       this.adjacency.set(n.id, []);
@@ -62,42 +79,87 @@ export class NavGraph {
     return this.search(from, (id) => goal.has(id), () => 0);
   }
 
-  private search(from: string, isGoal: (id: string) => boolean, h: (id: string) => number): RouteResult {
-    const g = new Map<string, number>([[from, 0]]);
-    const came = new Map<string, Adjacent>();
+  /** Длины кратчайших путей от узла до всех достижимых (Дейкстра, без штрафа за повороты). */
+  distancesFrom(from: string): Map<string, number> {
+    const dist = new Map<string, number>([[from, 0]]);
+    if (!this.nodes.has(from)) return new Map();
     const open = new MinHeap();
-    open.push(from, h(from));
+    open.push(from, 0);
+    const done = new Set<string>();
+    while (open.size > 0) {
+      const current = open.pop()!;
+      if (done.has(current)) continue;
+      done.add(current);
+      for (const adj of this.neighbours(current)) {
+        const d = dist.get(current)! + adj.edge.weight;
+        if (d < (dist.get(adj.node) ?? Infinity)) {
+          dist.set(adj.node, d);
+          open.push(adj.node, d);
+        }
+      }
+    }
+    return dist;
+  }
+
+  private search(from: string, isGoal: (id: string) => boolean, h: (id: string) => number): RouteResult {
+    const turns = this.turnPenalty > 0;
+    // Со штрафом за поворот цена шага зависит от того, откуда пришли, — состояние «узел + предыдущий».
+    const key = (node: string, prev: string | null) => (turns ? `${node}\u0000${prev ?? ''}` : node);
+    const states = new Map<string, SearchState>();
+    const startKey = key(from, null);
+    states.set(startKey, { node: from, prev: null, cost: 0, length: 0, back: null, edge: null });
+    const open = new MinHeap();
+    open.push(startKey, h(from));
     const closed = new Set<string>();
 
     while (open.size > 0) {
-      const current = open.pop()!;
-      if (closed.has(current)) continue;
-      if (isGoal(current)) return this.reconstruct(from, current, came, g.get(current)!);
-      closed.add(current);
-      for (const adj of this.neighbours(current)) {
-        if (closed.has(adj.node)) continue;
-        const tentative = g.get(current)! + adj.edge.weight;
-        if (tentative < (g.get(adj.node) ?? Infinity)) {
-          g.set(adj.node, tentative);
-          came.set(adj.node, { node: current, edge: adj.edge });
-          open.push(adj.node, tentative + h(adj.node));
+      const currentKey = open.pop()!;
+      if (closed.has(currentKey)) continue;
+      const current = states.get(currentKey)!;
+      if (isGoal(current.node)) return this.reconstruct(states, currentKey);
+      closed.add(currentKey);
+      for (const adj of this.neighbours(current.node)) {
+        const nextKey = key(adj.node, current.node);
+        if (closed.has(nextKey)) continue;
+        const turn = turns && current.prev ? (this.turnPenalty * this.turnAngle(current.prev, current.node, adj.node)) / 90 : 0;
+        const cost = current.cost + adj.edge.weight + turn;
+        if (cost < (states.get(nextKey)?.cost ?? Infinity)) {
+          states.set(nextKey, { node: adj.node, prev: current.node, cost, length: current.length + adj.edge.weight, back: currentKey, edge: adj.edge });
+          open.push(nextKey, cost + h(adj.node));
         }
       }
     }
     return { ok: false, reason: 'not_found' };
   }
 
-  private reconstruct(from: string, to: string, came: Map<string, Adjacent>, length: number): RouteResult {
-    const nodes = [to];
+  /** Угол поворота в узле b по пути a → b → c, градусы 0…180. Между этажами поворота нет. */
+  private turnAngle(a: string, b: string, c: string): number {
+    const na = this.nodes.get(a)!;
+    const nb = this.nodes.get(b)!;
+    const nc = this.nodes.get(c)!;
+    if (na.level !== nb.level || nb.level !== nc.level) return 0;
+    const ux = nb.pos[0] - na.pos[0];
+    const uy = nb.pos[1] - na.pos[1];
+    const vx = nc.pos[0] - nb.pos[0];
+    const vy = nc.pos[1] - nb.pos[1];
+    const lu = Math.hypot(ux, uy);
+    const lv = Math.hypot(vx, vy);
+    if (lu < 1e-9 || lv < 1e-9) return 0;
+    const cos = Math.max(-1, Math.min(1, (ux * vx + uy * vy) / (lu * lv)));
+    return (Math.acos(cos) * 180) / Math.PI;
+  }
+
+  private reconstruct(states: Map<string, SearchState>, lastKey: string): RouteResult {
+    const last = states.get(lastKey)!;
+    const nodes = [last.node];
     const edges: string[] = [];
-    let cur = to;
-    while (cur !== from) {
-      const step = came.get(cur)!;
-      edges.push(step.edge.id);
-      nodes.push(step.node);
-      cur = step.node;
+    let cur = last;
+    while (cur.back !== null) {
+      edges.push(cur.edge!.id);
+      cur = states.get(cur.back)!;
+      nodes.push(cur.node);
     }
-    return { ok: true, nodes: nodes.reverse(), edges: edges.reverse(), length };
+    return { ok: true, nodes: nodes.reverse(), edges: edges.reverse(), length: last.length };
   }
 }
 

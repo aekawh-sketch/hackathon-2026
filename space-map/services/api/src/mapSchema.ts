@@ -114,6 +114,18 @@ export const MapDocumentSchema = Type.Object(
     ),
     anchors: Type.Array(Type.Object({ id: Id, level: Id, pos: Vec2, facing: Num, code: Type.String({ pattern: '^[A-Za-z0-9_-]{1,32}$' }) }), { maxItems: 500 }),
     settings: Type.Object({ markerRange: Type.Number({ minimum: 1, maximum: 200 }), linkRange: Type.Number({ minimum: 1, maximum: 200 }) }),
+    capturePoints: Type.Optional(
+      Type.Array(
+        Type.Object({
+          id: Id,
+          level: Id,
+          pos: Vec2,
+          origin: Type.Union([Type.Literal('auto'), Type.Literal('manual'), Type.Literal('removed')]),
+          panorama: Type.Union([Id, Type.Null()]),
+        }),
+        { maxItems: 2000 },
+      ),
+    ),
   },
   { additionalProperties: false },
 );

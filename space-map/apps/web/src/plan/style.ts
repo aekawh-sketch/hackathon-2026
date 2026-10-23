@@ -38,5 +38,7 @@ export const LABEL = '#4A5568';
 export const ROUTE = '#2F5BEA';
 export const ROUTE_CASING = '#FFFFFF';
 export const PANORAMA = '#0AA2C0';
+/** Точки и маршрут съёмки — отдельный цвет, чтобы не путать с маршрутом посетителя. */
+export const CAPTURE = '#7C3AED';
 export const SELECTED = '#FF7A1A';
 export const FROM = '#12A150';

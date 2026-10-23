@@ -1,5 +1,5 @@
 // Сквозные проверки API на настоящей PostgreSQL (TEST_DATABASE_URL). ТЗ 13: владение, ревизии, публикация, загрузки.
-import { demoVenue, type MapDocument } from '@space-map/map-core';
+import { demoVenue, refreshCapturePoints, type MapDocument } from '@space-map/map-core';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -199,6 +199,20 @@ describe('черновик карты', () => {
     expect((await c.req('PUT', `/api/venues/${v.id}/draft`, { revision, doc })).statusCode).toBe(200);
     const back = (await c.req('GET', `/api/venues/${v.id}/draft`)).json();
     expect(back.doc.units[0].holes).toEqual([[[4, 4], [5, 4], [5, 5], [4, 5]]]);
+  });
+
+  it('точки съёмки сохраняются; точка с несуществующей панорамой — 422', async () => {
+    const c = await newUser();
+    const v = await newVenue(c);
+    const { revision } = (await c.req('GET', `/api/venues/${v.id}/draft`)).json();
+    const doc = refreshCapturePoints(demoVenue());
+    expect(doc.capturePoints!.length).toBeGreaterThan(0);
+    const saved = await c.req('PUT', `/api/venues/${v.id}/draft`, { revision, doc });
+    expect(saved.statusCode).toBe(200);
+    const back = (await c.req('GET', `/api/venues/${v.id}/draft`)).json();
+    expect(back.doc.capturePoints).toEqual(doc.capturePoints);
+    back.doc.capturePoints[0].panorama = 'nope';
+    expect((await c.req('PUT', `/api/venues/${v.id}/draft`, { revision: back.revision, doc: back.doc })).statusCode).toBe(422);
   });
 
   it('битые ссылки — 422, неверная схема — 400', async () => {

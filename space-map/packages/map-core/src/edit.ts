@@ -272,6 +272,7 @@ export function translateUnit(doc: MapDocument, id: string, delta: Vec2): MapDoc
     panoramas: doc.panoramas.map((pa) => (same(pa.level) && inside(pa.pos) ? { ...pa, pos: move(pa.pos) } : pa)),
     anchors: doc.anchors.map((a) => (same(a.level) && inside(a.pos) ? { ...a, pos: move(a.pos) } : a)),
     openings: doc.openings.map((o) => (hasUnit(o, id) ? { ...o, segment: [move(o.segment[0]), move(o.segment[1])] as [Vec2, Vec2] } : o)),
+    ...(doc.capturePoints ? { capturePoints: doc.capturePoints.map((c) => (same(c.level) && inside(c.pos) ? { ...c, pos: move(c.pos) } : c)) } : {}),
   };
   return afterGeometryChange(moved, unit.level, id, before);
 }
@@ -318,6 +319,7 @@ export function deleteUnit(doc: MapDocument, id: string): MapDocument {
     obstacles: doc.obstacles.filter((o) => !(same(o.level) && o.polygon.every(inside))),
     places: doc.places.filter((p) => !gonePlaces.has(p.id)),
     anchors: doc.anchors.filter((a) => !(same(a.level) && inside(a.pos))),
+    ...(doc.capturePoints ? { capturePoints: doc.capturePoints.filter((c) => !(same(c.level) && inside(c.pos))) } : {}),
     panoramas: doc.panoramas
       .filter((pa) => !gonePanos.has(pa.id))
       .map((pa) => ({

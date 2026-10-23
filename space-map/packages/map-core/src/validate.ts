@@ -55,6 +55,11 @@ export function validateReferences(doc: MapDocument): Issue[] {
     });
   });
   doc.anchors.forEach((a, i) => need(levels.has(a.level), `anchors[${i}].level`, `нет этажа ${a.level}`));
+  idSet(doc.capturePoints ?? [], 'capturePoints', issues);
+  (doc.capturePoints ?? []).forEach((c, i) => {
+    need(levels.has(c.level), `capturePoints[${i}].level`, `нет этажа ${c.level}`);
+    if (c.panorama !== null) need(panoramas.has(c.panorama), `capturePoints[${i}].panorama`, `нет панорамы ${c.panorama}`);
+  });
   return issues;
 }
 
@@ -76,13 +81,14 @@ export function deletePlace(doc: MapDocument, id: string): MapDocument {
   };
 }
 
-/** Удалить панораму вместе с переходами, которые в неё ведут. */
+/** Удалить панораму вместе с переходами, которые в неё ведут. Точка съёмки снова ждёт съёмки. */
 export function deletePanorama(doc: MapDocument, id: string): MapDocument {
   return {
     ...doc,
     panoramas: doc.panoramas
       .filter((pa) => pa.id !== id)
       .map((pa) => ({ ...pa, links: pa.links.filter((l) => l.to !== id) })),
+    ...(doc.capturePoints ? { capturePoints: doc.capturePoints.map((c) => (c.panorama === id ? { ...c, panorama: null } : c)) } : {}),
   };
 }
 

@@ -1031,6 +1031,38 @@ button.route-end:hover {
   }
 }
 
+/* Стрелки по маршруту: «Дальше» — крупная, с подписью; «Назад» и стрелки в сторону — приглушены. */
+.pano-link.is-next {
+  width: 66px;
+  height: 66px;
+  background: var(--primary);
+  border-width: 4px;
+}
+
+.pano-link.is-next svg {
+  width: 36px;
+  height: 36px;
+}
+
+.pano-link.is-prev,
+.pano-link.is-off {
+  width: 44px;
+  height: 44px;
+  background: rgb(14 23 38 / 0.5);
+  border-width: 2px;
+  animation: none;
+}
+
+.pano-link.is-off {
+  opacity: 0.75;
+}
+
+.pano-link.is-prev svg,
+.pano-link.is-off svg {
+  width: 24px;
+  height: 24px;
+}
+
 .tour-bar {
   position: absolute;
   left: 50%;
@@ -1231,6 +1263,18 @@ button.route-end:hover {
 
 .is-mobile .tool-bar {
   padding: 2px 0 8px;
+  /* Инструментов больше, чем помещается на узком экране, — панель листается вбок. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.is-mobile .tool-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.is-mobile .tool-btn {
+  flex: 1 0 52px;
+  min-width: 52px;
 }
 
 .tool-hint {
@@ -1432,6 +1476,12 @@ button.insp-row:hover {
   background: var(--surface-2);
   border-color: var(--border-strong);
   color: var(--text-2);
+}
+
+.swatch.shot {
+  background: #f1ebff;
+  border-color: #c4b0f7;
+  color: #7c3aed;
 }
 
 .stat-grid {
@@ -1978,4 +2028,155 @@ button.insp-row:hover {
   background: var(--bg);
   color: #1f2a3d;
   border: 2px solid #1f2a3d;
+}
+
+/* ── Маршрут съёмки на камере ── */
+.guide {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: #000;
+  color: #fff;
+  overflow: hidden;
+}
+
+.guide-video,
+.guide-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.guide-video {
+  object-fit: cover;
+}
+
+.guide-overlay {
+  pointer-events: none;
+}
+
+.guide-route-casing,
+.guide-route {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.guide-route-casing {
+  stroke: rgb(255 255 255 / 0.85);
+  stroke-width: 16px;
+}
+
+.guide-route {
+  stroke: #7c3aed;
+  stroke-width: 9px;
+}
+
+.guide-target-ring {
+  fill: rgb(124 58 237 / 0.25);
+  stroke: #fff;
+  stroke-width: 3px;
+}
+
+.guide-target-dot {
+  fill: #7c3aed;
+  stroke: #fff;
+  stroke-width: 3px;
+}
+
+.guide-target-label {
+  fill: #fff;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.guide-cross {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  background:
+    linear-gradient(#fff, #fff) center / 2px 100% no-repeat,
+    linear-gradient(#fff, #fff) center / 100% 2px no-repeat;
+  filter: drop-shadow(0 0 2px rgb(0 0 0 / 0.8));
+}
+
+.guide-top {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.guide-turn {
+  position: absolute;
+  top: 45%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgb(124 58 237 / 0.85);
+  font-weight: 700;
+}
+
+.guide-turn.is-left {
+  left: 12px;
+}
+
+.guide-turn.is-right {
+  right: 12px;
+  flex-direction: row-reverse;
+}
+
+.guide-turn.is-right svg {
+  transform: scaleX(-1);
+}
+
+.guide-panel {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.guide-panel h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+.guide-panel p {
+  margin: 0 0 12px;
+}
+
+.guide-panel .row {
+  display: flex;
+  gap: 8px;
+}
+
+.guide-panel .row .btn {
+  flex: 1;
+}
+
+.guide-fov {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  font-size: 12.5px;
+  color: var(--muted);
 }
