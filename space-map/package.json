@@ -1,0 +1,19 @@
+{
+  "name": "space-map",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "services/api"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:api": "npm run dev -w services/api",
+    "dev:web": "npm run dev -w apps/web"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
