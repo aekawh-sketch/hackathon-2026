@@ -1,0 +1,14 @@
+# Сборка Docker берёт только сайт, API и ядро карты.
+**/node_modules
+**/dist
+**/build
+**/.DS_Store
+**/.env
+**/.env.*
+!**/.env.example
+apps/android
+apps/desktop
+apps/ios
+presentation
+services/api/data
+tools/.cache

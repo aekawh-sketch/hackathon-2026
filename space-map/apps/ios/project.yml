@@ -1,0 +1,57 @@
+# Проект Xcode генерируется отсюда: brew install xcodegen && xcodegen generate (в apps/ios).
+# Готовый SpaceMap.xcodeproj лежит рядом — для работы XcodeGen не нужен.
+name: SpaceMap
+options:
+  bundleIdPrefix: ru.spacemap
+  deploymentTarget:
+    iOS: "16.0"
+  developmentLanguage: ru
+settings:
+  base:
+    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 1
+    SWIFT_VERSION: "5.0"
+targets:
+  SpaceMap:
+    type: application
+    platform: iOS
+    sources:
+      - SpaceMap
+    # Общая схема — чтобы собирать из Xcode и командой xcodebuild -scheme SpaceMap.
+    scheme: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ru.spacemap.ios
+        PRODUCT_NAME: SpaceMap
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: NO
+        # Откуда грузить сайт. Другой стенд или локальный Docker по адресу компьютера в сети — поменять здесь.
+        SPACE_MAP_START_URL: https://193-233-88-64.sslip.io/app
+    info:
+      path: SpaceMap/Info.plist
+      properties:
+        CFBundleDisplayName: Карта пространства
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        SpaceMapStartURL: $(SPACE_MAP_START_URL)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen:
+          UIColorName: AccentColor
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSCameraUsageDescription: Камера нужна, чтобы сканировать QR-код проекта и снимать панорамы.
+        NSMotionUsageDescription: Датчики ориентации подсказывают, куда повернуть телефон при съёмке и на маршруте.
+        NSPhotoLibraryUsageDescription: Чтобы загрузить готовую панораму из галереи.
+        ITSAppUsesNonExemptEncryption: false
+        # Локальный сервер в Docker открывается по http — только для адресов в локальной сети.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true

@@ -49,6 +49,6 @@ export function angleBetween(a: Vec3, b: Vec3): number {
  * @returns цели от горизонта к полюсам; последней — надир
  */
 export function planCaptureTargets(hfov: number, vfov: number, overlap: number): CaptureTarget[] {
-  // TODO(пользователь): расставить ряды и число кадров в каждом ряду.
+  // TODO: расставить ряды и число кадров в каждом ряду.
   throw new Error(`planCaptureTargets не реализована (hfov=${hfov}, vfov=${vfov}, overlap=${overlap})`);
 }

@@ -47,7 +47,7 @@ export default function PhoneQrDialog({ venueId, onClose }: { venueId: string; o
           <rect width={qr.size} height={qr.size} fill="#fff" />
           <path d={qr.d} fill="#000" />
         </svg>
-        {local && <p className="notice">Адрес {location.host} с телефона не откроется — откройте редактор на стенде.</p>}
+        {local && <p className="notice">Адрес {location.host} с телефона не откроется — откройте редактор по адресу компьютера в сети или на стенде.</p>}
         {user?.isGuest && openAccess !== null && (
           <p className="hint">
             {openAccess

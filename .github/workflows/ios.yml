@@ -1,0 +1,37 @@
+# Сборка приложения для iOS на macOS-раннере: проверка, что проект собирается, и .app для симулятора.
+# Подпись не нужна (CODE_SIGNING_ALLOWED=NO); на iPhone ставится из Xcode со своей командой разработчика.
+name: iOS
+
+# В рабочих ветках при правке приложения и вручную; main получает уже проверенный код — второй прогон не нужен.
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore:
+      - main
+    paths:
+      - 'space-map/apps/ios/**'
+      - '.github/workflows/ios.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: space-map/apps/ios
+    steps:
+      - uses: actions/checkout@v4
+      - name: Версия Xcode
+        run: xcodebuild -version
+      - name: Сборка для симулятора
+        run: |
+          xcodebuild -project SpaceMap.xcodeproj -scheme SpaceMap -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+      - name: Упаковать .app для симулятора
+        run: cd build/Build/Products/Debug-iphonesimulator && zip -qr ../../../../SpaceMap-simulator.zip SpaceMap.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SpaceMap-simulator
+          path: space-map/apps/ios/SpaceMap-simulator.zip
+          retention-days: 14

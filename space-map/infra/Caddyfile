@@ -1,0 +1,21 @@
+# Локальный сервер в Docker: сайт из /srv, API — сервис api в той же сети.
+# По http://localhost камера и датчики в браузере работают (localhost — безопасный адрес).
+:80 {
+	encode zstd gzip
+
+	@api path /api/* /p/* /files/*
+	handle @api {
+		reverse_proxy api:8080
+	}
+
+	handle {
+		root * /srv
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		# Страница всегда свежая: после пересборки браузер берёт новую версию.
+		@page not path /assets/*
+		header @page Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}

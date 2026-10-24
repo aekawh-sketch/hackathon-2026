@@ -1,0 +1,56 @@
+# Локальный сервер «Карты пространства» целиком: база, API, сайт.
+#   cp .env.example .env    # и задать пароли
+#   docker compose up -d --build
+#   открыть http://localhost:8000
+name: space-map
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: spacemap
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-spacemap}
+      POSTGRES_DB: spacemap
+    volumes:
+      - db:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U spacemap -d spacemap']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://spacemap:${POSTGRES_PASSWORD:-spacemap}@db:5432/spacemap
+      STORAGE_DIR: /data
+      PORT: 8080
+      # Локально по http — cookie без флага Secure.
+      COOKIE_SECURE: 'false'
+      OPEN_ACCESS: ${OPEN_ACCESS:-false}
+      DEMO_EMAIL: ${DEMO_EMAIL:-demo@space-map.local}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-}
+    volumes:
+      - files:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - '${PORT:-8000}:80'
+    depends_on:
+      - api
+
+volumes:
+  # База и файлы (панорамы, опубликованные версии) переживают перезапуск и пересборку контейнеров.
+  db:
+  files:

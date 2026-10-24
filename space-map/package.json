@@ -4,14 +4,16 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "apps/*",
+    "apps/web",
     "services/api"
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:api": "npm run dev -w services/api",
-    "dev:web": "npm run dev -w apps/web"
+    "dev:web": "npm run dev -w apps/web",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down"
   },
   "engines": {
     "node": ">=22"

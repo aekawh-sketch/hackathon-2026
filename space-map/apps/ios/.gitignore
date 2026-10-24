@@ -1,0 +1,4 @@
+build/
+*.xcuserstate
+xcuserdata/
+SpaceMap-simulator.zip
