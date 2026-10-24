@@ -66,6 +66,9 @@ npm run typecheck
 
 Все три открывают тот же сайт: стенд команды по умолчанию, локальный сервер — в настройках каждого приложения.
 
+Готовые файлы — установщик для Windows и APK для Android — в [Releases](https://github.com/aekawh-sketch/hackathon-2026/releases).
+Новый релиз собирает GitHub Actions по тегу: `git tag v<дата> && git push origin v<дата>`.
+
 ## Работа в репозитории
 
 - `main` — рабочий код. Задачи делаются в своих ветках и вливаются через Pull Request.

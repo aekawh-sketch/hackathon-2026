@@ -43,7 +43,7 @@
       "target": [
         "nsis"
       ],
-      "signAndEditExecutable": false
+      "signExecutable": false
     },
     "linux": {
       "target": [

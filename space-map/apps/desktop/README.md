@@ -23,6 +23,11 @@ npm run dist:win       # установщик Windows (NSIS)
 npm run dist:linux     # AppImage
 ```
 
+Готовые сборки: установщик для Windows — в [Releases](https://github.com/aekawh-sketch/hackathon-2026/releases)
+(собирается GitHub Actions по тегу `v*`, `.github/workflows/release.yml`) и на стенде:
+[Windows](https://193-233-88-64.sslip.io/downloads/space-map-desktop-win-x64.exe),
+[macOS (Apple Silicon)](https://193-233-88-64.sslip.io/downloads/space-map-desktop-mac-arm64.dmg).
+
 Сборки не подписаны сертификатом разработчика. На macOS при первом запуске: правой кнопкой по приложению →
 «Открыть» → «Открыть». На Windows SmartScreen: «Подробнее» → «Выполнить в любом случае».
 

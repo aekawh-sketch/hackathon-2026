@@ -2,6 +2,13 @@
 
 Обновлено: 2026-10-24.
 
+## Релиз приложений: Windows и Android (2026-10-25)
+
+- **Установщик для Windows** (`space-map-0.1.0-win-x64.exe`, NSIS, 120 МБ): значок и описание вшиты, подписи нет (`win.signExecutable: false`). Собран на этом Mac (`npm run dist:win`), лежит на стенде `/downloads/space-map-desktop-win-x64.exe`. Проверено: `file` — PE32+ x86-64 GUI и NSIS-установщик; **запуск на Windows здесь не проверить**.
+- **GitHub Releases** — `.github/workflows/release.yml`, по тегу `v*`: Windows-раннер собирает exe и проверяет запуск (порт отладки — открыта страница стенда или своя «Сервер не отвечает»), Ubuntu собирает APK и сверяет подпись ключом команды, затем оба файла — в релиз. В git exe не кладём: больше 100 МБ.
+- **APK** 0.2.1 (versionCode 6) из текущих исходников собран и здесь: 43 985 118 байт, как на стенде, подпись `CN=Space Map Team Debug` (`bbc13e89…`).
+- Результат сборки в GitHub Actions отсюда не виден (нет входа в `gh`) — **проверить на вкладке Actions и в Releases**.
+
 ## Docker, приложения для компьютера и iOS (2026-10-25)
 
 - **Локальный сервер в Docker** (`docker-compose.yml`): `db` — PostgreSQL 18, `api` — Node 22 (миграции при старте, при `DEMO_PASSWORD` — демо-организатор и площадка demo), `web` — сборка сайта, раздаёт Caddy (`infra/Caddyfile`) и проксирует `/api`, `/p`, `/files`. Тома `db` и `files`. `cp .env.example .env && docker compose up -d --build` → http://localhost:8000.

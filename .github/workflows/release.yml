@@ -1,0 +1,104 @@
+# Релиз приложений: установщик для Windows и APK для Android — файлами в GitHub Releases.
+# Запуск — тегом: git tag v2026.10.25 && git push origin v2026.10.25 (или вручную, тогда без публикации — только сборки).
+# Установщик больше 100 МБ: в git его не положить, поэтому — релиз.
+name: Релиз приложений
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows (exe)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: space-map/apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      - name: Сборка установщика
+        run: npx electron-builder --win --x64 --publish never
+      # Приложение запускается и открывает сайт (или свою страницу «Сервер не отвечает», если стенд недоступен отсюда).
+      - name: Проверка запуска
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem dist/win-unpacked -Filter *.exe | Where-Object { $_.Name -notmatch 'Uninstall' } | Select-Object -First 1
+          $env:SPACE_MAP_URL = 'https://193-233-88-64.sslip.io/'
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList '--remote-debugging-port=9222' -PassThru
+          $page = $null
+          for ($i = 0; $i -lt 60 -and -not $page; $i++) {
+            Start-Sleep -Seconds 1
+            try {
+              $page = (Invoke-RestMethod http://127.0.0.1:9222/json/list) | Where-Object { $_.type -eq 'page' -and ($_.url -like 'https://193-233-88-64.sslip.io*' -or $_.url -like 'data:text/html*') } | Select-Object -First 1
+            } catch {}
+          }
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          if (-not $page) { throw 'Приложение не открыло страницу' }
+          Write-Host "Открыто: $($page.title) — $($page.url.Substring(0, [Math]::Min(60, $page.url.Length)))"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: space-map/apps/desktop/dist/space-map-*-win-x64.exe
+          retention-days: 14
+
+  android:
+    name: Android (apk)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: space-map/apps/android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Лицензии Android SDK
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+      - name: Сборка APK
+        run: ./gradlew :app:assembleDebug --no-configuration-cache
+      # Подпись — ключом команды: тогда APK ставится поверх уже установленного приложения.
+      - name: Проверка подписи
+        run: |
+          apk=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$bt/apksigner" verify --print-certs "$apk" | tee /dev/stderr | grep -q 'bbc13e899b2580e41e9a7d8ae93083263e144f20306f673254aa53352aea1800'
+          version=$("$bt/aapt2" dump badging "$apk" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          mkdir -p ../../../out && cp "$apk" "../../../out/space-map-android-$version.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: out/*.apk
+          retention-days: 14
+
+  publish:
+    name: Публикация
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: files
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Приложения ${{ github.ref_name }}
+          files: files/*
+          body: |
+            **Windows** — `space-map-…-win-x64.exe`: установщик. Подписи разработчика нет: если SmartScreen предупредит — «Подробнее» → «Выполнить в любом случае». Сервер — меню «Файл → Сервер» (стенд команды или локальный Docker).
+
+            **Android** — `space-map-android-….apk`: открыть файл на телефоне и разрешить установку из этого источника. Подписан ключом команды — ставится поверх уже установленного приложения.
+
+            Сайт: https://193-233-88-64.sslip.io
