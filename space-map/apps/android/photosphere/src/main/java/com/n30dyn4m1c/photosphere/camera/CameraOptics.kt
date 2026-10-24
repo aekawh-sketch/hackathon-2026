@@ -88,16 +88,18 @@ data class SphereOptics(
 fun rememberSphereOptics(
     cameraId: String? = null,
     streamAspectRatio: Float = 0f,
+    zoomRatio: Float = 1f,
 ): SphereOptics {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
-    return remember(context, configuration, cameraId, streamAspectRatio) {
+    return remember(context, configuration, cameraId, streamAspectRatio, zoomRatio) {
         estimateSphereOptics(
             context = context,
             displayRotation = context.currentDisplayRotation(),
             profile = SphereDeviceProfile.forDevice(),
             cameraId = cameraId,
             streamAspectRatio = streamAspectRatio,
+            zoomRatio = zoomRatio,
         )
     }
 }
@@ -145,8 +147,12 @@ internal fun estimateSphereOptics(
     profile: SphereDeviceProfile,
     cameraId: String? = null,
     streamAspectRatio: Float = 0f,
+    zoomRatio: Float = 1f,
 ): SphereOptics {
     var sensorFieldOfView = DEFAULT_SENSOR_FIELD_OF_VIEW
+    // Зум < 1: широкий объектив через основную камеру (см. [widenedByZoom]). Её характеристики
+    // по-прежнему описывают кадр при зуме 1 — основной объектив, от него и считаем.
+    val zoomedOut = zoomRatio < 1f
     // Portrait-first phones mount the sensor rotated a quarter turn; assume that
     // when the camera cannot be queried, since it matches nearly all hardware.
     var sensorOrientation = 90
@@ -173,7 +179,7 @@ internal fun estimateSphereOptics(
                     focalLengthsMm =
                         characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS),
                     sensorDiagonalMm = physicalSize.diagonalMm(),
-                    preferWidest = profile.preferWidestCamera,
+                    preferWidest = profile.preferWidestCamera && !zoomedOut,
                 )
 
                 val fromIntrinsics = array?.let { active ->
@@ -218,10 +224,11 @@ internal fun estimateSphereOptics(
                         streamAspectRatio = streamAspectRatio,
                     )
                 }
+                if (zoomedOut) sensorFieldOfView = widenedByZoom(sensorFieldOfView, zoomRatio)
                 Log.i(
                     TAG,
                     "Camera $id: intrinsics=$fromIntrinsics geometry=$fromGeometry " +
-                        "stream=$streamAspectRatio -> $sensorFieldOfView",
+                        "stream=$streamAspectRatio zoom=$zoomRatio -> $sensorFieldOfView",
                 )
 
                 // LENS_DISTORTION's coefficients act on coordinates normalized
@@ -229,7 +236,9 @@ internal fun estimateSphereOptics(
                 // — the stitcher rescales them against whatever frame it is
                 // looking at. Only the three radial terms are taken; the two
                 // tangential ones that follow are negligible on a phone lens.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                // При зуме < 1 кадры идут с другого объектива, а коэффициенты — от основного:
+                // склейка считает кадр идеальным (без искажений), как и для камеры без калибровки.
+                if (!zoomedOut && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     val kappa = characteristics.get(CameraCharacteristics.LENS_DISTORTION)
                     if (kappa != null && kappa.size >= 3) {
                         radialDistortion = RadialDistortion(
@@ -363,6 +372,24 @@ internal fun croppedToStreamAspect(
  * Angle subtended by an extent of [extent] (pixels or millimetres) behind a lens
  * of [focal] in the same units.
  */
+/**
+ * Поле зрения при зуме [zoomRatio] < 1 у основной камеры. Так приложениям достаётся широкий объектив
+ * на телефонах, где прошивка не отдаёт его отдельной камерой (Xiaomi, POCO): камера сама переключается
+ * на него, как кнопка «0.6×» в её «Камере». Кадр шире кадра при зуме 1 ровно в 1/zoom раз —
+ * по тангенсу половины угла, а не по самому углу.
+ */
+internal fun widenedByZoom(fieldOfView: FieldOfView, zoomRatio: Float): FieldOfView {
+    require(zoomRatio > 0f) { "zoom ratio must be positive, was $zoomRatio" }
+    fun widen(degrees: Float) = degreesFromTanHalf(tanHalf(degrees) / zoomRatio).coerceAtMost(MAX_ZOOMED_FOV_DEGREES)
+    return FieldOfView(
+        horizontalDegrees = widen(fieldOfView.horizontalDegrees),
+        verticalDegrees = widen(fieldOfView.verticalDegrees),
+    )
+}
+
+/** Верхняя граница угла после зума: [FieldOfView] принимает до 179°, а таких объективов в телефонах нет. */
+private const val MAX_ZOOMED_FOV_DEGREES = 150f
+
 private fun fieldOfViewDegrees(extent: Float, focal: Float): Float =
     degreesFromTanHalf(extent / (2f * focal))
 

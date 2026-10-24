@@ -1,1 +1,3 @@
 *.apk
+# Описание сборки для обновления из приложения (tools/publish-android.sh STAND=local)
+space-map.json

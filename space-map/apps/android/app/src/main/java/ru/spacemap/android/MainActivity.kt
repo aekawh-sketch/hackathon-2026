@@ -44,11 +44,14 @@ import java.util.concurrent.ConcurrentHashMap
  * - снимок страница забирает обычным `fetch(url)`: адрес `/__native/sphere/<id>.jpg` на своём же домене
  *   приложение отдаёт из файла, не гоняя мегабайты через JavaScript. Загружает на сервер уже страница —
  *   со своей сессией и CSRF, как любой другой файл.
+ *
+ * При заходе проверяет, нет ли на стенде сборки новее, и предлагает обновиться ([AppUpdater]).
  */
 class MainActivity : ComponentActivity() {
 
     private lateinit var web: WebView
     private val start: Uri by lazy { Uri.parse(BuildConfig.START_URL) }
+    private val updater = AppUpdater(this)
 
     /** Снятые сферы по ID запроса страницы. */
     private val spheres = ConcurrentHashMap<String, File>()
@@ -154,6 +157,11 @@ class MainActivity : ComponentActivity() {
         web.saveState(outState)
     }
 
+    override fun onStart() {
+        super.onStart()
+        updater.checkOnEnter()
+    }
+
     override fun onResume() {
         super.onResume()
         web.onResume()
@@ -165,6 +173,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        updater.close()
         web.destroy()
         super.onDestroy()
     }

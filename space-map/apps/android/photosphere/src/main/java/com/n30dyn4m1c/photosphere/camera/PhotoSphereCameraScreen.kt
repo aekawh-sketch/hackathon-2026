@@ -7,6 +7,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
 import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
@@ -196,6 +197,12 @@ private const val THREE_A_LOCK_TIMEOUT_MS = 6_000L
 private const val REMETER_SETTLE_MS = 800L
 
 /**
+ * Зум меньше этого не ставим: у телефонов «0.5×» — самый широкий объектив; ещё меньше — ошибка
+ * в характеристиках камеры, и план съёмки разошёлся бы так широко, что кадры не перекроются.
+ */
+private const val MIN_WIDE_ZOOM = 0.45f
+
+/**
  * How much taller a ring capture's canvas band is than the lens's vertical
  * field of view.
  *
@@ -282,7 +289,9 @@ fun PhotoSphereCameraScreen(
     // optics are re-read from them rather than from a guess at what would bind.
     var boundCameraId by remember { mutableStateOf<String?>(null) }
     var streamAspectRatio by remember { mutableFloatStateOf(0f) }
-    val optics = rememberSphereOptics(boundCameraId, streamAspectRatio)
+    // Зум, который встал после привязки: меньше 1 — снимаем широким объективом через основную камеру.
+    var zoomRatio by remember { mutableFloatStateOf(1f) }
+    val optics = rememberSphereOptics(boundCameraId, streamAspectRatio, zoomRatio)
     val fieldOfView = optics.fieldOfView
 
     // True once the session's AE/AWB lock has been applied (either by the
@@ -502,6 +511,7 @@ fun PhotoSphereCameraScreen(
         // among them) take the default back camera, which Android requires to
         // be the primary rear one — the main lens, not the ultrawide. Either
         // way the optics are re-read afterwards from whatever actually bound.
+        // Если отдельной широкой камеры не видно, после привязки пробуем зум < 1 ([zoomOutToWidest]).
         val cameraSelector = if (deviceProfile.preferWidestCamera) {
             widestCameraSelector(context) ?: CameraSelector.DEFAULT_BACK_CAMERA
         } else {
@@ -676,6 +686,12 @@ fun PhotoSphereCameraScreen(
                     capture,
                 )
             }
+            // Широкий объектив, который прошивка не отдаёт приложениям отдельной камерой (Xiaomi, POCO),
+            // часто доступен зумом < 1 у основной. Зум ставится до фиксации экспозиции: пока
+            // [camera2Control] не задан, [lockThreeA] не срабатывает, а «сошлось» от основного
+            // объектива, пришедшее сразу после переключения, отбрасываем, как при «Пересчитать свет».
+            zoomRatio = if (deviceProfile.preferWidestCamera) zoomOutToWidest(camera) else 1f
+            if (zoomRatio < 1f) remeterNotBefore.set(SystemClock.elapsedRealtime() + REMETER_SETTLE_MS)
             imageCapture = capture
             boundCamera = camera
             // The lock target for the convergence callback: the session's
@@ -701,7 +717,7 @@ fun PhotoSphereCameraScreen(
                 ?.takeIf { it.width > 0 && it.height > 0 }
                 ?.let { it.width.toFloat() / it.height }
                 ?: 0f
-            Log.i(TAG, "Bound camera $boundCameraId, stills $streamAspectRatio:1")
+            Log.i(TAG, "Bound camera $boundCameraId, stills $streamAspectRatio:1, zoom ${zoomRatio}x")
 
             // Watch for the camera being taken away mid-run — another camera
             // app grabbing the lens, the camera service dying, a thermal
@@ -2433,6 +2449,40 @@ private fun widestCameraSelector(context: Context): CameraSelector? {
             }
         }
         .build()
+}
+
+/**
+ * Самый широкий зум камеры, если он меньше 1, — и возвращает тот, что реально встал (иначе 1).
+ *
+ * Так приложению достаётся широкий объектив там, где прошивка не отдаёт его отдельной камерой:
+ * основная камера сама переключается на него при зуме < 1. Где прошивка и этого не даёт,
+ * минимальный зум — 1, и съёмка идёт основным объективом, как раньше.
+ */
+private suspend fun zoomOutToWidest(camera: Camera): Float {
+    // Сразу после привязки CameraX может ещё не выдать состояние зума — тогда диапазон из характеристик.
+    val min = camera.cameraInfo.zoomState.value?.minZoomRatio
+        ?: runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Camera2CameraInfo.from(camera.cameraInfo)
+                    .getCameraCharacteristic(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)?.lower
+            } else {
+                null
+            }
+        }.getOrNull()
+        ?: return 1f
+    if (min >= 1f || min < MIN_WIDE_ZOOM) return 1f
+    val future = camera.cameraControl.setZoomRatio(min)
+    return suspendCancellableCoroutine { continuation ->
+        future.addListener(
+            {
+                val applied = runCatching { future.get() }
+                    .onFailure { Log.w(TAG, "Zoom ${min}x not applied, staying at 1x", it) }
+                    .isSuccess
+                continuation.resume(if (applied) min else 1f)
+            },
+            Runnable::run,
+        )
+    }
 }
 
 /**

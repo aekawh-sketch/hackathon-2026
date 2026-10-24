@@ -152,6 +152,40 @@ class CameraOpticsTest {
         }
     }
 
+    // -- Широкий объектив через зум < 1 ----------------------------------------
+
+    /** Основной объектив POCO X5 Pro-подобного телефона: кадр 4:3 в портрете, ~50° × 66°. */
+    private val mainLens = FieldOfView(horizontalDegrees = 50f, verticalDegrees = 66f)
+
+    @Test
+    fun `зум 1 ничего не меняет`() {
+        val same = widenedByZoom(mainLens, 1f)
+        assertEquals(mainLens.horizontalDegrees, same.horizontalDegrees, 1e-3f)
+        assertEquals(mainLens.verticalDegrees, same.verticalDegrees, 1e-3f)
+    }
+
+    @Test
+    fun `зум 0,6 расширяет кадр по тангенсу половины угла`() {
+        val wide = widenedByZoom(mainLens, 0.6f)
+        // tan(25°) / 0.6 → 37,85° на половину; tan(33°) / 0.6 → 47,27°
+        assertEquals(75.7f, wide.horizontalDegrees, TOLERANCE)
+        assertEquals(94.5f, wide.verticalDegrees, TOLERANCE)
+        assertEquals(tanHalfOf(mainLens.verticalDegrees) / 0.6f, tanHalfOf(wide.verticalDegrees), 1e-3f)
+    }
+
+    @Test
+    fun `кадр шире не значит угол в 1-zoom раз больше`() {
+        // Наивное деление угла дало бы 110° — на треть шире правды, и кадры плана не перекрылись бы.
+        assertTrue(widenedByZoom(mainLens, 0.6f).verticalDegrees < 66f / 0.6f - 10f)
+    }
+
+    @Test
+    fun `слишком широкий результат обрезается`() {
+        val extreme = widenedByZoom(FieldOfView(120f, 140f), 0.3f)
+        assertEquals(150f, extreme.verticalDegrees, 1e-3f)
+        assertTrue(extreme.horizontalDegrees <= 150f)
+    }
+
     private fun tanHalfOf(degrees: Float): Float =
         kotlin.math.tan(Math.toRadians(degrees / 2.0)).toFloat()
 }
