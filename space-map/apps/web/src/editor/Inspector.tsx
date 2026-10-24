@@ -214,19 +214,19 @@ function ShotPanel({ doc, point, shotLabels, onSelect, onCommit, onToast, onOpen
     <div className="insp">
       {confirm === 'point' && (
         <ConfirmDialog
-          title={label ? `Убрать точку № ${label}?` : 'Убрать точку съёмки?'}
-          confirmLabel="Убрать точку"
+          title={pano ? 'Убрать точку вместе с панорамой?' : label ? `Убрать точку № ${label}?` : 'Убрать точку съёмки?'}
+          confirmLabel={pano ? 'Убрать точку и панораму' : 'Убрать точку'}
           onCancel={() => setConfirm(null)}
           onConfirm={() => {
             onCommit(removeCapturePoint(doc, point.id), null);
-            onToast(point.origin === 'auto' ? 'Точка убрана — расчёт не вернёт её сам' : 'Точка удалена');
+            onToast(pano ? 'Точка и её панорама удалены' : point.origin === 'auto' ? 'Точка убрана — расчёт не вернёт её сам' : 'Точка удалена');
           }}
         >
           <p>
-            {point.origin === 'auto' && !pano
+            {point.origin === 'auto'
               ? 'Точку поставил расчёт — он больше не поставит её на это место. Вернуть: «Вернуть убранные точки» в сводке «Съёмка панорам».'
               : 'Точка удалится с плана.'}
-            {pano ? ' Снятая здесь панорама останется на карте.' : ''}
+            {pano ? ' Снятая здесь панорама удалится вместе с ней — из карточек мест и из переходов соседних панорам.' : ''}
           </p>
           <p className="hint">Передумаете — «Отменить» вверху.</p>
         </ConfirmDialog>
@@ -487,10 +487,7 @@ function UnitPanel({ doc, unit, onSelect, onCommit, onToast }: InspectorProps & 
 
 const PLACE_PANO_REASON: Record<PlacePanorama['reason'], string> = {
   own: 'Снята для этого места.',
-  marker: 'Место отмечено в этой панораме.',
-  node: 'Панорама снята у самого места.',
-  room: 'Ближайшая панорама в этом помещении.',
-  visible: 'Место видно из этой панорамы.',
+  marker: 'Место видно в панораме, снятой в другой точке. Удалить или переснять её можно в самой точке.',
 };
 
 function PlacePanel({ doc, place, onSelect, onCommit, onToast, onOpenPanorama, onShootForPlace, onUploadForPlace }: InspectorProps & { place: Place }) {
@@ -498,8 +495,9 @@ function PlacePanel({ doc, place, onSelect, onCommit, onToast, onOpenPanorama, o
   const placePano = panoramaForPlace(doc, place);
   const patch = (p: Parameters<typeof updatePlace>[2]) => onCommit(updatePlace(doc, place.id, p), { kind: 'place', id: place.id });
   const [confirm, setConfirm] = useState<'place' | 'pano' | null>(null);
-  // Панорама снята не у самого места — её же показывают и другим местам рядом.
-  const sharedPano = placePano?.reason === 'room' || placePano?.reason === 'visible';
+  // Удалить из карточки можно только свою панораму места; чужую — в её точке съёмки.
+  const ownPano = placePano?.reason === 'own' ? placePano.panorama : null;
+  const panoPoint = placePano ? doc.capturePoints?.find((p) => p.panorama === placePano.panorama.id) : undefined;
   return (
     <div className="insp">
       {confirm === 'place' && (
@@ -516,20 +514,17 @@ function PlacePanel({ doc, place, onSelect, onCommit, onToast, onOpenPanorama, o
           <p className="hint">Передумаете — «Отменить» вверху.</p>
         </ConfirmDialog>
       )}
-      {confirm === 'pano' && placePano && (
+      {confirm === 'pano' && ownPano && (
         <ConfirmDialog
           title="Удалить панораму?"
           confirmLabel="Удалить панораму"
           onCancel={() => setConfirm(null)}
           onConfirm={() => {
-            onCommit(rebuildGraph(deletePanorama(doc, placePano.panorama.id), placePano.panorama.level), { kind: 'place', id: place.id });
+            onCommit(rebuildGraph(deletePanorama(doc, ownPano.id), ownPano.level), { kind: 'place', id: place.id });
             onToast('Панорама удалена, место осталось');
           }}
         >
-          <p>
-            Место «{place.name}» останется — пропадёт только панорама: из его карточки
-            {sharedPano ? ', из карточек других мест рядом (она снята не у самого места)' : ''} и из переходов соседних панорам.
-          </p>
+          <p>Место «{place.name}» останется — пропадёт только его панорама: из карточки и из переходов соседних панорам.</p>
           <p className="hint">Передумаете — «Отменить» вверху.</p>
         </ConfirmDialog>
       )}
@@ -568,34 +563,39 @@ function PlacePanel({ doc, place, onSelect, onCommit, onToast, onOpenPanorama, o
               </span>
             </button>
             <p className="insp-note">{PLACE_PANO_REASON[placePano.reason]}</p>
-            <button type="button" className="btn btn-secondary btn-danger-text insp-wide" onClick={() => setConfirm('pano')}>
-              <Icon name="trash" size={17} /> Удалить панораму
+            {ownPano && (
+              <button type="button" className="btn btn-secondary btn-danger-text insp-wide" onClick={() => setConfirm('pano')}>
+                <Icon name="trash" size={17} /> Удалить панораму
+              </button>
+            )}
+            {!ownPano && panoPoint && (
+              <button type="button" className="btn btn-secondary insp-wide" onClick={() => onSelect({ kind: 'shot', id: panoPoint.id })}>
+                <Icon name="camera" size={17} /> Перейти к точке съёмки
+              </button>
+            )}
+          </>
+        ) : null}
+        {/* Своя есть — новая заменит её в той же точке; нет — появится. */}
+        <div className="insp-stack">
+          {onShootForPlace ? (
+            <button type="button" className={`btn ${ownPano ? 'btn-secondary' : 'btn-success'}`} onClick={() => onShootForPlace(place.id)}>
+              <Icon name="camera" size={18} /> {ownPano ? 'Переснять' : placePano ? 'Снять свою фотосферу' : 'Снять фотосферу'}
             </button>
-          </>
-        ) : (
-          <>
-            <div className="insp-stack">
-              {onShootForPlace ? (
-                <button type="button" className="btn btn-success" onClick={() => onShootForPlace(place.id)}>
-                  <Icon name="camera" size={18} /> Снять фотосферу
-                </button>
-              ) : (
-                onUploadForPlace &&
-                isAndroid() && (
-                  <a className="btn btn-secondary" href={APP_APK_URL}>
-                    <Icon name="download" size={18} /> Скачать приложение для съёмки
-                  </a>
-                )
-              )}
-              {onUploadForPlace && (
-                <button type="button" className="btn btn-secondary" onClick={() => onUploadForPlace(place.id)}>
-                  <Icon name="pano" size={18} /> Загрузить готовую панораму
-                </button>
-              )}
-              {!onUploadForPlace && <p className="insp-note">Снимать и загружать панорамы можно в площадке из кабинета.</p>}
-            </div>
-          </>
-        )}
+          ) : (
+            onUploadForPlace &&
+            isAndroid() && (
+              <a className="btn btn-secondary" href={APP_APK_URL}>
+                <Icon name="download" size={18} /> Скачать приложение для съёмки
+              </a>
+            )
+          )}
+          {onUploadForPlace && (
+            <button type="button" className="btn btn-secondary" onClick={() => onUploadForPlace(place.id)}>
+              <Icon name="pano" size={18} /> {ownPano ? 'Загрузить другую' : placePano ? 'Загрузить свою панораму' : 'Загрузить готовую панораму'}
+            </button>
+          )}
+          {!onUploadForPlace && <p className="insp-note">Снимать и загружать панорамы можно в площадке из кабинета.</p>}
+        </div>
       </Section>
       <div className="insp-actions">
         <button type="button" className="btn btn-danger" onClick={() => setConfirm('place')}>

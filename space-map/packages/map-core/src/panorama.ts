@@ -1,5 +1,5 @@
 // Подсказки меток и переходов, ориентация, прогулка по маршруту — ТЗ 5.6, 5.7, 5.10.
-import { azimuth, distance, hasLineOfSight, normalize180, normalize360, pointInUnit, unitAt } from './geometry.ts';
+import { azimuth, distance, hasLineOfSight, normalize180, normalize360 } from './geometry.ts';
 import type { NavGraph } from './graph.ts';
 import type { MapDocument, PanoramaLink, PanoramaMarker, PanoramaPlacement, Place, Vec2 } from './types.ts';
 
@@ -81,6 +81,57 @@ export function isLinked(doc: MapDocument, a: string, b: string): boolean {
   const accepted = (from?: PanoramaPlacement, to?: string) =>
     !!from?.links.some((l) => l.to === to && l.status === 'accepted');
   return accepted(pa, b) || accepted(pb, a);
+}
+
+// ── Стрелки переходов вручную (редактор, осмотр панорамы) ──
+// По плану стрелка смотрит прямо на точку соседней панорамы. Точка на плане стоит неточно, или идти надо
+// через дверь сбоку — и стрелка уводит не туда. Тогда организатор ставит её сам: нажимает в панораме на проход.
+
+/** Стрелка [panoId] → [to] указывает, куда нажал организатор: [yaw] — градусы снимка. */
+export function setLinkYaw(doc: MapDocument, panoId: string, to: string, yaw: number): MapDocument {
+  return updateLinks(doc, panoId, (links) =>
+    links.map((l) => (l.to === to ? { to, yaw: round1(normalize180(yaw)), status: 'accepted' as const, manual: true } : l)),
+  );
+}
+
+/** Стрелка снова по плану — прямо на точку соседней панорамы. Без направления панорамы ничего не меняется. */
+export function resetLinkYaw(doc: MapDocument, panoId: string, to: string): MapDocument {
+  const yaw = planYaw(doc, panoId, to);
+  if (yaw === null) return doc;
+  return updateLinks(doc, panoId, (links) => links.map((l) => (l.to === to ? { to, yaw, status: 'accepted' as const } : l)));
+}
+
+/**
+ * Переход, которого нет в подсказках: сосед за углом или дальше [MapSettings.linkRange]. Стрелка — куда показал
+ * организатор; у соседа появляется обратная стрелка по плану, если её там нет и направление соседа задано.
+ */
+export function addLink(doc: MapDocument, panoId: string, to: string, yaw: number): MapDocument {
+  if (panoId === to || !doc.panoramas.some((p) => p.id === panoId) || !doc.panoramas.some((p) => p.id === to)) return doc;
+  const link: PanoramaLink = { to, yaw: round1(normalize180(yaw)), status: 'accepted', manual: true };
+  let next = updateLinks(doc, panoId, (links) => [...links.filter((l) => l.to !== to), link]);
+  const back = planYaw(next, to, panoId);
+  const other = next.panoramas.find((p) => p.id === to)!;
+  if (back !== null && !other.links.some((l) => l.to === panoId)) {
+    next = updateLinks(next, to, (links) => [...links, { to: panoId, yaw: back, status: 'accepted' }]);
+  }
+  return next;
+}
+
+/** Убрать переход между двумя панорамами — в обе стороны: прогулка по маршруту через него больше не идёт. */
+export function removeLink(doc: MapDocument, a: string, b: string): MapDocument {
+  return updateLinks(updateLinks(doc, a, (links) => links.filter((l) => l.to !== b)), b, (links) => links.filter((l) => l.to !== a));
+}
+
+/** Куда в панораме [from] смотрит точка панорамы [to] по плану; null — направление [from] не задано. */
+function planYaw(doc: MapDocument, from: string, to: string): number | null {
+  const a = doc.panoramas.find((p) => p.id === from);
+  const b = doc.panoramas.find((p) => p.id === to);
+  if (!a || !b || a.heading === null) return null;
+  return round1(normalize180(azimuth(a.pos, b.pos) - a.heading));
+}
+
+function updateLinks(doc: MapDocument, panoId: string, change: (links: PanoramaLink[]) => PanoramaLink[]): MapDocument {
+  return { ...doc, panoramas: doc.panoramas.map((pa) => (pa.id === panoId ? { ...pa, links: change(pa.links) } : pa)) };
 }
 
 export interface Walkthrough {
@@ -171,15 +222,16 @@ export interface PlacePanorama {
   panorama: PanoramaPlacement;
   /** Куда повернуть взгляд при открытии, чтобы место было перед глазами. null — панорама не ориентирована. */
   yaw: number | null;
-  /** Как найдена: своя (снята для места), метка места в панораме, общий узел, та же комната, видно через дверь. */
-  reason: 'own' | 'marker' | 'node' | 'room' | 'visible';
+  /** Как найдена: своя (снята для места) или место отмечено в панораме. */
+  reason: 'own' | 'marker';
 }
 
 /**
  * Панорама, в которой посетитель увидит место. У места с привязкой (`place.panorama`, все новые места) — только
  * своя: снятая или загруженная из его карточки; null — панорамы нет, даже если рядом есть чужие.
- * У мест, сделанных до привязки, — как раньше: где стоит подтверждённая метка этого места, потом снятая у самого
- * места, потом ближайшая в той же комнате, потом ближайшая, откуда место видно.
+ * У мест, сделанных до привязки, — та, где место отмечено подтверждённой меткой (оно в ней видно).
+ * «Ближайшую в комнате» больше не подбираем: панорама, загруженная для одного места, появлялась у всех мест
+ * комнаты, а «Удалить панораму» в карточке удаляла чужую — и тут же подбиралась следующая.
  */
 export function panoramaForPlace(doc: MapDocument, place: Place): PlacePanorama | null {
   const onLevel = doc.panoramas.filter((pa) => pa.level === place.level);
@@ -195,19 +247,7 @@ export function panoramaForPlace(doc: MapDocument, place: Place): PlacePanorama 
   }
 
   const marked = nearest(onLevel.filter((pa) => pa.markers.some((m) => m.place === place.id && m.status === 'accepted')));
-  if (marked) return { panorama: marked, yaw: marked.markers.find((m) => m.place === place.id)!.yaw, reason: 'marker' };
-
-  const atPlace = place.node ? onLevel.find((pa) => pa.node === place.node) : undefined;
-  if (atPlace) return { panorama: atPlace, yaw: facing(atPlace), reason: 'node' };
-
-  const room = unitAt(doc, place.level, place.pos);
-  const inRoom = room ? nearest(onLevel.filter((pa) => pointInUnit(pa.pos, room))) : undefined;
-  if (inRoom) return { panorama: inRoom, yaw: facing(inRoom), reason: 'room' };
-
-  const visible = nearest(
-    onLevel.filter((pa) => distance(pa.pos, place.pos) <= doc.settings.markerRange && hasLineOfSight(doc, place.level, pa.pos, place.pos)),
-  );
-  return visible ? { panorama: visible, yaw: facing(visible), reason: 'visible' } : null;
+  return marked ? { panorama: marked, yaw: marked.markers.find((m) => m.place === place.id)!.yaw, reason: 'marker' } : null;
 }
 
 export function placeById(doc: MapDocument, id: string): Place | undefined {

@@ -57,31 +57,18 @@ describe('панорама для места', () => {
     expect(panoramaForPlace(doc, p)).toMatchObject({ panorama: { id: 'far' }, yaw: 33, reason: 'marker' });
   });
 
-  it('без метки — ближайшая в той же комнате, а не за стеной', () => {
-    const p = place('стенд', [9, 2]);
-    const doc = plan([pano('wall', [11, 2]), pano('room', [3, 2])], [p]);
-    const r = panoramaForPlace(doc, p)!;
-    expect(r.panorama.id).toBe('room');
-    expect(r.reason).toBe('room');
-    expect(r.yaw).toBeCloseTo(90); // место строго справа, панорама смотрит «вверх»
-  });
-
-  it('в комнате панорам нет — та, откуда место видно через дверь', () => {
-    const p = place('шкаф', [12, 4.5]);
-    const doc = plan([pano('hall', [6, 4.5])], [p]);
-    expect(panoramaForPlace(doc, p)).toMatchObject({ panorama: { id: 'hall' }, reason: 'visible' });
-  });
-
-  it('не видно ниоткуда — нет панорамы', () => {
-    const p = place('шкаф', [15, 1]);
-    const doc = plan([pano('hall', [2, 7])], [p]);
+  it('без метки и своей — панорамы нет, даже если в той же комнате или у самого места есть чужая', () => {
+    // Иначе панорама, загруженная для одного места, показывалась у всех мест комнаты,
+    // а «Удалить панораму» в карточке удаляла чужую — и тут же подбиралась следующая.
+    const p = { ...place('стенд', [9, 2]), node: 'n' };
+    const doc = plan([pano('room', [3, 2]), pano('at', [9.2, 2], { node: 'n' }), pano('door', [11, 4.5])], [p]);
     expect(panoramaForPlace(doc, p)).toBeNull();
   });
 
-  it('у неориентированной панорамы направление неизвестно', () => {
-    const p = place('стенд', [4, 4]);
+  it('у неориентированной своей панорамы направление неизвестно', () => {
+    const p = { ...place('стенд', [4, 4]), panorama: 'raw' };
     const doc = plan([pano('raw', [2, 2], { heading: null })], [p]);
-    expect(panoramaForPlace(doc, p)).toMatchObject({ panorama: { id: 'raw' }, yaw: null });
+    expect(panoramaForPlace(doc, p)).toMatchObject({ panorama: { id: 'raw' }, yaw: null, reason: 'own' });
   });
 });
 

@@ -109,7 +109,7 @@ export const MapDocumentSchema = Type.Object(
           Type.Object({ id: Id, yaw: Num, pitch: Num, title: Name, text: Type.String({ maxLength: 4000 }) }),
           { maxItems: 200 },
         ),
-        links: Type.Array(Type.Object({ to: Id, yaw: Num, status: Status }), { maxItems: 50 }),
+        links: Type.Array(Type.Object({ to: Id, yaw: Num, status: Status, manual: Type.Optional(Type.Boolean()) }), { maxItems: 50 }),
       }),
       { maxItems: 300 },
     ),

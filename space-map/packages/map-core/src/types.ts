@@ -147,6 +147,11 @@ export interface PanoramaLink {
   to: string;
   yaw: number;
   status: SuggestionStatus;
+  /**
+   * Стрелку поставил организатор — нажатием в панораме на проход. Такой yaw привязан к снимку, а не к плану:
+   * при повороте панорамы и пересчёте подсказок он не меняется.
+   */
+  manual?: boolean;
 }
 
 export interface PanoramaPlacement {

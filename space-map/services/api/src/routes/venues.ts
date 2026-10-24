@@ -17,8 +17,9 @@ const VenueId = Type.Object({ id: Type.String() });
  * Удалить может создатель. При общем доступе — и любой вошедший, если это черновик: так команда чистит
  * гостевые копии. Опубликованную карту (её видят посетители) и общую демо-площадку — только создатель.
  */
+/** Удалить можно любую площадку, которую видишь: свою, а при общем доступе стенда — любую (решение владельца проекта). */
 function canDelete(v: Venue, userId: string, openAccess: boolean): boolean {
-  return v.ownerId === userId || (openAccess && v.publishedVersion === null && v.slug !== 'demo');
+  return v.ownerId === userId || openAccess;
 }
 
 function venueView(v: Venue) {
@@ -126,10 +127,7 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
     async (req) => {
       const user = requireUser(req);
       const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
-      // Правка обратима, удаление — нет: чужую опубликованную или общую демо не удалить и при общем доступе.
-      if (!canDelete(venue, user.id, config.openAccess)) {
-        throw new ApiError(403, 'not_owner', 'Опубликованную площадку может удалить только её создатель');
-      }
+      if (!canDelete(venue, user.id, config.openAccess)) throw new ApiError(403, 'not_owner', 'Удалить площадку может только её создатель');
       if (req.body.confirmName.trim() !== venue.name) throw new ApiError(422, 'confirm_mismatch', 'Введите точное название площадки');
       const panoIds = (await db.select({ id: panoramas.id }).from(panoramas).where(eq(panoramas.venueId, venue.id))).map((r) => r.id);
       const captureIds = (await db.select({ id: captures.id }).from(captures).where(eq(captures.venueId, venue.id))).map((r) => r.id);

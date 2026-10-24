@@ -139,9 +139,11 @@ describe('расстановка точек съёмки', () => {
       markers: [], customMarkers: [], links: [],
     }] });
     expect(validateReferences(doc)).toEqual([]);
-    const auto = activeCapturePoints(doc, L);
+    const auto = activeCapturePoints(doc, L).filter((p) => p.panorama === null);
     for (const pano of doc.panoramas) expect(auto.every((p) => distance(p.pos, pano.pos) >= 1.5)).toBe(true);
     for (const unit of doc.units) expect(captureCoverage(doc, unit.id)).toBeGreaterThanOrEqual(0.97);
+    // Панорама без точки получила свою — её можно удалить или переснять.
+    expect(doc.capturePoints!.filter((p) => p.panorama === 'pa')).toMatchObject([{ pos: [5, 4], origin: 'manual' }]);
   });
 
   it('повторный пересчёт без правок возвращает тот же документ', () => {

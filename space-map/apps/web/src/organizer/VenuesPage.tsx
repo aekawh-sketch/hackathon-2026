@@ -154,7 +154,7 @@ export default function VenuesPage() {
 
         {openAccess && (
           <p className="guest-note is-open">
-            <Icon name="eye" size={16} /> Общий доступ на время: все вошедшие видят и правят все площадки команды. Удалить чужую можно, только пока это черновик.
+            <Icon name="eye" size={16} /> Общий доступ на время: все вошедшие видят, правят и удаляют все площадки команды. Удалённую вернуть нельзя.
           </p>
         )}
 
@@ -502,6 +502,14 @@ function DeleteDialog({ venue, onClose, onDeleted }: { venue: VenueListItem; onC
         <b>«{venue.name}»</b> удалится навсегда: план, места и панорамы
         {venue.publishedVersion !== null ? <>, карта по ссылке /m/{venue.slug} перестанет открываться</> : null}. Вернуть будет нельзя.
       </p>
+      {venue.slug === 'demo' && (
+        <p className="notice">Это общая демо-карта стенда: её видят по ссылке /m/demo, в неё попадают гости. После удаления гости будут получать личные копии.</p>
+      )}
+      {!venue.isOwner && venue.ownerName && (
+        <p>
+          Автор — <b>{venue.ownerName}</b>.
+        </p>
+      )}
       {error && <p className="notice">{error}</p>}
       <div className="row end">
         <button type="button" className="btn btn-ghost" onClick={onClose} autoFocus>

@@ -7,6 +7,7 @@ import { distance, hasLineOfSight, normalize360, pointInUnit, pointSegmentDistan
 import { NavGraph, nearestVisibleNode, routePolyline } from './graph.ts';
 import { acceptSuggestions, headingFromCorrespondence, suggestLinks } from './panorama.ts';
 import type { CapturePoint, MapDocument, Opening, PanoramaPlacement, Unit, Vec2 } from './types.ts';
+import { deletePanorama } from './validate.ts';
 
 export interface CapturePlanOptions {
   /**
@@ -33,6 +34,11 @@ const DOOR_DEPTH_MIN = 0.6;
 /** Сколько точек сетки на помещение: держит расчёт быстрым и для больших залов. */
 const MAX_SAMPLES = 400;
 const ON_WALL = 0.05;
+/**
+ * Панорама встаёт в точку, только если снята у неё, м. Маршрут съёмки помнит ID точки, а пересчёт точек
+ * мог отдать этот ID точке в другом месте — тогда у панорамы будет своя новая точка, а чужая не заменится.
+ */
+const SAME_SPOT = 3;
 
 /** Точки, которые нужно снять или уже сняты: без убранных организатором. */
 export function activeCapturePoints(doc: MapDocument, level?: string): CapturePoint[] {
@@ -137,12 +143,24 @@ export function planCapturePoints(doc: MapDocument, level: string, options: Capt
  * Повторный вызов без правок плана возвращает тот же документ.
  */
 export function refreshCapturePoints(doc: MapDocument, options: CapturePlanOptions = {}): MapDocument {
-  const existing = doc.capturePoints ?? [];
+  const original = doc.capturePoints ?? [];
+  const panoIds = new Set(doc.panoramas.map((p) => p.id));
+  // Ссылка на панораму, которой уже нет (старые данные), — точка снова ждёт съёмки.
+  const existing = original.map((p) => (p.panorama !== null && !panoIds.has(p.panorama) ? { ...p, panorama: null } : p));
   const insideWalkable = (p: CapturePoint) => doc.units.some((u) => u.level === p.level && u.walkable && pointInUnit(p.pos, u));
-  const kept = existing.filter((p) => (p.origin !== 'auto' || p.panorama !== null) && insideWalkable(p));
+  // Снятая точка остаётся всегда — в ней панорама; ручные и убранные — пока стоят в помещении.
+  const kept = existing.filter((p) => p.panorama !== null || (p.origin !== 'auto' && insideWalkable(p)));
   const oldAuto = existing.filter((p) => p.origin === 'auto' && p.panorama === null);
-  const base: MapDocument = { ...doc, capturePoints: kept };
   const used = new Set(kept.map((p) => p.id));
+  // Панорама без точки (раньше «Убрать точку» оставляла её на плане) получает свою точку: иначе её не удалить и не переснять.
+  const referenced = new Set(kept.map((p) => p.panorama));
+  for (const pa of doc.panoramas) {
+    if (referenced.has(pa.id)) continue;
+    const id = freeId(used, 'cp');
+    used.add(id);
+    kept.push({ id, level: pa.level, pos: round2v(pa.pos), origin: 'manual', panorama: pa.id });
+  }
+  const base: MapDocument = { ...doc, capturePoints: kept };
   const fresh: CapturePoint[] = [];
   for (const level of doc.levels) {
     for (const pos of cachedPlan(base, level.id, options)) {
@@ -154,7 +172,7 @@ export function refreshCapturePoints(doc: MapDocument, options: CapturePlanOptio
     }
   }
   const next = [...kept, ...fresh];
-  if (next.length === existing.length && next.every((p, i) => samePoint(p, existing[i]!))) return doc;
+  if (next.length === original.length && next.every((p, i) => samePoint(p, original[i]!))) return doc;
   return { ...doc, capturePoints: next };
 }
 
@@ -177,6 +195,9 @@ export function addCapturePoint(doc: MapDocument, level: string, pos: Vec2): Cap
 export function capturePointForPlace(doc: MapDocument, placeId: string): { doc: MapDocument; pointId: string } | null {
   const place = doc.places.find((p) => p.id === placeId);
   if (!place) return null;
+  // Своя панорама уже есть — снимаем в её точке: новая заменит прежнюю, а не встанет второй рядом.
+  const own = place.panorama ? doc.capturePoints?.find((p) => p.panorama === place.panorama && p.origin !== 'removed') : undefined;
+  if (own) return { doc, pointId: own.id };
   const unit = doc.units.find((u) => u.level === place.level && u.walkable && pointInUnit(place.pos, u));
   if (!unit) return null;
   const near = pendingCapturePoints(doc, place.level)
@@ -206,16 +227,18 @@ export function moveCapturePoint(doc: MapDocument, id: string, pos: Vec2): Captu
 
 /**
  * Убрать точку. Рассчитанная остаётся как «убранная»: расчёт считает её место закрытым и не ставит
- * туда новую. Ручная удаляется. Снятая панорама при этом остаётся на плане.
+ * туда новую. Ручная удаляется. Снятая в точке панорама удаляется вместе с ней: панорама без точки висела
+ * бы на плане, и удалить её было бы неоткуда.
  */
 export function removeCapturePoint(doc: MapDocument, id: string): MapDocument {
   const point = doc.capturePoints?.find((p) => p.id === id);
   if (!point) return doc;
+  const base = point.panorama ? rebuildGraph(deletePanorama(doc, point.panorama), point.level) : doc;
   const capturePoints =
-    point.origin === 'auto' && point.panorama === null
-      ? doc.capturePoints!.map((p) => (p.id === id ? { ...p, origin: 'removed' as const } : p))
-      : doc.capturePoints!.filter((p) => p.id !== id);
-  return refreshCapturePoints({ ...doc, capturePoints });
+    point.origin === 'auto'
+      ? base.capturePoints!.map((p) => (p.id === id ? { ...p, origin: 'removed' as const, panorama: null } : p))
+      : base.capturePoints!.filter((p) => p.id !== id);
+  return refreshCapturePoints({ ...base, capturePoints });
 }
 
 /** Вернуть все убранные точки этажа: расчёт расставит их заново. */
@@ -251,9 +274,15 @@ export interface ShotPanorama {
  * Снятая панорама — на план: встаёт на место съёмки, точка отмечается снятой, граф строится заново.
  * Метки мест в ней и переходы между ней и соседними панорамами (в обе стороны) принимаются сразу:
  * их посчитали по плану, а после съёмки организатор проверит их, листая панорамы.
+ *
+ * Снова сняли в той же точке — новая панорама заменяет прежнюю (и у мест, для которых та была своей), а не ложится
+ * второй поверх. Точки нет или она далеко от места съёмки ([SAME_SPOT]) — у панорамы появляется своя точка.
  */
 export function addPanoramaAtPoint(doc: MapDocument, shot: ShotPanorama): { doc: MapDocument; id: string } {
-  const id = freeId(new Set(doc.panoramas.map((p) => p.id)), 'pa');
+  const point = shot.pointId ? doc.capturePoints?.find((p) => p.id === shot.pointId && p.origin !== 'removed') : undefined;
+  const at = point && point.level === shot.level && distance(point.pos, shot.pos) <= SAME_SPOT ? point : undefined;
+  const replaced = at?.panorama ?? null;
+  const id = nextId(doc.panoramas.map((p) => p.id), 'pa');
   const placement: PanoramaPlacement = {
     id,
     pano: shot.pano,
@@ -266,8 +295,18 @@ export function addPanoramaAtPoint(doc: MapDocument, shot: ShotPanorama): { doc:
     customMarkers: [],
     links: [],
   };
-  let next = rebuildGraph({ ...doc, panoramas: [...doc.panoramas, placement] }, shot.level);
-  if (shot.pointId) next = attachPanoramaToPoint(next, shot.pointId, id);
+  let next: MapDocument = { ...doc, panoramas: [...doc.panoramas, placement] };
+  if (replaced) {
+    next = deletePanorama({ ...next, places: next.places.map((p) => (p.panorama === replaced ? { ...p, panorama: id } : p)) }, replaced);
+  }
+  next = rebuildGraph(next, shot.level);
+  if (at) {
+    next = attachPanoramaToPoint(next, at.id, id);
+  } else {
+    const used = new Set((next.capturePoints ?? []).map((p) => p.id));
+    const point: CapturePoint = { id: freeId(used, 'cp'), level: shot.level, pos: placement.pos, origin: 'manual', panorama: id };
+    next = { ...next, capturePoints: [...(next.capturePoints ?? []), point] };
+  }
   return { doc: linkPanorama(next, id), id };
 }
 
@@ -278,8 +317,20 @@ export function addPanoramaAtPoint(doc: MapDocument, shot: ShotPanorama): { doc:
 export function orientPanorama(doc: MapDocument, panoId: string, target: Vec2, yawInPano: number): MapDocument {
   const pano = doc.panoramas.find((p) => p.id === panoId);
   if (!pano) return doc;
-  const heading = Math.round(headingFromCorrespondence(pano.pos, target, yawInPano) * 10) / 10;
-  const next: MapDocument = { ...doc, panoramas: doc.panoramas.map((p) => (p.id === panoId ? { ...p, heading, markers: [], links: [] } : p)) };
+  return setPanoramaHeading(doc, panoId, headingFromCorrespondence(pano.pos, target, yawInPano));
+}
+
+/**
+ * Новое направление панорамы (поворот по двери или точная подстройка на градусы): метки мест и подсказанные
+ * переходы встают заново по плану, а стрелки, поставленные вручную, остаются — они привязаны к снимку.
+ */
+export function setPanoramaHeading(doc: MapDocument, panoId: string, heading: number): MapDocument {
+  if (!doc.panoramas.some((p) => p.id === panoId)) return doc;
+  const rounded = Math.round(normalize360(heading) * 10) / 10;
+  const next: MapDocument = {
+    ...doc,
+    panoramas: doc.panoramas.map((p) => (p.id === panoId ? { ...p, heading: rounded, markers: [], links: p.links.filter((l) => l.manual) } : p)),
+  };
   return linkPanorama(next, panoId);
 }
 
@@ -612,6 +663,19 @@ function defaultStart(doc: MapDocument, level: string): Vec2 | null {
 
 function samePoint(a: CapturePoint, b: CapturePoint): boolean {
   return a.id === b.id && a.level === b.level && a.origin === b.origin && a.panorama === b.panorama && a.pos[0] === b.pos[0] && a.pos[1] === b.pos[1];
+}
+
+/**
+ * Номер больше всех занятых. Номер удалённой панорамы не достаётся новой: старая ссылка на него (у точки,
+ * в правке другого редактора при слиянии) указала бы на чужой снимок.
+ */
+function nextId(ids: string[], prefix: string): string {
+  let max = 0;
+  for (const id of ids) {
+    const m = /^(.*)-(\d+)$/.exec(id);
+    if (m && m[1] === prefix) max = Math.max(max, Number(m[2]));
+  }
+  return `${prefix}-${max + 1}`;
 }
 
 function freeId(used: Set<string>, prefix: string): string {

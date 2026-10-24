@@ -2814,3 +2814,27 @@ button.insp-row:hover {
   margin: 0 0 10px;
   color: var(--text-2);
 }
+
+/* Осмотр панорамы → «Стрелки»: сдвиг всех меток и стрелок по плану на градусы. */
+.nudge {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+
+.nudge-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.nudge-row .btn {
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.nudge small {
+  color: var(--muted);
+}

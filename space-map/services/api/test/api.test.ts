@@ -1,5 +1,5 @@
 // Сквозные проверки API на настоящей PostgreSQL (TEST_DATABASE_URL). ТЗ 13: владение, ревизии, публикация, загрузки.
-import { demoVenue, refreshCapturePoints, type MapDocument } from '@space-map/map-core';
+import { addLink, demoVenue, refreshCapturePoints, type MapDocument } from '@space-map/map-core';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -369,15 +369,15 @@ describe('общий доступ (OPEN_ACCESS — стенд команды)', 
       const draft = (await teammate.req('GET', `/api/venues/${v.id}/draft`)).json();
       expect((await teammate.req('PUT', `/api/venues/${v.id}/draft`, { revision: draft.revision, doc: draft.doc })).statusCode).toBe(200);
 
-      // Чужой черновик (гостевую копию) удалить можно, чужую опубликованную — нет: её видят посетители.
+      // При общем доступе удалить можно любую чужую — и черновик, и опубликованную (решение владельца проекта).
       const copy = await newVenue(owner, 'Копия гостя');
       expect((await teammate.req('GET', '/api/venues')).json().venues.find((x: { id: string }) => x.id === copy.id)?.canDelete).toBe(true);
       expect((await teammate.req('DELETE', `/api/venues/${copy.id}`, { confirmName: 'Копия гостя' })).statusCode).toBe(200);
-      expect((await owner.req('POST', `/api/venues/${v.id}/publish`)).statusCode).toBe(200);
-      expect((await teammate.req('GET', '/api/venues')).json().venues.find((x: { id: string }) => x.id === v.id)?.canDelete).toBe(false);
-      const del = await teammate.req('DELETE', `/api/venues/${v.id}`, { confirmName: 'Общая площадка' });
-      expect(del.statusCode).toBe(403);
-      expect(del.json().code).toBe('not_owner');
+      const published = await newVenue(owner, 'Опубликованная');
+      expect((await owner.req('POST', `/api/venues/${published.id}/publish`)).statusCode).toBe(200);
+      expect((await teammate.req('GET', '/api/venues')).json().venues.find((x: { id: string }) => x.id === published.id)?.canDelete).toBe(true);
+      expect((await teammate.req('DELETE', `/api/venues/${published.id}`, { confirmName: 'Опубликованная' })).statusCode).toBe(200);
+      expect((await owner.req('GET', `/api/venues/${published.id}`)).statusCode).toBe(404);
 
       // Ревизия черновика — без самого документа: так редакторы узнают о чужих сохранениях.
       const rev = (await teammate.req('GET', `/api/venues/${v.id}/draft/revision`)).json();
@@ -441,6 +441,24 @@ describe('инструменты списка площадок', () => {
     expect(copyPano).not.toBe(pano.id);
     expect((await c.req('GET', `/files/panoramas/${copyPano}/preview.jpg`)).statusCode).toBe(200);
     expect((await c.req('GET', `/api/venues/${v.id}/draft`)).json().doc.panoramas[0].pano).toBe(pano.id);
+  });
+
+  it('стрелка перехода, поставленная вручную, переживает сохранение и публикацию', async () => {
+    const c = await newUser();
+    const v = await newVenue(c);
+    const { revision } = (await c.req('GET', `/api/venues/${v.id}/draft`)).json();
+    const base = demoVenue();
+    const [a, b] = base.panoramas;
+    const doc = addLink(base, a!.id, b!.id, 33);
+    expect((await c.req('PUT', `/api/venues/${v.id}/draft`, { revision, doc })).statusCode).toBe(200);
+    const saved = (await c.req('GET', `/api/venues/${v.id}/draft`)).json().doc as MapDocument;
+    const link = saved.panoramas.find((p) => p.id === a!.id)!.links.find((l) => l.to === b!.id);
+    expect(link).toEqual({ to: b!.id, yaw: 33, status: 'accepted', manual: true });
+    expect((await c.req('POST', `/api/venues/${v.id}/publish`)).statusCode).toBe(200);
+    const anon = new Client();
+    const latest = (await anon.req('GET', `/p/${v.slug}/latest.json`)).json();
+    const pub = (await anon.req('GET', latest.url)).json() as MapDocument;
+    expect(pub.panoramas.find((p) => p.id === a!.id)!.links.find((l) => l.to === b!.id)?.manual).toBe(true);
   });
 
   it('снять с публикации: ссылка перестаёт открываться, повторная публикация — следующая версия', async () => {
