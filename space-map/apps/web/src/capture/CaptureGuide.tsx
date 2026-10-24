@@ -90,6 +90,10 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
   const [saving, setSaving] = useState(false);
   /** Фотосфера в этой точке уже сохранена. */
   const [savedHere, setSavedHere] = useState(false);
+  /** Привязку ставим заново из этой точки плана (человек точно в ней), а не из оценки положения. */
+  const [standAt, setStandAt] = useState<Vec2 | null>(null);
+  /** Почему просим навести крестик ещё раз. */
+  const [aimReason, setAimReason] = useState<'shot' | 'jump' | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const rootRef = useRef<HTMLDivElement>(null);
@@ -165,8 +169,9 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
         ? arToPlan(frame, pose.position)
         : leg.line[0]!
       : pointAlong(leg.line, shownAlong.current);
-  const hereKey = here ? `${Math.round(here[0] * 2)}:${Math.round(here[1] * 2)}` : '';
-  const landmark = useMemo<Landmark | null>(() => (here ? nearestLandmark(doc, level, here) : null), [doc, level, hereKey]);
+  const aimFrom = standAt ?? here;
+  const aimKey = aimFrom ? `${Math.round(aimFrom[0] * 2)}:${Math.round(aimFrom[1] * 2)}` : '';
+  const landmark = useMemo<Landmark | null>(() => (aimFrom ? nearestLandmark(doc, level, aimFrom) : null), [doc, level, aimKey]);
 
   const remaining = (() => {
     if (!here || !target || !leg) return 0;
@@ -208,6 +213,13 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
             setFlash((f) => f + 1);
             navigator.vibrate?.(15);
           },
+          // Мир AR сдвинулся на ходу — линия поехала бы не туда; просим навести крестик заново с последнего верного места.
+          onJump: () =>
+            setPhase((p) => {
+              if (p !== 'guide') return p;
+              setAimReason('jump');
+              return 'aim';
+            }),
           onEnd: () => {
             ar.current = null;
             setFrame(null);
@@ -244,22 +256,24 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
   };
 
   const aim = () => {
-    if (!landmark || !here) return;
+    if (!landmark || !aimFrom) return;
     if (mode === 'ar') {
       const scene = ar.current;
       const p = scene?.pose;
       if (!scene || !p) return;
       const floorY = scene.space === 'local-floor' ? 0 : p.position[1] - CAMERA_HEIGHT;
-      const next = arFrameFromAim(here, landmark.pos, p.position, p.forward, floorY);
+      const next = arFrameFromAim(aimFrom, landmark.pos, p.position, p.forward, floorY);
       if (!next) return setError('Держите телефон вертикально, как для фото, и наведите крестик ещё раз.');
       setFrame(next);
     } else {
       const q = smoothQ.current;
-      const heading = q ? headingFromAim(q, here, landmark.pos) : null;
+      const heading = q ? headingFromAim(q, aimFrom, landmark.pos) : null;
       if (heading === null) return setError('Держите телефон вертикально, как для фото, и наведите крестик ещё раз.');
       setWorldHeading(heading);
     }
     setError(null);
+    setStandAt(null);
+    setAimReason(null);
     setPhase('guide');
   };
 
@@ -269,6 +283,7 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
     if (mode === 'ar' && frame && p && target) setFrame(reanchorArFrame(frame, p.position, target.pos));
     legStartSteps.current = detector.current.steps;
     shownAlong.current = 0;
+    const shot = savedHere;
     setSavedHere(false);
     if (step + 1 >= route.legs.length) {
       setPhase('done');
@@ -276,6 +291,12 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
       return;
     }
     setStep(step + 1);
+    // Пока снимали сферу, ARCore мог сдвинуть мир — привязку ставим заново, стоя ровно в точке.
+    if (shot && mode === 'ar' && target) {
+      setStandAt(target.pos);
+      setAimReason('shot');
+      setPhase('aim');
+    }
   };
 
   const close = () => {
@@ -562,6 +583,8 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
         {phase === 'aim' && (
           <>
             <h2>Наведите крестик</h2>
+            {aimReason === 'shot' && <p className="hint">Пока снимали фотосферу, телефон мог сбиться — уточним направление, чтобы линия к следующей точке легла верно.</p>}
+            {aimReason === 'jump' && <p className="hint">Телефон заново нашёл опору и сдвинул разметку — уточним направление.</p>}
             {landmark ? (
               <p>
                 Наведите крестик на <b>{landmark.label}</b> и нажмите «Навёл» — так телефон поймёт, куда смотрит план.
@@ -578,7 +601,7 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
           <>
             <p className="guide-step">
               {savedHere
-                ? 'Идём к следующей точке.'
+                ? 'Посмотреть её можно потом: «К плану» → точка с галочкой → «Открыть панораму».'
                 : isArrived
                   ? mode === 'ar'
                     ? 'Встаньте в кольцо и снимите фотосферу: телефон на уровне глаз, поворачивайтесь на месте.'

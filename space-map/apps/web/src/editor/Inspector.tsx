@@ -67,6 +67,8 @@ export interface InspectorProps {
   onOpenGuide: (pointId: string | null) => void;
   /** Загрузить готовую панораму в точку; нет — площадка без сервера (демо). */
   onUploadPanorama?: (pointId: string) => void;
+  /** Открыть панораму на весь экран — проверить, как она снята и повёрнута. */
+  onOpenPanorama: (panoId: string) => void;
 }
 
 export function Inspector(props: InspectorProps) {
@@ -211,7 +213,7 @@ function CapturePlan(props: InspectorProps) {
   );
 }
 
-function ShotPanel({ doc, point, shotLabels, onSelect, onCommit, onToast, onOpenGuide, onUploadPanorama }: InspectorProps & { point: CapturePoint }) {
+function ShotPanel({ doc, point, shotLabels, onSelect, onCommit, onToast, onOpenGuide, onUploadPanorama, onOpenPanorama }: InspectorProps & { point: CapturePoint }) {
   const room = unitAt(doc, point.level, point.pos)?.name ?? 'вне помещения';
   const label = shotLabels.get(point.id);
   const pano = point.panorama ? doc.panoramas.find((p) => p.id === point.panorama) : undefined;
@@ -236,6 +238,11 @@ function ShotPanel({ doc, point, shotLabels, onSelect, onCommit, onToast, onOpen
         </p>
       </Section>
       <div className="insp-actions">
+        {pano && (
+          <button type="button" className="btn btn-primary" onClick={() => onOpenPanorama(pano.id)}>
+            <Icon name="pano" size={18} /> Открыть панораму
+          </button>
+        )}
         {!pano && (
           <button type="button" className="btn btn-primary" onClick={() => onOpenGuide(point.id)}>
             <Icon name="route" size={18} /> Маршрут с камерой отсюда

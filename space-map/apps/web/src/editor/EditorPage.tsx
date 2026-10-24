@@ -32,6 +32,7 @@ import { Sheet, useMediaQuery, type SheetMode } from '../ui/Sheet.tsx';
 import { EditorCanvas, holeRef, type Selection, type Tool } from './EditorCanvas.tsx';
 import { Inspector } from './Inspector.tsx';
 import { useHistory } from './useHistory.ts';
+import { PanoramaPreview } from './PanoramaPreview.tsx';
 import { useServerSave, type SaveStatus } from './useServerSave.ts';
 
 const Model3DView = lazy(() => import('../three/Model3DView.tsx'));
@@ -182,6 +183,8 @@ function Editor({ initial, server }: EditorProps) {
   const [showShots, setShowShots] = useState(true);
   /** Экран камеры с маршрутом съёмки: с какой точки (null — от входа). */
   const [guide, setGuide] = useState<{ from: string | null } | null>(null);
+  /** Открытая на весь экран панорама. */
+  const [preview, setPreview] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; id: number } | null>(null);
   const [saved, setSaved] = useState<'saved' | 'error' | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -557,12 +560,12 @@ function Editor({ initial, server }: EditorProps) {
         <>
           <div className="tool-rail">{toolbar}</div>
           <aside className="inspector" aria-label="Свойства">
-            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} />
+            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onOpenPanorama={setPreview} />
           </aside>
         </>
       ) : (
         <Sheet mode={sheetMode} onModeChange={setSheetMode} desktop={false} peekHeight={118} topGap={64} onHeight={setSheetHeight} label="Инструменты и свойства" header={toolbar}>
-          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} />
+          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onOpenPanorama={setPreview} />
         </Sheet>
       )}
 
@@ -594,6 +597,8 @@ function Editor({ initial, server }: EditorProps) {
           {toast.text}
         </div>
       )}
+
+      {preview && <PanoramaPreview doc={doc} panoId={preview} onClose={() => setPreview(null)} />}
 
       {guide && (
         <ErrorBoundary fallback={<div className="screen-message">Не удалось открыть камеру.</div>}>

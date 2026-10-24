@@ -112,6 +112,7 @@ export class ArScene {
   private readonly label: THREE.Sprite;
   private session: XRSession | null = null;
   private lastPose = 0;
+  private lastPosition: THREE.Vector3 | null = null;
   private labelText = '1';
   /** Браузер дал кадры камеры — можно снимать фотосферу. */
   cameraAccess = false;
@@ -141,6 +142,8 @@ export class ArScene {
       onEnd: () => void;
       onSphere?: (progress: SphereProgress) => void;
       onShot?: () => void;
+      /** ARCore заново нашёл опору и сдвинул свой мир — привязку к плану нужно поставить заново. */
+      onJump?: () => void;
     },
   ) {
     this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
@@ -213,6 +216,8 @@ export class ArScene {
     });
     this.renderer.xr.setReferenceSpaceType(this.space);
     await this.renderer.xr.setSession(session);
+    // Разрыв отслеживания: браузер сообщает, что начало координат мира сдвинулось.
+    this.renderer.xr.getReferenceSpace()?.addEventListener('reset', () => this.callbacks.onJump?.());
     this.renderer.setAnimationLoop((time, frame) => this.tick(time, frame));
   }
 
@@ -460,6 +465,10 @@ export class ArScene {
     }
     if (viewer) {
       const { position: p, orientation: o } = viewer.transform;
+      // Человек за кадр (~16 мс) так далеко не уходит — это ARCore сдвинул мир. Во время съёмки сферы это учтено там.
+      const now = new THREE.Vector3(p.x, p.y, p.z);
+      if (!this.sphere && !viewer.emulatedPosition && this.lastPosition && this.lastPosition.distanceTo(now) > JUMP * 2) this.callbacks.onJump?.();
+      this.lastPosition = viewer.emulatedPosition ? null : now;
       const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(o.x, o.y, o.z, o.w));
       this.pose = { position: [p.x, p.y, p.z], forward: [forward.x, forward.y, forward.z] };
       if (time - this.lastPose >= POSE_EVERY) {
