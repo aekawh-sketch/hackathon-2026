@@ -19,10 +19,11 @@ import {
   type MapDocument,
 } from '@space-map/map-core';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { ApiError, builtInDemo, venuesApi, type VenueSummary } from '../api.ts';
 import { clearEditedDemo, loadEditedDemo, saveEditedDemo } from '../demoStore.ts';
 import { PublishDialog } from '../organizer/PublishDialog.tsx';
+import { useSession } from '../organizer/session.tsx';
 import { ErrorBoundary } from '../ui/ErrorBoundary.tsx';
 import { Icon, type IconName } from '../ui/icons.tsx';
 import { Sheet, useMediaQuery, type SheetMode } from '../ui/Sheet.tsx';
@@ -62,14 +63,29 @@ export default function EditorPage() {
 /** Площадка организатора: черновик с сервера, автосохранение с ревизией. */
 export function ServerEditorPage() {
   const { id = '' } = useParams();
-  const [state, setState] = useState<{ venue: VenueSummary; doc: MapDocument; revision: number } | { error: string } | null>(null);
+  const [state, setState] = useState<
+    { venue: VenueSummary; doc: MapDocument; revision: number } | { error: string; notMine: boolean } | null
+  >(null);
+  const { user, logout } = useSession();
+  const navigate = useNavigate();
 
   useEffect(() => {
     setState(null);
     Promise.all([venuesApi.get(id), venuesApi.draft(id)])
       .then(([venue, draft]) => setState({ venue, doc: draft.doc, revision: draft.revision }))
-      .catch((err) => setState({ error: err instanceof ApiError ? err.message : 'Не удалось открыть площадку' }));
+      .catch((err) =>
+        setState({
+          error: err instanceof ApiError ? err.message : 'Не удалось открыть площадку',
+          // Чужая площадка и несуществующая для сервера неотличимы (404) — так он не раскрывает чужие площадки.
+          notMine: err instanceof ApiError && err.status === 404,
+        }),
+      );
   }, [id]);
+
+  const switchAccount = async () => {
+    await logout();
+    navigate(`/app/login?next=${encodeURIComponent(`/app/venues/${id}`)}`, { replace: true });
+  };
 
   if (!state) {
     return (
@@ -79,6 +95,33 @@ export function ServerEditorPage() {
     );
   }
   if ('error' in state) {
+    if (state.notMine) {
+      return (
+        <div className="screen-message">
+          <div className="access-card">
+            <Icon name="edit" size={28} />
+            <h2>Эту площадку редактирует другой аккаунт</h2>
+            {user?.isGuest ? (
+              <p>
+                Вы вошли без регистрации — в этом браузере свой гостевой аккаунт, и площадки с другого устройства ему не видны. На устройстве,
+                где площадку создавали, откройте «Мои площадки» → «Сохранить аккаунт», а здесь войдите по той же почте. Если в этом браузере есть
+                свои гостевые площадки, сначала сохраните аккаунт и здесь — после выхода к ним не вернуться.
+              </p>
+            ) : (
+              <p>
+                Вы вошли как {user?.email}, а площадка принадлежит другому аккаунту — или её удалили. Войдите под аккаунтом владельца.
+              </p>
+            )}
+            <button type="button" className="btn btn-primary btn-block" onClick={() => void switchAccount()}>
+              Войти под другим аккаунтом
+            </button>
+            <Link to="/app" className="btn btn-secondary btn-block">
+              К моим площадкам
+            </Link>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="screen-message">
         <div>

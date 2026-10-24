@@ -95,6 +95,34 @@ p {
   background: #0b0f17;
 }
 
+/* Нет доступа к площадке: что случилось и как войти под владельцем. */
+.access-card {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  max-width: 380px;
+  padding: 24px 20px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text);
+}
+
+.access-card svg {
+  color: var(--primary);
+}
+
+.access-card h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.access-card p {
+  margin: 0 0 6px;
+  color: var(--text-2);
+  font-size: 14px;
+}
+
 .empty-state {
   display: grid;
   justify-items: center;
