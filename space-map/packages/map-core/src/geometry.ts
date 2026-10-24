@@ -109,5 +109,7 @@ export function hasLineOfSight(doc: MapDocument, level: string, a: Vec2, b: Vec2
 }
 
 export function unitAt(doc: MapDocument, level: string, p: Vec2) {
-  return doc.units.find((u) => u.level === level && pointInUnit(p, u)) ?? null;
+  return doc.units
+    .filter((u) => u.level === level && pointInUnit(p, u))
+    .sort((a, b) => polygonArea(a.polygon) - polygonArea(b.polygon))[0] ?? null;
 }

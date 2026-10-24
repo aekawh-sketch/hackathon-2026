@@ -10,12 +10,16 @@ import {
   NavGraph,
   overlappingUnits,
   placeDoor,
+  pointInUnit,
+  unitAt,
   polygonsOverlap,
   rebuildGraph,
   rectPolygon,
+  roomPlacement,
   refreshPanoramaMarkers,
   resizeRect,
   sharedWalls,
+  sharedUnitWalls,
   translateUnit,
   validateReferences,
   type MapDocument,
@@ -84,6 +88,47 @@ describe('создание помещения', () => {
   it('пересечение с существующими помещениями находится', () => {
     expect(overlappingUnits(demoVenue(), L, rectPolygon([8, 8], [12, 12])).map((u) => u.id).sort()).toEqual(['u-a', 'u-lobby']);
     expect(overlappingUnits(demoVenue(), L, rectPolygon([30, 0], [34, 4]))).toEqual([]);
+  });
+
+  it('вложенная комната вырезается из родителя и соединяется с ним дверью', () => {
+    const host = { id: 'u-host', level: L, kind: 'hall' as const, name: 'Зал', walkable: true, polygon: rectPolygon([0, 0], [20, 20]) };
+    const base: MapDocument = { ...demoVenue(), units: [host], openings: [], places: [], panoramas: [], anchors: [], obstacles: [], graph: { nodes: [], edges: [] } };
+    const nested = createRoom(base, L, rectPolygon([4, 4], [8, 8]), { name: 'Переговорная' });
+    const room = nested.doc.units.find((u) => u.id === nested.id)!;
+    const parent = nested.doc.units.find((u) => u.id === host.id)!;
+
+    expect(room.parent).toBe(host.id);
+    expect(roomPlacement(base, L, rectPolygon([4, 4], [8, 8])).valid).toBe(true);
+    expect(roomPlacement(nested.doc, L, rectPolygon([3, 3], [6, 6])).valid).toBe(false);
+    expect(roomPlacement(nested.doc, L, rectPolygon([5, 5], [7, 7])).parent?.id).toBe(room.id);
+    expect(parent.holes).toContainEqual(room.polygon);
+    expect(pointInUnit([2, 2], parent)).toBe(true);
+    expect(pointInUnit([6, 6], parent)).toBe(false);
+    expect(unitAt(nested.doc, L, [6, 6])?.id).toBe(room.id);
+    expect(sharedUnitWalls(parent, room)).toHaveLength(4);
+
+    const door = placeDoor(nested.doc, host.id, room.id, [4, 6]);
+    expect(door).not.toBeNull();
+    const withDoor = rebuildGraph(door!.doc, L);
+    const outerPlace = addPlace(withDoor, L, [2, 2], 'food', 'Стойка в зале');
+    const innerPlace = addPlace(outerPlace.doc, L, [6, 6], 'food', 'Стол в комнате');
+    const connected = rebuildGraph(innerPlace.doc, L);
+    expect(routeLength(connected, outerPlace.id, innerPlace.id).ok).toBe(true);
+    expect(validateReferences(connected)).toEqual([]);
+  });
+
+  it('сдвиг и удаление вложенной комнаты синхронизируют вырез родителя', () => {
+    const host = { id: 'u-host', level: L, kind: 'hall' as const, name: 'Зал', walkable: true, polygon: rectPolygon([0, 0], [20, 20]) };
+    const base: MapDocument = { ...demoVenue(), units: [host], openings: [], places: [], panoramas: [], anchors: [], obstacles: [], graph: { nodes: [], edges: [] } };
+    const created = createRoom(base, L, rectPolygon([4, 4], [8, 8]));
+    const moved = translateUnit(created.doc, created.id, [2, 1]);
+    const movedRoom = moved.units.find((u) => u.id === created.id)!;
+    const movedHost = moved.units.find((u) => u.id === host.id)!;
+    expect(movedRoom.polygon).toContainEqual([6, 5]);
+    expect(movedHost.holes).toContainEqual(movedRoom.polygon);
+    const deleted = deleteUnit(moved, created.id);
+    expect(deleted.units.find((u) => u.id === host.id)?.holes ?? []).toHaveLength(0);
+    expect(validateReferences(deleted)).toEqual([]);
   });
 });
 

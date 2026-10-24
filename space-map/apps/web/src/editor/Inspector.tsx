@@ -58,6 +58,8 @@ export interface InspectorProps {
   onCommit: (doc: MapDocument, select?: Selection) => void;
   onToast: (message: string) => void;
   tool: Tool;
+  areaCategory: string;
+  onAreaCategory: (category: string) => void;
   /** Настройки новой двери — показываются, пока выбран инструмент «Дверь». */
   doorPreset: DoorPreset;
   onDoorPreset: (p: DoorPreset) => void;
@@ -76,6 +78,7 @@ export interface InspectorProps {
 
 export function Inspector(props: InspectorProps) {
   const { doc, selection } = props;
+  if (props.tool === 'zone') return <ZoneToolPanel {...props} />;
   if (!selection && props.tool === 'door') return <DoorPresetPanel {...props} />;
   if (selection?.kind === 'unit') {
     const unit = doc.units.find((u) => u.id === selection.id);
@@ -107,7 +110,7 @@ export function Inspector(props: InspectorProps) {
 function Overview(props: InspectorProps) {
   const { doc, level, onSelect, onCommit } = props;
   const units = doc.units.filter((u) => u.level === level);
-  const area = units.reduce((s, u) => s + polygonArea(u.polygon), 0);
+  const area = units.reduce((s, u) => s + unitArea(doc, u), 0);
   return (
     <div className="insp">
       <Section title="Площадка">
@@ -130,7 +133,7 @@ function Overview(props: InspectorProps) {
                   <strong>{u.name}</strong>
                   <small>{UNIT_KIND_NAMES[u.kind]}</small>
                 </span>
-                <span className="insp-row-meta">{fmt(polygonArea(u.polygon))} м²</span>
+                <span className="insp-row-meta">{fmt(unitArea(doc, u))} м²</span>
               </button>
             </li>
           ))}
@@ -139,13 +142,16 @@ function Overview(props: InspectorProps) {
       <Section title="Как редактировать">
         <ul className="tips">
           <li>
-            <Icon name="square" size={16} /> <b>Комната</b> — протяните прямоугольник на свободном месте. Дверь к соседнему коридору поставится сама.
+            <Icon name="square" size={16} /> <b>Комната</b> — протяните прямоугольник на свободном месте или внутри зала; для вложенной комнаты дверь можно поставить на её стене.
           </li>
           <li>
             <Icon name="cursor" size={16} /> <b>Выбор</b> — тяните помещение, чтобы сдвинуть, или белые угловые ручки, чтобы изменить размер.
           </li>
           <li>
             <Icon name="pin" size={16} /> <b>Место</b> — нажмите внутри помещения. <Icon name="doorAdd" size={16} /> <b>Дверь</b> — на общую стену.
+          </li>
+          <li>
+            <Icon name="zone" size={16} /> <b>Зона</b> — выберите категорию и протяните прямоугольник внутри помещения; затем тяните за середину или белые углы.
           </li>
           <li>
             <Icon name="camera" size={16} /> <b>Съёмка</b> — точки панорам считаются сами по форме комнат и дверям. Можно добавить свою, сдвинуть или убрать.
@@ -211,6 +217,26 @@ function CapturePlan(props: InspectorProps) {
             <Icon name="trash" size={16} /> Лишнюю точку выберите и уберите — расчёт не поставит её снова.
           </li>
         </ul>
+      </Section>
+    </div>
+  );
+}
+
+function ZoneToolPanel({ doc, areaCategory, onAreaCategory, onExitTool }: InspectorProps) {
+  const category = doc.categories.find((c) => c.id === areaCategory) ?? doc.categories[0];
+  return (
+    <div className="insp">
+      <PanelHead icon={<CategoryBadge icon={category?.icon ?? 'zone'} color={category?.color ?? '#4A5568'} size={36} />} kicker="Инструмент «Зона»" title="Новая зона" onClose={onExitTool} />
+      <Section title="Категория">
+        {doc.categories.length > 0 ? (
+          <label className="field">
+            <span>Тип зоны</span>
+            <select value={category?.id ?? ''} onChange={(e) => onAreaCategory(e.target.value)}>
+              {doc.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </label>
+        ) : <p className="insp-note">Добавьте категорию места, прежде чем рисовать зоны.</p>}
+        <p className="insp-note">Протяните прямоугольник внутри помещения. Границы помещения, цвет и категория зоны сохранятся вместе с картой. Выберите зону инструментом «Выбор»: тяните за середину, чтобы переместить, или за угол, чтобы изменить размер.</p>
       </Section>
     </div>
   );
@@ -346,7 +372,7 @@ function UnitPanel({ doc, unit, onSelect, onCommit, onToast }: InspectorProps & 
           </div>
         ) : null}
         <p className="insp-note">
-          Площадь <b>{fmt(polygonArea(unit.polygon))} м²</b>
+          Площадь <b>{fmt(unitArea(doc, unit))} м²</b>
           {rect ? ' · левый нижний угол на месте' : ' · форму меняйте ручками на плане'}
         </p>
         {(unit.holes?.length ?? 0) > 0 && (
@@ -802,4 +828,9 @@ function DoorGlyph({ style, width }: { style: DoorStyle | null; width: number })
 function fmt(n: number, digits = 1): string {
   const k = 10 ** digits;
   return (Math.round(n * k) / k).toLocaleString('ru-RU');
+}
+
+function unitArea(doc: MapDocument, unit: Unit): number {
+  const childArea = doc.units.filter((candidate) => candidate.parent === unit.id).reduce((sum, child) => sum + polygonArea(child.polygon), 0);
+  return Math.max(0, polygonArea(unit.polygon) - childArea);
 }

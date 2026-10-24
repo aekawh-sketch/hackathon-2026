@@ -39,7 +39,7 @@ export const MapDocumentSchema = Type.Object(
       { minItems: 1, maxItems: 20 },
     ),
     units: Type.Array(
-      Type.Object({ id: Id, level: Id, kind: UnitKind, name: Name, walkable: Type.Boolean(), polygon: Polygon, holes: Type.Optional(Type.Array(Polygon, { maxItems: 100 })) }),
+      Type.Object({ id: Id, level: Id, kind: UnitKind, name: Name, walkable: Type.Boolean(), polygon: Polygon, parent: Type.Optional(Id), holes: Type.Optional(Type.Array(Polygon, { maxItems: 100 })) }),
       { maxItems: 3000 },
     ),
     obstacles: Type.Array(

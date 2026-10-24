@@ -38,6 +38,7 @@ export const ICON_PATHS = {
   square: 'M4.5 4.5h15v15h-15zM4.5 4.5h0',
   split: 'M4.5 4.5h15v15h-15zM12 2.5v19',
   hole: 'M4.5 4.5h15v15h-15zM9.5 9.5h5v5h-5z',
+  zone: 'M4.5 4.5h15v15h-15zM8 8h8v8H8z',
   doorAdd: 'M4 4h6v16H4zM14 12h7M17.5 8.5v7',
   trash: 'M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5',
   copy: 'M9 9h11v11H9zM5 15H4V4h11v1',

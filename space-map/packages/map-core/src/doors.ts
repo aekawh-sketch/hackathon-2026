@@ -1,6 +1,6 @@
 // Двери и проёмы: постановка по центру стены, растягивание вдоль стены, створки для плана и 3D.
 import { distance, pointInUnit, pointSegmentDistance, polygonArea, polygonEdges } from './geometry.ts';
-import { sharedWalls } from './edit.ts';
+import { sharedUnitWalls } from './edit.ts';
 import type { DoorStyle, MapDocument, Opening, Unit, Vec2 } from './types.ts';
 
 export type DoorType = 'single' | 'double' | 'passage';
@@ -29,7 +29,7 @@ type Wall = [Vec2, Vec2];
 export function openingWall(doc: MapDocument, o: Opening): Wall | null {
   const units = o.units.map((id) => doc.units.find((u) => u.id === id));
   if (units.some((u) => !u)) return null;
-  const candidates: Wall[] = units.length === 2 ? sharedWalls(units[0]!.polygon, units[1]!.polygon) : polygonEdges(units[0]!.polygon);
+  const candidates: Wall[] = units.length === 2 ? sharedUnitWalls(units[0]!, units[1]!) : polygonEdges(units[0]!.polygon);
   return candidates.find(([a, b]) => pointSegmentDistance(o.segment[0], a, b) < ON_WALL && pointSegmentDistance(o.segment[1], a, b) < ON_WALL) ?? null;
 }
 
@@ -98,7 +98,7 @@ export function placeDoor(
   const ua = doc.units.find((u) => u.id === a);
   const ub = doc.units.find((u) => u.id === b);
   if (!ua || !ub) return null;
-  const walls = sharedWalls(ua.polygon, ub.polygon).filter(([p, q]) => distance(p, q) >= DOOR_MIN_WALL);
+  const walls = sharedUnitWalls(ua, ub).filter(([p, q]) => distance(p, q) >= DOOR_MIN_WALL);
   if (walls.length === 0) return null;
 
   const wall = at
@@ -132,7 +132,7 @@ export function placeEntrance(doc: MapDocument, unitId: string, at: Vec2, preset
   let free = freeIntervals(doc, wall);
   for (const other of doc.units) {
     if (other.id === unit.id || other.level !== unit.level) continue;
-    for (const [c, d] of sharedWalls(unit.polygon, other.polygon)) {
+    for (const [c, d] of sharedUnitWalls(unit, other)) {
       if (pointSegmentDistance(c, wall[0], wall[1]) > ON_WALL || pointSegmentDistance(d, wall[0], wall[1]) > ON_WALL) continue;
       const tc = along(wall, c);
       const td = along(wall, d);
