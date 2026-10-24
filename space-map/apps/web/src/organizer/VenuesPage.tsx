@@ -173,12 +173,6 @@ export default function VenuesPage() {
 
         {error && <p className="notice">{error}</p>}
 
-        {openAccess && (
-          <p className="guest-note is-open">
-            <Icon name="eye" size={16} /> Общий доступ на время: все вошедшие видят, правят и удаляют все площадки команды. Удалённую вернуть нельзя.
-          </p>
-        )}
-
         {user?.isGuest && !openAccess && (
           <GuestClaim
             onClaimed={(u) => {

@@ -1,13 +1,40 @@
 // Подсказки меток и переходов, ориентация, прогулка по маршруту — ТЗ 5.6, 5.7, 5.10.
 import { azimuth, distance, hasLineOfSight, normalize180, normalize360 } from './geometry.ts';
 import type { NavGraph } from './graph.ts';
-import type { MapDocument, PanoramaLink, PanoramaMarker, PanoramaPlacement, Place, Vec2 } from './types.ts';
+import type { MapDocument, PanoramaLink, PanoramaMarker, PanoramaPin, PanoramaPlacement, Place, Vec2 } from './types.ts';
 
 export const MARKER_HEIGHT = 1.2;
 
 /** heading по одному соответствию: объект виден в панораме под yaw и стоит на плане в target. */
 export function headingFromCorrespondence(panoPos: Vec2, target: Vec2, yawInPano: number): number {
   return normalize360(azimuth(panoPos, target) - yawInPano);
+}
+
+/**
+ * Направление панорамы по точкам, поставленным вручную: каждая даёт своё, итог — среднее по кругу.
+ * Дальние точки весят больше: та же неточность плана на 10 м сбивает угол впятеро меньше, чем на 2 м.
+ * Место берётся там, где оно сейчас на плане (его могли сдвинуть), дверь — там, где была. Нет точек — null.
+ */
+export function headingFromPins(doc: MapDocument, panoPos: Vec2, pins: readonly PanoramaPin[]): number | null {
+  let x = 0;
+  let y = 0;
+  for (const pin of pins) {
+    const target = (pin.place && doc.places.find((p) => p.id === pin.place)?.pos) || pin.pos;
+    const weight = Math.min(Math.max(distance(panoPos, target), 0.5), 15);
+    const h = (headingFromCorrespondence(panoPos, target, pin.yaw) * Math.PI) / 180;
+    x += weight * Math.cos(h);
+    y += weight * Math.sin(h);
+  }
+  if (Math.hypot(x, y) < 1e-9) return null;
+  return normalize360((Math.atan2(y, x) * 180) / Math.PI);
+}
+
+/** Метки мест, поставленных точками вручную: ровно там, куда нажали. Пересчёт по плану их не трогает. */
+export function pinnedMarkers(doc: MapDocument, pano: PanoramaPlacement): PanoramaMarker[] {
+  const places = new Set(doc.places.map((p) => p.id));
+  return (pano.pins ?? [])
+    .filter((pin) => pin.place && places.has(pin.place))
+    .map((pin) => ({ place: pin.place!, yaw: pin.yaw, pitch: pin.pitch, status: 'accepted' as const }));
 }
 
 /** Где в панораме окажется точка плана. Без heading или без видимости — null. */

@@ -1,6 +1,6 @@
 // Правка плана в редакторе: помещения (создать, сдвинуть, изменить форму, удалить), места, двери и граф.
 // Все функции чистые: принимают документ и возвращают новый — так работают «Отменить / Повторить».
-import { acceptSuggestions } from './panorama.ts';
+import { acceptSuggestions, pinnedMarkers } from './panorama.ts';
 import { distance, hasLineOfSight, pointInPolygon, pointInUnit, pointSegmentDistance, polygonArea, polygonEdges, segmentIntersection, signedArea, unitAt, unitRings } from './geometry.ts';
 import type { MapDocument, NavEdge, NavNode, Opening, Place, Unit, UnitKind, Vec2 } from './types.ts';
 
@@ -556,9 +556,12 @@ export function rebuildGraph(doc: MapDocument, level: string): MapDocument {
   return next;
 }
 
-/** Метки мест в панорамах заново по плану (после сдвига помещений), переходы между панорамами сохраняются. */
+/**
+ * Метки мест в панорамах заново по плану (после сдвига помещений), переходы между панорамами сохраняются.
+ * Места, поставленные точкой вручную, остаются там, куда нажал организатор.
+ */
 export function refreshPanoramaMarkers(doc: MapDocument): MapDocument {
-  let next: MapDocument = { ...doc, panoramas: doc.panoramas.map((pa) => ({ ...pa, markers: [] })) };
+  let next: MapDocument = { ...doc, panoramas: doc.panoramas.map((pa) => ({ ...pa, markers: pinnedMarkers(doc, pa) })) };
   for (const pa of next.panoramas) next = acceptSuggestions(next, pa.id);
   // acceptSuggestions мог добавить новые переходы — оставляем только прежние.
   const links = new Map(doc.panoramas.map((pa) => [pa.id, pa.links]));

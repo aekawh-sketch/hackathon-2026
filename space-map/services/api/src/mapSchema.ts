@@ -110,6 +110,20 @@ export const MapDocumentSchema = Type.Object(
           { maxItems: 200 },
         ),
         links: Type.Array(Type.Object({ to: Id, yaw: Num, status: Status, manual: Type.Optional(Type.Boolean()) }), { maxItems: 50 }),
+        pins: Type.Optional(
+          Type.Array(
+            Type.Object({
+              yaw: Num,
+              pitch: Num,
+              kind: Type.Union([Type.Literal('door'), Type.Literal('place')]),
+              pos: Vec2,
+              // «Дверь в «…»» — имя помещения плюс подпись.
+              name: Type.String({ maxLength: 260 }),
+              place: Type.Optional(Id),
+            }),
+            { maxItems: 50 },
+          ),
+        ),
       }),
       { maxItems: 300 },
     ),

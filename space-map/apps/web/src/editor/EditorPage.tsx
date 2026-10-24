@@ -453,14 +453,15 @@ function Editor({ initial, server }: EditorProps) {
     }
   };
 
-  const menuItems: { icon: IconName; label: string; onClick: () => void; pressed?: boolean; danger?: boolean }[] = [
+  // phoneOnly — только в меню «Ещё» на телефоне: на компьютере для этого есть своя кнопка в шапке.
+  const menuItems: { icon: IconName; label: string; onClick: () => void; pressed?: boolean; danger?: boolean; phoneOnly?: boolean }[] = [
     ...(desktop ? [] : [{ icon: (view === 'plan' ? 'cube' : 'map') as IconName, label: view === 'plan' ? 'Показать в 3D' : 'Вернуться к плану', onClick: () => setView(view === 'plan' ? '3d' : 'plan') }]),
     { icon: 'layers', label: 'Сетка маршрутов', onClick: () => setShowGraph((g) => !g), pressed: showGraph },
     { icon: 'camera', label: 'Точки съёмки', onClick: () => setShowShots((v) => !v), pressed: showShots },
     { icon: 'download', label: 'Скачать карту (JSON)', onClick: download },
-    { icon: 'external', label: 'Загрузить карту из файла', onClick: () => fileRef.current?.click() },
+    { icon: 'upload', label: 'Загрузить карту из файла', onClick: () => fileRef.current?.click() },
     ...(server
-      ? [{ icon: 'external' as IconName, label: venue?.publishedVersion !== null ? 'Ссылка и код для сайта' : 'Опубликовать', onClick: () => setPublishOpen(true) }]
+      ? [{ icon: 'external' as IconName, label: venue?.publishedVersion !== null ? 'Ссылка и код для сайта' : 'Опубликовать', onClick: () => setPublishOpen(true), phoneOnly: true }]
       : [{ icon: 'reset' as IconName, label: 'Сбросить демо', onClick: () => setConfirmReset(true), danger: true }]),
   ];
 
@@ -575,7 +576,7 @@ function Editor({ initial, server }: EditorProps) {
           </div>
           )}
           {desktop &&
-            menuItems.filter((m) => !m.danger).map((m) => (
+            menuItems.filter((m) => !m.danger && !m.phoneOnly).map((m) => (
               <button key={m.label} type="button" className="icon-btn" title={m.label} aria-label={m.label} aria-pressed={m.pressed} onClick={m.onClick}>
                 <Icon name={m.icon} />
               </button>

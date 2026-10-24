@@ -1,5 +1,5 @@
 // Сквозные проверки API на настоящей PostgreSQL (TEST_DATABASE_URL). ТЗ 13: владение, ревизии, публикация, загрузки.
-import { addLink, demoVenue, refreshCapturePoints, type MapDocument } from '@space-map/map-core';
+import { addLink, demoVenue, pinPanoramaPoint, refreshCapturePoints, visibleLandmarks, type MapDocument } from '@space-map/map-core';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -459,6 +459,26 @@ describe('инструменты списка площадок', () => {
     const latest = (await anon.req('GET', `/p/${v.slug}/latest.json`)).json();
     const pub = (await anon.req('GET', latest.url)).json() as MapDocument;
     expect(pub.panoramas.find((p) => p.id === a!.id)!.links.find((l) => l.to === b!.id)?.manual).toBe(true);
+  });
+
+  it('точка, поставленная в панораме вручную, переживает сохранение и публикацию', async () => {
+    const c = await newUser();
+    const v = await newVenue(c);
+    const { revision } = (await c.req('GET', `/api/venues/${v.id}/draft`)).json();
+    const base = demoVenue();
+    const pano = base.panoramas[0]!;
+    const door = visibleLandmarks(base, pano.level, pano.pos).find((l) => l.kind === 'door')!;
+    const doc = pinPanoramaPoint(base, pano.id, { yaw: 40, pitch: -3, kind: 'door', pos: door.pos, name: door.name });
+    expect((await c.req('PUT', `/api/venues/${v.id}/draft`, { revision, doc })).statusCode).toBe(200);
+    const saved = (await c.req('GET', `/api/venues/${v.id}/draft`)).json().doc as MapDocument;
+    const savedPano = saved.panoramas.find((p) => p.id === pano.id)!;
+    expect(savedPano.pins).toEqual([{ yaw: 40, pitch: -3, kind: 'door', pos: door.pos, name: door.name }]);
+    expect(savedPano.heading).toBe(doc.panoramas.find((p) => p.id === pano.id)!.heading);
+    expect((await c.req('POST', `/api/venues/${v.id}/publish`)).statusCode).toBe(200);
+    const anon = new Client();
+    const latest = (await anon.req('GET', `/p/${v.slug}/latest.json`)).json();
+    const pub = (await anon.req('GET', latest.url)).json() as MapDocument;
+    expect(pub.panoramas.find((p) => p.id === pano.id)!.pins).toHaveLength(1);
   });
 
   it('снять с публикации: ссылка перестаёт открываться, повторная публикация — следующая версия', async () => {

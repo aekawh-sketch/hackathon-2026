@@ -33,6 +33,7 @@ export const ICON_PATHS = {
   map: 'M9 4L3.5 6v14L9 18l6 2 5.5-2V4L15 6zM9 4v14M15 6v14',
   cube: 'M12 2.5l8.5 4.75v9.5L12 21.5l-8.5-4.75v-9.5zM12 12l8.5-4.75M12 12v9.5M12 12L3.5 7.25',
   download: 'M12 4v11M7 10.5l5 5 5-5M4.5 19.5h15',
+  upload: 'M12 15.5v-11M7 9l5-5 5 5M4.5 19.5h15',
   edit: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
   cursor: 'M5 3.5l13 7.5-5.5 1.5L10 18z',
   square: 'M4.5 4.5h15v15h-15zM4.5 4.5h0',

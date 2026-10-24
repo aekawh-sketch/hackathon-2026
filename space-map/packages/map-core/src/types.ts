@@ -154,6 +154,22 @@ export interface PanoramaLink {
   manual?: boolean;
 }
 
+/**
+ * Точка, поставленная организатором в панораме: «вот здесь на снимке — эта дверь или это место плана».
+ * Привязана к снимку. По таким точкам считается направление панорамы, а место с точкой стоит в панораме ровно на ней.
+ */
+export interface PanoramaPin {
+  yaw: number;
+  pitch: number;
+  kind: 'door' | 'place';
+  /** Где это на плане — на момент, когда поставили точку. */
+  pos: Vec2;
+  /** Как назвать человеку: «Дверь в «Коридор»», «Стойка регистрации». */
+  name: string;
+  /** Место плана — у точек-мест. */
+  place?: string;
+}
+
 export interface PanoramaPlacement {
   id: string;
   /** ID обработанной панорамы (таблица panoramas). */
@@ -167,6 +183,8 @@ export interface PanoramaPlacement {
   markers: PanoramaMarker[];
   customMarkers: CustomMarker[];
   links: PanoramaLink[];
+  /** Точки, поставленные вручную («Установить точку» в осмотре панорамы). */
+  pins?: PanoramaPin[];
 }
 
 /**

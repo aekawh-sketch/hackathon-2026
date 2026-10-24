@@ -3,10 +3,10 @@
 // тогда между ними есть переход и прогулка по любому маршруту идёт без разрывов (ТЗ 5.10).
 // Расчёт — по плану: мебели и стёкол план не знает, поэтому точки — предложение, последнее слово за организатором.
 import { rebuildGraph } from './edit.ts';
-import { distance, hasLineOfSight, normalize360, pointInUnit, pointSegmentDistance, polygonArea, polygonEdges, segmentIntersection, signedArea, unitRings } from './geometry.ts';
+import { distance, hasLineOfSight, normalize180, normalize360, pointInUnit, pointSegmentDistance, polygonArea, polygonEdges, segmentIntersection, signedArea, unitRings } from './geometry.ts';
 import { NavGraph, nearestVisibleNode, routePolyline } from './graph.ts';
-import { acceptSuggestions, headingFromCorrespondence, suggestLinks } from './panorama.ts';
-import type { CapturePoint, MapDocument, Opening, PanoramaPlacement, Unit, Vec2 } from './types.ts';
+import { acceptSuggestions, headingFromCorrespondence, headingFromPins, pinnedMarkers, suggestLinks } from './panorama.ts';
+import type { CapturePoint, MapDocument, Opening, PanoramaPin, PanoramaPlacement, Unit, Vec2 } from './types.ts';
 import { deletePanorama } from './validate.ts';
 
 export interface CapturePlanOptions {
@@ -321,15 +321,46 @@ export function orientPanorama(doc: MapDocument, panoId: string, target: Vec2, y
 }
 
 /**
- * Новое направление панорамы (поворот по двери или точная подстройка на градусы): метки мест и подсказанные
- * переходы встают заново по плану, а стрелки, поставленные вручную, остаются — они привязаны к снимку.
+ * «Установить точку» в осмотре панорамы: на снимке в [pin.yaw, pin.pitch] — эта дверь или это место плана.
+ * Точка сохраняется в панораме, направление считается по всем её точкам; та же дверь или место ещё раз —
+ * точка переставляется, а не добавляется вторая.
+ */
+export function pinPanoramaPoint(doc: MapDocument, panoId: string, pin: PanoramaPin): MapDocument {
+  const pano = doc.panoramas.find((p) => p.id === panoId);
+  if (!pano) return doc;
+  const placed: PanoramaPin = { ...pin, yaw: Math.round(normalize180(pin.yaw) * 10) / 10, pitch: Math.round(pin.pitch * 10) / 10 };
+  const pins = [...(pano.pins ?? []).filter((p) => !samePin(p, placed)), placed];
+  return withPins(doc, panoId, pins);
+}
+
+/** Убрать точку [index]: направление — по оставшимся; убрали последнюю — направление остаётся как было. */
+export function removePanoramaPin(doc: MapDocument, panoId: string, index: number): MapDocument {
+  const pano = doc.panoramas.find((p) => p.id === panoId);
+  if (!pano?.pins?.[index]) return doc;
+  return withPins(doc, panoId, pano.pins.filter((_, i) => i !== index));
+}
+
+function withPins(doc: MapDocument, panoId: string, pins: PanoramaPin[]): MapDocument {
+  const next: MapDocument = { ...doc, panoramas: doc.panoramas.map((p) => (p.id === panoId ? { ...p, pins } : p)) };
+  const pano = next.panoramas.find((p) => p.id === panoId)!;
+  return setPanoramaHeading(next, panoId, headingFromPins(next, pano.pos, pins) ?? pano.heading ?? 0);
+}
+
+function samePin(a: PanoramaPin, b: PanoramaPin): boolean {
+  return a.place || b.place ? a.place === b.place : a.kind === b.kind && distance(a.pos, b.pos) < 0.05;
+}
+
+/**
+ * Новое направление панорамы (точки, поставленные вручную, или точная подстройка на градусы): метки мест и
+ * подсказанные переходы встают заново по плану, а стрелки и места, поставленные вручную, остаются — они
+ * привязаны к снимку.
  */
 export function setPanoramaHeading(doc: MapDocument, panoId: string, heading: number): MapDocument {
   if (!doc.panoramas.some((p) => p.id === panoId)) return doc;
   const rounded = Math.round(normalize360(heading) * 10) / 10;
   const next: MapDocument = {
     ...doc,
-    panoramas: doc.panoramas.map((p) => (p.id === panoId ? { ...p, heading: rounded, markers: [], links: p.links.filter((l) => l.manual) } : p)),
+    panoramas: doc.panoramas.map((p) => (p.id === panoId ? { ...p, heading: rounded, markers: pinnedMarkers(doc, p), links: p.links.filter((l) => l.manual) } : p)),
   };
   return linkPanorama(next, panoId);
 }
@@ -355,6 +386,8 @@ export interface Landmark {
   name: string;
   kind: 'door' | 'place';
   distance: number;
+  /** ID места — у мест. */
+  place?: string;
 }
 
 /** Двери и места, которые видно из точки, — ближние первыми. По ним задают направление панорамы или AR. */
@@ -370,7 +403,7 @@ export function visibleLandmarks(doc: MapDocument, level: string, from: Vec2, mi
     out.push({ pos, name, kind: 'door', distance: distance(from, pos) });
   }
   for (const p of doc.places) {
-    if (p.level === level && !p.hidden) out.push({ pos: p.pos, name: p.name, kind: 'place', distance: distance(from, p.pos) });
+    if (p.level === level && !p.hidden) out.push({ pos: p.pos, name: p.name, kind: 'place', distance: distance(from, p.pos), place: p.id });
   }
   return out.filter((l) => l.distance >= minDistance && hasLineOfSight(doc, level, from, l.pos)).sort((a, b) => a.distance - b.distance);
 }

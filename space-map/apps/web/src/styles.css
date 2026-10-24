@@ -2048,14 +2048,6 @@ button.insp-row:hover {
   margin: 0 0 10px;
 }
 
-.guest-note.is-open {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: #fff4e5;
-  color: #8a4b00;
-}
-
 .guest-note.is-ok {
   display: flex;
   align-items: center;
@@ -2908,4 +2900,26 @@ button.insp-row:hover {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+}
+
+/* Осмотр панорамы: «Точка сохранена» — над панелью панорамы, гаснет сама. */
+.pano-note {
+  position: absolute;
+  left: 50%;
+  bottom: max(136px, calc(env(safe-area-inset-bottom) + 128px));
+  z-index: 22;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 9px 14px;
+  border-radius: 999px;
+  background: rgb(14 23 38 / 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  transform: translateX(-50%);
+  animation: fade 0.2s ease-out;
 }
