@@ -40,7 +40,9 @@ export interface SphereProgress {
   moved: boolean;
   /** Телефон отходит от места: ещё снимаем, но просим держать ближе. */
   far: boolean;
-  /** ARCore потерял опору (белая стена, потолок, темнота) — положение не настоящее, не снимаем. */
+  /** Опора слабая (белая стена, потолок): положение условное, но поворот от гироскопа есть — снимаем по нему. */
+  weak: boolean;
+  /** Положения нет совсем дольше 0,7 с — кадров камеры тоже нет, снимать нечем. */
   lost: boolean;
   steady: boolean;
   /** Куда повернуть телефон к неснятому; null — держите как есть. */
@@ -70,6 +72,8 @@ const FAR_MOVE = 0.6;
 const MAX_MOVE = 1.2;
 /** За один кадр (~16 мс) так далеко не уйти — это ARCore заново нашёл опору и сдвинул мир. */
 const JUMP = 0.25;
+/** Столько без положения — считаем, что опора потеряна. */
+const LOST_MS = 700;
 
 const COLOR = new THREE.Color('#7C3AED');
 const ARRIVED = new THREE.Color('#12A150');
@@ -109,6 +113,7 @@ export class ArScene {
     center: THREE.Vector3;
     history: { t: number; f: THREE.Vector3 }[];
     last: THREE.Vector3 | null;
+    lastPoseAt: number;
     lastShot: number;
     lastReport: number;
     lastDots: number;
@@ -248,6 +253,7 @@ export class ArScene {
       center: new THREE.Vector3(...this.pose.position),
       history: [],
       last: null,
+      lastPoseAt: 0,
       lastShot: 0,
       lastReport: 0,
       lastDots: 0,
@@ -335,10 +341,12 @@ export class ArScene {
     s.last = here;
     const dx = here.x - s.center.x;
     const dz = here.z - s.center.z;
-    const away = Math.hypot(dx, dz);
+    // При слабой опоре положение условное — уход с места по нему не считаем, снимаем по повороту.
+    const weak = emulated;
+    const away = weak ? 0 : Math.hypot(dx, dz);
     const moved = away > MAX_MOVE;
     const far = away > FAR_MOVE;
-    const lost = emulated;
+    s.lastPoseAt = time;
 
     // Телефон неподвижен, если за последние 250 мс взгляд почти не сдвинулся.
     s.history.push({ t: time, f: forward.clone() });
@@ -349,7 +357,7 @@ export class ArScene {
     const frustum: CameraFrustum = { q: [q.x, q.y, q.z, q.w], tanX: 1 / P[0]!, tanY: 1 / P[5]! };
     const cameraCam = (view as XRView & XrViewWithCamera).camera;
     const noCamera = !cameraCam;
-    if (cameraCam && steady && !moved && !lost && time - s.lastShot > SHOT_EVERY && s.coverage.gain(frustum) >= SHOT_GAIN) {
+    if (cameraCam && steady && !moved && time - s.lastShot > SHOT_EVERY && s.coverage.gain(frustum) >= SHOT_GAIN) {
       const binding = this.renderer.xr.getBinding() as unknown as XrCameraBinding | null;
       const image = binding?.getCameraImage(cameraCam) ?? null;
       if (image) {
@@ -372,7 +380,7 @@ export class ArScene {
         const off = Math.atan2(Math.hypot(c.x, c.y), -c.z);
         if (off > (20 * Math.PI) / 180) hint = Math.abs(c.x) >= Math.abs(c.y) ? (c.x > 0 ? 'right' : 'left') : c.y > 0 ? 'up' : 'down';
       }
-      this.callbacks.onSphere?.({ fraction: s.coverage.fraction, frames: s.builder.frames, moved, far, lost, steady, hint, noCamera });
+      this.callbacks.onSphere?.({ fraction: s.coverage.fraction, frames: s.builder.frames, moved, far, weak, lost: false, steady, hint, noCamera });
     }
   }
 
@@ -386,6 +394,13 @@ export class ArScene {
     const space = this.renderer.xr.getReferenceSpace();
     const viewer = frame && space ? frame.getViewerPose(space) : undefined;
     if (viewer && this.sphere && viewer.views[0]) this.sphereTick(time, viewer.views[0], viewer.emulatedPosition);
+    else if (this.sphere && time - this.sphere.lastPoseAt > LOST_MS && time - this.sphere.lastReport >= 120) {
+      // Положения нет совсем — ARCore не за что зацепиться; кадров камеры в такой момент тоже нет.
+      const s = this.sphere;
+      s.lastReport = time;
+      s.history.length = 0;
+      this.callbacks.onSphere?.({ fraction: s.coverage.fraction, frames: s.builder.frames, moved: false, far: false, weak: true, lost: true, steady: false, hint: null, noCamera: false });
+    }
     if (viewer) {
       const { position: p, orientation: o } = viewer.transform;
       const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(o.x, o.y, o.z, o.w));
