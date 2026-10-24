@@ -177,10 +177,12 @@ function Editor({ initial, server }: EditorProps) {
   const { doc } = history;
   const [venue, setVenue] = useState<VenueSummary | null>(server?.venue ?? null);
   const [publishOpen, setPublishOpen] = useState(false);
-  // Чужое сохранение (общий доступ — правят несколько человек): показываем новый документ, история — с него.
-  const remote = useServerSave(server?.venue.id ?? null, server?.revision ?? 0, doc, (theirs, by) => {
+  // Чужое сохранение (общий доступ — правят несколько человек, телефон снимает панорамы): показываем новый документ,
+  // история — с него: «Отменить» не должна откатить чужую правку.
+  const remote = useServerSave(server?.venue.id ?? null, server?.revision ?? 0, doc, (theirs, by, merged) => {
     history.reset(theirs);
-    showToast(by ? `Подтянули изменения: ${by}` : 'Подтянули изменения из другого окна');
+    const who = by ? `: ${by}` : ' из другого окна';
+    showToast(merged ? `Ваши правки объединены с изменениями${who}` : `Подтянули изменения${who}`);
   });
   const level = doc.levels[0]?.id ?? 'L1';
   const [tool, setTool] = useState<Tool>('select');
@@ -490,7 +492,7 @@ function Editor({ initial, server }: EditorProps) {
         ) : (
           <ErrorBoundary fallback={<div className="screen-message">Не удалось загрузить 3D.</div>}>
             <Suspense fallback={<div className="screen-message"><div className="loader" /></div>}>
-              <Model3DView doc={doc} level={level} insets={insets} selectedPlace={selection?.kind === 'place' ? selection.id : null} />
+              <Model3DView doc={doc} level={level} insets={insets} selectedPlace={selection?.kind === 'place' ? selection.id : null} showPanoramas />
             </Suspense>
           </ErrorBoundary>
         )}

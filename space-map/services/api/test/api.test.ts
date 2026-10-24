@@ -369,7 +369,12 @@ describe('общий доступ (OPEN_ACCESS — стенд команды)', 
       const draft = (await teammate.req('GET', `/api/venues/${v.id}/draft`)).json();
       expect((await teammate.req('PUT', `/api/venues/${v.id}/draft`, { revision: draft.revision, doc: draft.doc })).statusCode).toBe(200);
 
-      // Править можно, а удалить чужую — нет: удаление необратимо.
+      // Чужой черновик (гостевую копию) удалить можно, чужую опубликованную — нет: её видят посетители.
+      const copy = await newVenue(owner, 'Копия гостя');
+      expect((await teammate.req('GET', '/api/venues')).json().venues.find((x: { id: string }) => x.id === copy.id)?.canDelete).toBe(true);
+      expect((await teammate.req('DELETE', `/api/venues/${copy.id}`, { confirmName: 'Копия гостя' })).statusCode).toBe(200);
+      expect((await owner.req('POST', `/api/venues/${v.id}/publish`)).statusCode).toBe(200);
+      expect((await teammate.req('GET', '/api/venues')).json().venues.find((x: { id: string }) => x.id === v.id)?.canDelete).toBe(false);
       const del = await teammate.req('DELETE', `/api/venues/${v.id}`, { confirmName: 'Общая площадка' });
       expect(del.statusCode).toBe(403);
       expect(del.json().code).toBe('not_owner');

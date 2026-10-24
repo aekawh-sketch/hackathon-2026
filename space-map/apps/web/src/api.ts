@@ -124,6 +124,8 @@ export interface VenueListItem extends VenueSummary {
   editedAt: string;
   /** Моя площадка: удалить её могу только я. */
   isOwner: boolean;
+  /** Можно удалить: своя или (при общем доступе) чужой черновик. */
+  canDelete: boolean;
   /** Кто создал — при общем доступе, если не я. */
   ownerName: string | null;
   stats: { units: number; places: number; panoramas: number };

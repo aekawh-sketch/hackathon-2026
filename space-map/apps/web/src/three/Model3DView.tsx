@@ -16,6 +16,8 @@ export interface Model3DViewProps {
   selectedPlace?: string | null;
   onPlaceClick?: (id: string) => void;
   insets?: Insets;
+  /** Шарики на местах съёмки панорам — для организатора; посетитель их не видит. */
+  showPanoramas?: boolean;
 }
 
 const WALL_HEIGHT = 2.7;
@@ -252,7 +254,7 @@ interface Stage3D {
   walker: { curve: THREE.Curve<THREE.Vector3>; mesh: THREE.Mesh; t: number } | null;
 }
 
-export function Model3DView({ doc, level, route, selectedPlace, onPlaceClick, insets }: Model3DViewProps) {
+export function Model3DView({ doc, level, route, selectedPlace, onPlaceClick, insets, showPanoramas = false }: Model3DViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage3D | null>(null);
   const clickRef = useRef(onPlaceClick);
@@ -343,7 +345,7 @@ export function Model3DView({ doc, level, route, selectedPlace, onPlaceClick, in
 
     // Точки панорам
     const panoMat = new THREE.MeshStandardMaterial({ color: PANORAMA, emissive: PANORAMA, emissiveIntensity: 0.35, roughness: 0.3 });
-    for (const p of doc.panoramas.filter((pa) => pa.level === level)) {
+    for (const p of showPanoramas ? doc.panoramas.filter((pa) => pa.level === level) : []) {
       const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.22, 24, 16), panoMat);
       mesh.position.copy(v3(p.pos, p.cameraHeight));
       mesh.castShadow = true;
@@ -457,7 +459,7 @@ export function Model3DView({ doc, level, route, selectedPlace, onPlaceClick, in
       renderer.domElement.remove();
       stageRef.current = null;
     };
-  }, [doc, level]);
+  }, [doc, level, showPanoramas]);
 
   // Маршрут: трубка, светящийся «пешеход» и кольцо у цели.
   useEffect(() => {

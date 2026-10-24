@@ -1,9 +1,10 @@
-// План для посетителя: жесты (сдвиг, щипок, колесо), касания по местам и панорамам, кнопки масштаба.
+// План для посетителя: жесты (сдвиг, щипок, колесо), касания по местам, кнопки масштаба.
+// Точек панорам на плане нет — это кухня организатора; посетитель открывает панораму из карточки места или в прогулке по маршруту.
 import { pointInPolygon, polygonArea, type MapDocument, type Vec2 } from '@space-map/map-core';
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
 import { Circle, Layer, Stage } from 'react-konva';
 import { Icon } from '../ui/icons.tsx';
-import { BasePlan, gridStyle, PanoDot, pinchView, PlaceArea, PlacePin, RouteLine, UnitLabels, useElementSize } from './draw.tsx';
+import { BasePlan, gridStyle, pinchView, PlaceArea, PlacePin, RouteLine, UnitLabels, useElementSize } from './draw.tsx';
 import { FROM, SELECTED } from './style.ts';
 import { fitBoundsInset, levelBounds, screenToWorld, worldToScreen, zoomAt, type Insets, type Viewport } from './viewport.ts';
 
@@ -12,7 +13,6 @@ export interface PlanCanvasProps {
   level: string;
   route?: Vec2[] | null;
   selectedPlace?: string | null;
-  activePanorama?: string | null;
   fromPoint?: Vec2 | null;
   /** «Куда» — точка на плане, а не место. */
   toPoint?: Vec2 | null;
@@ -25,7 +25,6 @@ export interface PlanCanvasProps {
   /** Вписать в экран эти точки (маршрут), а не весь этаж. */
   focus?: Vec2[] | null;
   onPlaceClick?: (id: string) => void;
-  onPanoramaClick?: (id: string) => void;
   onEmptyClick?: (world: Vec2) => void;
 }
 
@@ -34,13 +33,12 @@ export interface PlanCanvasProps {
 const COARSE = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
 const TAP_TOLERANCE = COARSE ? 12 : 8;
 const PLACE_HIT = COARSE ? 28 : 22;
-const PANO_HIT = COARSE ? 24 : 16;
 /** Кнопкам масштаба нужно столько свободной высоты над шторкой; меньше — прячем «+/−», остаётся щипок. */
 const ZOOM_ROOM = 230;
 const FIT_ROOM = 110;
 
 export function PlanCanvas(props: PlanCanvasProps) {
-  const { doc, level, route, selectedPlace, activePanorama, fromPoint, toPoint, category, insets, fitKey = 0, focus } = props;
+  const { doc, level, route, selectedPlace, fromPoint, toPoint, category, insets, fitKey = 0, focus } = props;
   const wrapRef = useRef<HTMLDivElement>(null);
   const size = useElementSize(wrapRef);
   const [view, setView] = useState<Viewport>({ scale: 20, x: 0, y: 0 });
@@ -83,7 +81,6 @@ export function PlanCanvas(props: PlanCanvasProps) {
   };
 
   const places = useMemo(() => doc.places.filter((p) => p.level === level && !p.hidden), [doc, level]);
-  const panoramas = useMemo(() => doc.panoramas.filter((p) => p.level === level), [doc, level]);
   const categories = useMemo(() => new Map(doc.categories.map((c) => [c.id, c])), [doc]);
 
   const hitTest = (screen: Vec2) => {
@@ -96,12 +93,10 @@ export function PlanCanvas(props: PlanCanvasProps) {
       .filter((p) => p.polygon && pointInPolygon(world, p.polygon))
       .sort((a, b) => polygonArea(a.polygon!) - polygonArea(b.polygon!))[0];
     if (area) return { kind: 'place' as const, id: area.id };
-    // Сверху — выбранное, потом остальные места, потом панорамы.
+    // Сверху — выбранное, потом остальные места.
     const ordered = places.filter((p) => !p.polygon).sort((a, b) => Number(b.id === selectedPlace) - Number(a.id === selectedPlace));
     const place = ordered.find((p) => near(p.pos, PLACE_HIT));
     if (place) return { kind: 'place' as const, id: place.id };
-    const pano = panoramas.find((p) => near(p.pos, PANO_HIT));
-    if (pano) return { kind: 'pano' as const, id: pano.id };
     return null;
   };
 
@@ -138,8 +133,7 @@ export function PlanCanvas(props: PlanCanvasProps) {
     if (!had || pointers.current.size > 0 || gesture.current.moved || e.type === 'pointercancel') return;
     const screen = local(e);
     const hit = hitTest(screen);
-    if (hit?.kind === 'place') props.onPlaceClick?.(hit.id);
-    else if (hit?.kind === 'pano') props.onPanoramaClick?.(hit.id);
+    if (hit) props.onPlaceClick?.(hit.id);
     else props.onEmptyClick?.(screenToWorld(view, screen));
   };
 
@@ -183,10 +177,6 @@ export function PlanCanvas(props: PlanCanvasProps) {
               {route && <RouteLine view={view} route={route} />}
             </Layer>
             <Layer listening={false}>
-              {panoramas.map((p) => {
-                const [x, y] = s(p.pos);
-                return <PanoDot key={p.id} x={x} y={y} active={p.id === activePanorama} />;
-              })}
               {fromPoint &&
                 (() => {
                   const [x, y] = s(fromPoint);

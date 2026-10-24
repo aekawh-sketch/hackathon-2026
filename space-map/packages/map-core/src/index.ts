@@ -14,3 +14,4 @@ export * from './capturePoints.ts';
 export * from './routeView.ts';
 export * from './sphereCapture.ts';
 export * from './outline.ts';
+export * from './merge.ts';

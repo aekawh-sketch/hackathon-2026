@@ -1,7 +1,8 @@
 // Мои площадки (ТЗ 8.1): создать, найти, открыть редактор, опубликовать, ссылка и код для сайта,
 // а в меню карточки — переименовать, дублировать, снять с публикации, скачать план, удалить.
 import type { PanoramaPlacement, PlanOutline } from '@space-map/map-core';
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router';
 import { ApiError, auth, panoramaUrls, venuesApi, type User, type VenueListItem, type VenueSummary } from '../api.ts';
 import { APP_APK_URL, hasNativeCapture } from '../capture/native.ts';
@@ -153,7 +154,7 @@ export default function VenuesPage() {
 
         {openAccess && (
           <p className="guest-note is-open">
-            <Icon name="eye" size={16} /> Общий доступ на время: все вошедшие видят и правят все площадки команды. Удалить площадку может только её создатель.
+            <Icon name="eye" size={16} /> Общий доступ на время: все вошедшие видят и правят все площадки команды. Удалить чужую можно, только пока это черновик.
           </p>
         )}
 
@@ -228,11 +229,25 @@ export default function VenuesPage() {
               </Link>
 
               <div className="venue-card-body">
-                <div className="venue-card-main">
-                  <strong>{v.name}</strong>
-                  <span className={`pill ${v.publishedVersion !== null ? 'pill-ok' : ''}`}>
-                    {v.publishedVersion !== null ? `Опубликована · версия ${v.publishedVersion}` : 'Черновик'}
-                  </span>
+                <div className="venue-card-head">
+                  <div className="venue-card-main">
+                    <strong>{v.name}</strong>
+                    <span className={`pill ${v.publishedVersion !== null ? 'pill-ok' : ''}`}>
+                      {v.publishedVersion !== null ? `Опубликована · версия ${v.publishedVersion}` : 'Черновик'}
+                    </span>
+                  </div>
+                    <CardMenu
+                      items={[
+                        { icon: 'edit', label: 'Переименовать', onClick: () => setRenaming(v) },
+                        { icon: 'copy', label: 'Копировать ссылку', onClick: () => void copyLink(v) },
+                        { icon: 'plus', label: 'Дублировать', onClick: () => void run(() => venuesApi.duplicate(v.id), `Копия «${v.name}» создана`) },
+                        ...(v.publishedVersion !== null
+                          ? [{ icon: 'eye' as IconName, label: 'Снять с публикации', onClick: () => void run(() => venuesApi.unpublish(v.id), 'Снята с публикации — ссылка больше не открывается') }]
+                          : []),
+                        { icon: 'download', label: 'Скачать план (JSON)', onClick: () => void downloadJson(v) },
+                        ...(v.canDelete ? [{ icon: 'trash' as IconName, label: 'Удалить площадку', onClick: () => setDeleting(v), danger: true }] : []),
+                      ]}
+                    />
                 </div>
                 <p className="venue-meta">
                   <span>/m/{v.slug}</span>
@@ -255,18 +270,6 @@ export default function VenuesPage() {
                       <Icon name="eye" size={17} /> Карта
                     </a>
                   )}
-                  <CardMenu
-                    items={[
-                      { icon: 'edit', label: 'Переименовать', onClick: () => setRenaming(v) },
-                      { icon: 'copy', label: 'Копировать ссылку', onClick: () => void copyLink(v) },
-                      { icon: 'plus', label: 'Дублировать', onClick: () => void run(() => venuesApi.duplicate(v.id), `Копия «${v.name}» создана`) },
-                      ...(v.publishedVersion !== null
-                        ? [{ icon: 'eye' as IconName, label: 'Снять с публикации', onClick: () => void run(() => venuesApi.unpublish(v.id), 'Снята с публикации — ссылка больше не открывается') }]
-                        : []),
-                      { icon: 'download', label: 'Скачать план (JSON)', onClick: () => void downloadJson(v) },
-                      ...(v.isOwner ? [{ icon: 'trash' as IconName, label: 'Удалить', onClick: () => setDeleting(v), danger: true }] : []),
-                    ]}
-                  />
                 </div>
               </div>
             </li>
@@ -344,35 +347,84 @@ function PlanThumb({ outline }: { outline: PlanOutline }) {
   );
 }
 
+/**
+ * Меню «⋯» карточки. Выносится в body и ставится по кнопке в пределах экрана: кнопка бывает у любого края,
+ * а меню, привязанное к ней внутри карточки, уезжало за край на телефоне.
+ */
 function CardMenu({ items }: { items: { icon: IconName; label: string; onClick: () => void; danger?: boolean }[] }) {
-  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const close = () => {
+    setAnchor(null);
+    setPos(null);
+  };
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!anchor || !menu) return;
+    const pad = 12;
+    const gap = 6;
+    const { width, height } = menu.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    const vh = window.innerHeight;
+    const left = Math.min(Math.max(anchor.right - width, pad), vw - width - pad);
+    // Снизу не помещается — открываем вверх.
+    const top = anchor.bottom + gap + height + pad <= vh ? anchor.bottom + gap : Math.max(pad, anchor.top - gap - height);
+    setPos({ left: Math.max(pad, left), top });
+  }, [anchor]);
+
+  useEffect(() => {
+    if (!anchor) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
+    // Страницу прокрутили или повернули экран — меню больше не у кнопки.
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [anchor]);
+
   return (
     <div className="menu-wrap venue-menu">
-      <button type="button" className="icon-btn" aria-label="Ещё действия" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      <button
+        ref={btnRef}
+        type="button"
+        className="icon-btn"
+        aria-label="Ещё действия"
+        aria-expanded={!!anchor}
+        onClick={() => (anchor ? close() : setAnchor(btnRef.current?.getBoundingClientRect() ?? null))}
+      >
         <Icon name="more" />
       </button>
-      {open && (
-        <>
-          <div className="menu-scrim" onClick={() => setOpen(false)} />
-          <div className="menu" role="menu">
-            {items.map((m) => (
-              <button
-                key={m.label}
-                type="button"
-                role="menuitem"
-                className={`menu-item ${m.danger ? 'danger' : ''}`}
-                onClick={() => {
-                  setOpen(false);
-                  m.onClick();
-                }}
-              >
-                <Icon name={m.icon} size={18} />
-                {m.label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
+      {anchor &&
+        createPortal(
+          <>
+            <div className="menu-scrim" onClick={close} />
+            <div ref={menuRef} className="menu menu-floating" role="menu" style={pos ?? { visibility: 'hidden' }}>
+              {items.map((m) => (
+                <button
+                  key={m.label}
+                  type="button"
+                  role="menuitem"
+                  className={`menu-item ${m.danger ? 'danger' : ''}`}
+                  onClick={() => {
+                    close();
+                    m.onClick();
+                  }}
+                >
+                  <Icon name={m.icon} size={18} />
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -430,18 +482,14 @@ function RenameDialog({ venue, onClose, onSaved }: { venue: VenueListItem; onClo
   );
 }
 
-/** Удаление навсегда: нужно ввести название — так площадку не удалить случайным нажатием. */
+/** Удаление навсегда — отдельным окном с объяснением, что пропадёт. */
 function DeleteDialog({ venue, onClose, onDeleted }: { venue: VenueListItem; onClose: () => void; onDeleted: () => void }) {
-  const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const match = value.trim() === venue.name;
-  const remove = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!match) return;
+  const remove = async () => {
     setBusy(true);
     try {
-      await venuesApi.remove(venue.id, value.trim());
+      await venuesApi.remove(venue.id, venue.name);
       onDeleted();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не удалось удалить');
@@ -450,24 +498,19 @@ function DeleteDialog({ venue, onClose, onDeleted }: { venue: VenueListItem; onC
   };
   return (
     <Dialog title="Удалить площадку?" onClose={onClose}>
-      <form onSubmit={remove}>
-        <p>
-          План, места, панорамы и опубликованная карта <b>«{venue.name}»</b> удалятся навсегда, ссылка /m/{venue.slug} перестанет открываться.
-        </p>
-        <label className="field">
-          <span>Введите название площадки, чтобы подтвердить</span>
-          <input value={value} onChange={(e) => setValue(e.target.value)} placeholder={venue.name} autoFocus />
-        </label>
-        {error && <p className="notice">{error}</p>}
-        <div className="row end">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
-            Отмена
-          </button>
-          <button type="submit" className="btn btn-danger" disabled={busy || !match}>
-            <Icon name="trash" size={17} /> Удалить навсегда
-          </button>
-        </div>
-      </form>
+      <p>
+        <b>«{venue.name}»</b> удалится навсегда: план, места и панорамы
+        {venue.publishedVersion !== null ? <>, карта по ссылке /m/{venue.slug} перестанет открываться</> : null}. Вернуть будет нельзя.
+      </p>
+      {error && <p className="notice">{error}</p>}
+      <div className="row end">
+        <button type="button" className="btn btn-ghost" onClick={onClose} autoFocus>
+          Отмена
+        </button>
+        <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void remove()}>
+          <Icon name="trash" size={17} /> {busy ? 'Удаляем…' : 'Удалить навсегда'}
+        </button>
+      </div>
     </Dialog>
   );
 }

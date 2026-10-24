@@ -31,7 +31,7 @@ const Model3DView = lazy(() => import('../three/Model3DView.tsx'));
 
 const WALK_SPEED = 1.2; // м/с, ТЗ 4.4
 /** Как часто карта посетителя проверяет, не опубликовали ли новую версию. */
-const MAP_SYNC_MS = 20_000;
+const MAP_SYNC_MS = 8_000;
 /** Поворот на 90° «стоит» метр пути: из почти равных маршрутов выбираем тот, где меньше поворотов. */
 const TURN_PENALTY = 1;
 const DESKTOP = '(min-width: 900px)';
@@ -569,7 +569,6 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
             fitKey={fitKey}
             focus={focusRoute ? routeLine : null}
             onPlaceClick={onPlanPlace}
-            onPanoramaClick={(id) => openPanorama(id)}
             onEmptyClick={onPlanEmpty}
           />
         ) : (

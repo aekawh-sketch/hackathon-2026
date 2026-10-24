@@ -13,6 +13,14 @@ import { isUuid, ownedVenue, publish, type Venue } from '../venues.ts';
 
 const VenueId = Type.Object({ id: Type.String() });
 
+/**
+ * Удалить может создатель. При общем доступе — и любой вошедший, если это черновик: так команда чистит
+ * гостевые копии. Опубликованную карту (её видят посетители) и общую демо-площадку — только создатель.
+ */
+function canDelete(v: Venue, userId: string, openAccess: boolean): boolean {
+  return v.ownerId === userId || (openAccess && v.publishedVersion === null && v.slug !== 'demo');
+}
+
 function venueView(v: Venue) {
   return {
     id: v.id,
@@ -43,6 +51,7 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
         ...venueView(venue),
         editedAt,
         isOwner: venue.ownerId === user.id,
+        canDelete: canDelete(venue, user.id, config.openAccess),
         ownerName: venue.ownerId === user.id ? null : (ownerName ?? null),
         stats: doc ? { units: doc.units.length, places: doc.places.length, panoramas: doc.panoramas.length } : { units: 0, places: 0, panoramas: 0 },
         thumb: doc ? planOutline(doc) : null,
@@ -117,8 +126,10 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
     async (req) => {
       const user = requireUser(req);
       const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
-      // Даже при общем доступе удалить может только создатель: правка обратима, удаление — нет.
-      if (venue.ownerId !== user.id) throw new ApiError(403, 'not_owner', 'Удалить площадку может только её создатель');
+      // Правка обратима, удаление — нет: чужую опубликованную или общую демо не удалить и при общем доступе.
+      if (!canDelete(venue, user.id, config.openAccess)) {
+        throw new ApiError(403, 'not_owner', 'Опубликованную площадку может удалить только её создатель');
+      }
       if (req.body.confirmName.trim() !== venue.name) throw new ApiError(422, 'confirm_mismatch', 'Введите точное название площадки');
       const panoIds = (await db.select({ id: panoramas.id }).from(panoramas).where(eq(panoramas.venueId, venue.id))).map((r) => r.id);
       const captureIds = (await db.select({ id: captures.id }).from(captures).where(eq(captures.venueId, venue.id))).map((r) => r.id);

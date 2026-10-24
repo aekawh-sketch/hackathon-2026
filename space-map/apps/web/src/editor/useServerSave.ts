@@ -1,6 +1,7 @@
 // Автосохранение карты на сервер (ТЗ 7.2, п. 47): правки уходят через короткую паузу, с номером ревизии.
-// Конфликт с другим окном не перезаписывается молча — автосохранение встаёт и ждёт решения человека.
-import type { MapDocument } from '@space-map/map-core';
+// Кто-то сохранил раньше нас (телефон снял панораму, пока на сайте правили план) — правки сливаются сами
+// (`mergeDocuments`) и сохраняются поверх. Окно «чью версию оставить» — только если свести не удалось.
+import { mergeDocuments, type MapDocument } from '@space-map/map-core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, venuesApi } from '../api.ts';
 
@@ -14,18 +15,18 @@ export type SaveStatus =
 
 const DEBOUNCE_MS = 700;
 /** Как часто спрашивать, не сохранил ли кто-то после нас (общий доступ — правят вдвоём-втроём). */
-const SYNC_MS = 8000;
+const SYNC_MS = 4000;
 const RETRY_MS = 5000;
 
 /**
- * @param onRemote чужое сохранение пришло, а у нас ничего не ждёт сохранения — показать новый документ.
- *   Если свои правки есть, чужие не подтягиваем: при сохранении сработает окно «чью версию оставить».
+ * @param onRemote показать документ с чужими правками: `merged` — false, если у нас ничего не ждало сохранения
+ *   и мы просто взяли чужой; true — свои правки слиты с чужими и уйдут следующим сохранением.
  */
 export function useServerSave(
   venueId: string | null,
   initialRevision: number,
   doc: MapDocument,
-  onRemote?: (doc: MapDocument, updatedBy: string | null) => void,
+  onRemote?: (doc: MapDocument, updatedBy: string | null, merged: boolean) => void,
 ) {
   const [status, setStatus] = useState<SaveStatus>({ kind: 'idle' });
   const revision = useRef(initialRevision);
@@ -38,6 +39,30 @@ export function useServerSave(
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const onRemoteRef = useRef(onRemote);
   onRemoteRef.current = onRemote;
+
+  /**
+   * Сохранение отклонено — на сервере новее. Слить отправленное с серверным поверх общей базы; правки,
+   * сделанные уже после отправки, — поверх слитого. Документ уходит в редактор, сохранение запустит эффект ниже.
+   */
+  const mergeRemote = useCallback(
+    async (sending: MapDocument): Promise<boolean> => {
+      if (!venueId) return false;
+      try {
+        const draft = await venuesApi.draft(venueId);
+        const merged = mergeDocuments(skipDoc.current ?? sending, sending, draft.doc);
+        if (!merged) return false;
+        const now = latest.current;
+        const shown = now === sending ? merged : (mergeDocuments(sending, now, merged) ?? merged);
+        revision.current = draft.revision;
+        skipDoc.current = draft.doc;
+        onRemoteRef.current?.(shown, draft.updatedBy, true);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [venueId],
+  );
 
   const flush = useCallback(async (): Promise<void> => {
     if (!venueId || blocked.current) return;
@@ -57,8 +82,10 @@ export function useServerSave(
       setStatus(dirty.current ? { kind: 'pending' } : { kind: 'saved', publishedVersion: res.publishedVersion });
     } catch (err) {
       if (err instanceof ApiError && err.code === 'revision_conflict') {
-        blocked.current = true;
-        setStatus({ kind: 'conflict', updatedBy: (err.details as { updatedBy?: string | null } | undefined)?.updatedBy ?? null });
+        if (!(await mergeRemote(sending))) {
+          blocked.current = true;
+          setStatus({ kind: 'conflict', updatedBy: (err.details as { updatedBy?: string | null } | undefined)?.updatedBy ?? null });
+        }
       } else {
         const message = err instanceof ApiError && err.code !== 'offline' ? err.message : 'Нет связи — сохраним, когда появится';
         setStatus({ kind: 'error', message });
@@ -68,7 +95,7 @@ export function useServerSave(
       inFlight.current = false;
     }
     if (dirty.current && !blocked.current) void flush();
-  }, [venueId]);
+  }, [venueId, mergeRemote]);
 
   // Каждая правка — сохранение через паузу.
   useEffect(() => {
@@ -119,7 +146,7 @@ export function useServerSave(
         if (stopped || !clean()) return;
         revision.current = draft.revision;
         skipDoc.current = draft.doc;
-        onRemoteRef.current?.(draft.doc, draft.updatedBy);
+        onRemoteRef.current?.(draft.doc, draft.updatedBy, false);
       } catch {
         // Нет связи — спросим в следующий раз.
       }

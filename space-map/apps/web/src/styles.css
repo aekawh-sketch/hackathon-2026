@@ -1539,44 +1539,11 @@ button.insp-row:hover {
   color: #7c3aed;
 }
 
-.stat-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.stat-tile {
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: var(--surface-2);
-}
-
-.stat-tile strong {
-  display: block;
-  font-size: 20px;
-  font-weight: 750;
-  letter-spacing: -0.02em;
-}
-
-.stat-tile span {
-  color: var(--muted);
-  font-size: 12.5px;
-}
-
-.tips {
-  list-style: none;
+/* Сводка одной строкой: «6 помещений · 12 мест · 553 м²». */
+.insp-meta {
   margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 10px;
-  color: var(--text-2);
+  color: var(--muted);
   font-size: 13.5px;
-}
-
-.tips svg {
-  vertical-align: -3px;
-  color: var(--primary);
 }
 
 .field {
@@ -2602,7 +2569,6 @@ button.insp-row:hover {
 
 /* Ссылки в подсказках: зона нажатия выше строки, а строки не раздвигаются. */
 .hint a,
-.tips a,
 .org-foot a,
 .auth-page a {
   display: inline-block;
@@ -2754,8 +2720,22 @@ button.insp-row:hover {
   align-items: center;
 }
 
-.venue-menu .menu {
+.venue-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.venue-card-head .venue-card-main {
+  flex: 1;
+}
+
+/* Меню карточки — в body, на экране по кнопке. */
+.menu.menu-floating {
+  position: fixed;
+  right: auto;
   min-width: 230px;
+  max-width: calc(100vw - 24px);
 }
 
 @media (max-width: 600px) {
