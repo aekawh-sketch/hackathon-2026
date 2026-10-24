@@ -2015,11 +2015,29 @@ button.insp-row:hover {
 
 .guest-note {
   margin: 12px 0 0;
-  padding: 10px 12px;
+  padding: 12px;
   border-radius: var(--radius-sm);
   background: var(--primary-soft);
   color: var(--primary-strong);
   font-size: 14px;
+}
+
+.guest-note p {
+  margin: 0 0 10px;
+}
+
+.guest-note.is-ok {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #e7f6ee;
+  color: #0b6b35;
+}
+
+.guest-claim {
+  display: grid;
+  gap: 10px;
+  color: var(--text);
 }
 
 .swatch.hole-swatch {

@@ -66,6 +66,26 @@ export const authRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db, 
     },
   );
 
+  // Гость сохраняет аккаунт: те же пользователь и площадки, но с почтой и паролем — их можно открыть с любого устройства.
+  // Регистрация так не умеет: она заводит нового пустого пользователя, а гостевые площадки остались бы у гостя.
+  app.post(
+    '/claim',
+    { schema: { body: Type.Object({ email: Email, password: Password, name: Type.String({ minLength: 1, maxLength: 100 }) }) } },
+    async (req) => {
+      const me = requireUser(req);
+      if (!me.isGuest) throw new ApiError(409, 'not_guest', 'Аккаунт уже сохранён');
+      const email = req.body.email.trim().toLowerCase();
+      const taken = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+      if (taken.length) throw new ApiError(409, 'email_taken', 'Этот email уже зарегистрирован. Укажите другой.');
+      const [user] = await db
+        .update(users)
+        .set({ email, name: req.body.name.trim(), passwordHash: await hashPassword(req.body.password), isGuest: false })
+        .where(eq(users.id, me.id))
+        .returning({ id: users.id, email: users.email, name: users.name, isGuest: users.isGuest });
+      return { user: user! };
+    },
+  );
+
   app.post('/login', { schema: { body: Type.Object({ email: Email, password: Type.String({ maxLength: 200 }) }) } }, async (req, reply) => {
     const email = req.body.email.trim().toLowerCase();
     const key = `${email}|${req.ip}`;

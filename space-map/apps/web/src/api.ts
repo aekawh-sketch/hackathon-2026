@@ -127,6 +127,9 @@ export const auth = {
   logout: () => request<{ ok: true }>('POST', '/api/auth/logout'),
   /** Вход одной кнопкой: гостевой аккаунт и своя копия демо-площадки. */
   guest: () => request<{ user: User; venueId: string }>('POST', '/api/auth/guest'),
+  /** Гость сохраняет аккаунт: почта и пароль, площадки остаются при нём. */
+  claim: (name: string, email: string, password: string) =>
+    request<{ user: User }>('POST', '/api/auth/claim', { name, email, password }).then((r) => r.user),
 };
 
 export const venuesApi = {

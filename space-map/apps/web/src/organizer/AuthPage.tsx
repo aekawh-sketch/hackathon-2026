@@ -65,7 +65,10 @@ export default function AuthPage() {
         <button type="button" className="btn btn-primary auth-guest" disabled={busy} onClick={() => void tryAsGuest()}>
           <Icon name="edit" size={18} /> Открыть редактор без регистрации
         </button>
-        <p className="hint auth-guest-hint">Своя копия демо-площадки: рисуйте, ставьте места и двери, публикуйте.</p>
+        <p className="hint auth-guest-hint">
+          Своя копия демо-площадки: рисуйте, ставьте места и двери, публикуйте. Без регистрации площадки видны только в этом браузере —
+          уже начали на другом устройстве? Сохраните там аккаунт («Мои площадки» → «Сохранить аккаунт») и войдите здесь по почте.
+        </p>
 
         <div className="auth-divider" role="separator">
           <span>или войдите</span>

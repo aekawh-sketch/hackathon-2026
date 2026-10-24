@@ -1,13 +1,14 @@
 // Мои площадки (ТЗ 8.1): создать, открыть редактор, опубликовать, ссылка и код для сайта.
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { ApiError, venuesApi, type VenueSummary } from '../api.ts';
+import { ApiError, auth, venuesApi, type User, type VenueSummary } from '../api.ts';
 import { Icon } from '../ui/icons.tsx';
 import { PublishDialog } from './PublishDialog.tsx';
 import { useSession } from './session.tsx';
 
 export default function VenuesPage() {
-  const { user, logout } = useSession();
+  const { user, setUser, logout } = useSession();
+  const [claimed, setClaimed] = useState(false);
   const navigate = useNavigate();
   const [venues, setVenues] = useState<VenueSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -72,9 +73,16 @@ export default function VenuesPage() {
         {error && <p className="notice">{error}</p>}
 
         {user?.isGuest && (
-          <p className="guest-note">
-            Вы вошли как гость: площадки видны только вам, пока не опубликуете. После выхода вернуться к ним нельзя —
-            чтобы сохранить работу, зарегистрируйтесь.
+          <GuestClaim
+            onClaimed={(u) => {
+              setUser(u);
+              setClaimed(true);
+            }}
+          />
+        )}
+        {claimed && user && !user.isGuest && (
+          <p className="guest-note is-ok">
+            <Icon name="check" size={16} /> Аккаунт сохранён. На телефоне или другом компьютере войдите как {user.email} — площадки будут там.
           </p>
         )}
 
@@ -118,6 +126,64 @@ export default function VenuesPage() {
       </main>
 
       {publishing && <PublishDialog venue={publishing} onClose={() => setPublishing(null)} onPublished={updated} />}
+    </div>
+  );
+}
+
+/**
+ * Гость видит свои площадки только в этом браузере: пароля у него нет, с другого устройства не войти.
+ * «Сохранить аккаунт» добавляет почту и пароль тому же пользователю — площадки остаются при нём.
+ */
+function GuestClaim({ onClaimed }: { onClaimed: (user: User) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      onClaimed(await auth.claim(name.trim(), email.trim(), password));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не удалось сохранить аккаунт');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="guest-note">
+      <p>
+        Вы вошли без регистрации: эти площадки видны <b>только в этом браузере</b>. Чтобы открыть их с телефона или другого компьютера,
+        сохраните аккаунт — площадки останутся при вас.
+      </p>
+      {!open ? (
+        <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
+          <Icon name="check" size={17} /> Сохранить аккаунт
+        </button>
+      ) : (
+        <form className="guest-claim" onSubmit={submit}>
+          <label className="field">
+            <span>Имя</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required maxLength={100} />
+          </label>
+          <label className="field">
+            <span>Email</span>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
+          </label>
+          <label className="field">
+            <span>Пароль — от 8 символов</span>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" minLength={8} required />
+          </label>
+          {error && <p className="notice">{error}</p>}
+          <button type="submit" className="btn btn-primary" disabled={busy}>
+            {busy ? 'Сохраняем…' : 'Сохранить'}
+          </button>
+        </form>
+      )}
     </div>
   );
 }

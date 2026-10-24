@@ -33,11 +33,11 @@ afterAll(async () => {
 class Client {
   cookies = new Map<string, string>();
 
-  async req(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', url: string, body?: unknown, opts: { csrf?: boolean } = {}) {
+  async req(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', url: string, body?: unknown, opts: { csrf?: boolean; ip?: string } = {}) {
     const headers: Record<string, string> = {};
     if (this.cookies.size) headers.cookie = [...this.cookies].map(([k, v]) => `${k}=${v}`).join('; ');
     if (opts.csrf !== false && this.cookies.has('sm_csrf')) headers['x-csrf-token'] = this.cookies.get('sm_csrf')!;
-    const res = await app.inject({ method, url, headers, ...(body !== undefined ? { payload: body as object } : {}) });
+    const res = await app.inject({ method, url, headers, ...(opts.ip ? { remoteAddress: opts.ip } : {}), ...(body !== undefined ? { payload: body as object } : {}) });
     this.store(res.headers['set-cookie']);
     return res;
   }
@@ -139,6 +139,32 @@ describe('гостевой вход одной кнопкой', () => {
     // Два уже есть; ещё восемь проходят, одиннадцатый с того же адреса — отказ.
     for (let i = 0; i < 8; i++) expect((await new Client().req('POST', '/api/auth/guest')).statusCode).toBe(201);
     expect((await new Client().req('POST', '/api/auth/guest')).statusCode).toBe(429);
+  });
+
+  it('гость сохраняет аккаунт и открывает свои площадки с другого устройства', async () => {
+    const phone = new Client();
+    const guest = await phone.req('POST', '/api/auth/guest', undefined, { ip: '10.0.0.7' });
+    expect(guest.statusCode).toBe(201);
+    const own = await newVenue(phone, 'Коридор');
+    const claim = await phone.req('POST', '/api/auth/claim', { name: 'Иван', email: 'ivan-claim@test.local', password: 'correct-horse' });
+    expect(claim.statusCode).toBe(200);
+    expect(claim.json().user).toMatchObject({ email: 'ivan-claim@test.local', isGuest: false });
+    // Вход не слетел, повторно сохранить нельзя.
+    expect((await phone.req('GET', '/api/auth/me')).json().user.isGuest).toBe(false);
+    expect((await phone.req('POST', '/api/auth/claim', { name: 'Иван', email: 'other@test.local', password: 'correct-horse' })).statusCode).toBe(409);
+
+    const laptop = new Client();
+    expect((await laptop.req('POST', '/api/auth/login', { email: 'ivan-claim@test.local', password: 'correct-horse' })).statusCode).toBe(200);
+    const ids = (await laptop.req('GET', '/api/venues')).json().venues.map((v: { id: string }) => v.id);
+    expect(ids).toContain(own.id);
+    expect(ids).toContain(guest.json().venueId);
+
+    // Занятую почту гость взять не может.
+    const other = new Client();
+    await other.req('POST', '/api/auth/guest', undefined, { ip: '10.0.0.8' });
+    const taken = await other.req('POST', '/api/auth/claim', { name: 'Не Иван', email: 'ivan-claim@test.local', password: 'correct-horse' });
+    expect(taken.statusCode).toBe(409);
+    expect(taken.json().code).toBe('email_taken');
   });
 });
 
