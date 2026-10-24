@@ -34,3 +34,19 @@ echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties   # путь к Andr
 ```
 
 Другой стенд: `./gradlew :app:assembleDebug -PstartUrl=https://адрес/app`. Собирается только arm64-v8a — OpenCV под все процессоры весит ~120 МБ.
+
+### Локальный стенд форка по Wi-Fi
+
+Телефон и компьютер подключены к одной сети, веб-сервер слушает `0.0.0.0:5173`:
+
+```bash
+./gradlew :photosphere:testDebugUnitTest :app:assembleDebug -PstartUrl=http://192.168.1.243:5173/app
+adb install -r app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+cp app/build/outputs/apk/debug/app-arm64-v8a-debug.apk ../web/public/downloads/space-map.apk
+```
+
+Замените IP на адрес своего компьютера. После изменения адреса APK нужно пересобрать. HTTP разрешён только в debug-сборке; release сохраняет запрет. На Android 17+ локальный стенд в debug запрашивает доступ к устройствам поблизости (`ACCESS_LOCAL_NETWORK`) до загрузки WebView. Разрешение требуется для подключения по Wi-Fi; камера запрашивается отдельно при съёмке.
+
+Версия для локальной проверки — 0.1.2. Нативный мост и выдача снятой сферы работают только для origin стартового адреса: совпадают протокол, хост и порт. Съёмка через нативную камеру доступна с HTTP-стендом; браузерные WebXR и камера страницы по-прежнему требуют защищённого контекста.
+
+Vite dev/preview отдаёт `/downloads/space-map.apk` как загрузку с MIME `application/vnd.android.package-archive`; без собранного файла возвращает 404. APK и `local.properties` не входят в Git. Для отдельного production-сервера раздачу файла и заголовки нужно настроить на нём.

@@ -2,11 +2,13 @@ package ru.spacemap.android
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
@@ -84,6 +86,20 @@ class MainActivity : ComponentActivity() {
         fileCallback = null
     }
 
+    private val localNetworkPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) web.loadUrl(BuildConfig.START_URL)
+        else AlertDialog.Builder(this)
+            .setTitle("Нет доступа к локальному стенду")
+            .setMessage("Для подключения к компьютеру по Wi-Fi разрешите доступ к устройствам поблизости. Телефон и компьютер должны быть в одной сети.")
+            .setPositiveButton("Повторить") { _, _ -> requestLocalNetwork() }
+            .setNegativeButton("Закрыть") { _, _ -> finish() }
+            .show()
+    }
+
+    private fun requestLocalNetwork() {
+        localNetworkPermission.launch("android.permission.ACCESS_LOCAL_NETWORK")
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -115,7 +131,10 @@ class MainActivity : ComponentActivity() {
             if (web.canGoBack()) web.goBack() else finish()
         }
 
-        if (savedInstanceState == null || web.restoreState(savedInstanceState) == null) web.loadUrl(BuildConfig.START_URL)
+        val needsLocalPermission = BuildConfig.DEBUG && start.scheme == "http" && Build.VERSION.SDK_INT >= 37 &&
+            ContextCompat.checkSelfPermission(this, "android.permission.ACCESS_LOCAL_NETWORK") != PackageManager.PERMISSION_GRANTED
+        if (needsLocalPermission) requestLocalNetwork()
+        else if (savedInstanceState == null || web.restoreState(savedInstanceState) == null) web.loadUrl(BuildConfig.START_URL)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -179,7 +198,8 @@ class MainActivity : ComponentActivity() {
         web.evaluateJavascript("window.__spaceMapNative && window.__spaceMapNative(${JSONObject.quote(id)}, $result)", null)
     }
 
-    private fun isOurs(uri: Uri): Boolean = uri.scheme == "https" && uri.host == start.host
+    private fun isOurs(uri: Uri): Boolean =
+        uri.scheme == start.scheme && uri.host == start.host && uri.port == start.port
 
     private inner class PageClient : WebViewClient() {
         /** Свой сайт — в приложении, всё остальное (ссылки наружу, intent:) — системе. */
