@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  arFrameFromAim,
+  arToPlan,
   cameraForward,
+  lineLength,
+  nearestOnLine,
+  planToAr,
+  pointAlong,
+  reanchorArFrame,
+  slerpQuat,
+  StepDetector,
   demoVenue,
   deviceQuaternion,
   headingFromAim,
@@ -136,5 +145,77 @@ describe('маршрут на экране камеры', () => {
     expect(line.every(([x]) => Math.abs(x - 200) < 1)).toBe(true);
     for (let i = 1; i < line.length; i++) expect(line[i]![1]).toBeLessThanOrEqual(line[i - 1]![1]);
     expect(line[line.length - 1]![1]).toBeGreaterThan(400);
+  });
+});
+
+describe('положение на линии маршрута', () => {
+  const line: Vec2[] = [
+    [0, 0],
+    [4, 0],
+    [4, 3],
+  ];
+
+  it('длина, точка в N метрах и ближайшее место', () => {
+    expect(lineLength(line)).toBeCloseTo(7);
+    expect(pointAlong(line, 5)).toEqual([4, 1]);
+    expect(pointAlong(line, 100)).toEqual([4, 3]);
+    const n = nearestOnLine(line, [5, 2]);
+    expect(n.along).toBeCloseTo(6);
+    expect(n.distance).toBeCloseTo(1);
+  });
+});
+
+describe('шагомер', () => {
+  const walk = (amplitude: number, hz: number, seconds: number) => {
+    const d = new StepDetector();
+    for (let t = 0; t < seconds * 1000; t += 20) d.push(9.81 + amplitude * Math.sin((2 * Math.PI * hz * t) / 1000), t);
+    return d.steps;
+  };
+
+  it('ходьба 2 шага в секунду 5 секунд — около 10 шагов', () => {
+    const steps = walk(2.5, 2, 5);
+    expect(steps).toBeGreaterThanOrEqual(9);
+    expect(steps).toBeLessThanOrEqual(11);
+  });
+
+  it('дрожь руки — не шаги', () => {
+    expect(walk(0.4, 6, 5)).toBe(0);
+  });
+});
+
+describe('плавный поворот', () => {
+  it('концы и середина', () => {
+    const a = deviceQuaternion(0, 90, 0);
+    const b = deviceQuaternion(90, 90, 0);
+    close(slerpQuat(a, b, 0), a);
+    close(slerpQuat(a, b, 1), b);
+    close(cameraForward(slerpQuat(a, b, 0.5)), [-Math.SQRT1_2, Math.SQRT1_2, 0]);
+  });
+});
+
+describe('привязка WebXR к плану', () => {
+  // Камера в мире XR в (1, 1.4, 2) смотрит вдоль +x; на плане стоит в (10, 5) и смотрит на дверь в (10, 15) — на север плана.
+  const frame = arFrameFromAim([10, 5], [10, 15], [1, 1.4, 2], [1, 0, 0], 0)!;
+
+  it('шаг вперёд в мире — шаг к двери на плане', () => {
+    close(arToPlan(frame, [3, 1.4, 2]), [10, 7]);
+    // Вправо от взгляда (+z при взгляде вдоль +x) — на восток плана.
+    close(arToPlan(frame, [1, 1.4, 4]), [12, 5]);
+  });
+
+  it('туда и обратно — та же точка, пол на своей высоте', () => {
+    const p = planToAr(frame, [13, 9], 0);
+    expect(p[1]).toBe(0);
+    close(arToPlan(frame, p), [13, 9]);
+  });
+
+  it('подтверждение точки снимает накопленный уход', () => {
+    const drifted = reanchorArFrame(frame, [6.3, 1.4, 2.4], [10, 10]);
+    close(arToPlan(drifted, [6.3, 1.4, 2.4]), [10, 10]);
+    close(arToPlan(drifted, [8.3, 1.4, 2.4]), [10, 12]);
+  });
+
+  it('телефон смотрит в пол — привязки нет', () => {
+    expect(arFrameFromAim([0, 0], [0, 5], [0, 1.4, 0], [0, -1, 0], 0)).toBeNull();
   });
 });

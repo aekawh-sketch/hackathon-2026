@@ -2032,12 +2032,18 @@ button.insp-row:hover {
 
 /* ── Маршрут съёмки на камере ── */
 .guide {
+  --capture: #7c3aed;
   position: fixed;
   inset: 0;
   z-index: 60;
   background: #000;
   color: #fff;
   overflow: hidden;
+}
+
+/* В AR камеру показывает сам браузер, наш слой — прозрачный поверх неё. */
+.guide.is-ar {
+  background: transparent;
 }
 
 .guide-video,
@@ -2057,52 +2063,112 @@ button.insp-row:hover {
 }
 
 .guide-route-casing,
-.guide-route {
+.guide-route,
+.guide-route-flow {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .guide-route-casing {
-  stroke: rgb(255 255 255 / 0.85);
-  stroke-width: 16px;
+  stroke: rgb(255 255 255 / 0.9);
+  stroke-width: 18px;
 }
 
 .guide-route {
-  stroke: #7c3aed;
-  stroke-width: 9px;
+  stroke: var(--capture);
+  stroke-width: 11px;
 }
 
-.guide-target-ring {
-  fill: rgb(124 58 237 / 0.25);
+/* Бегущие точки показывают, куда идти. */
+.guide-route-flow {
+  stroke: #fff;
+  stroke-width: 4px;
+  stroke-dasharray: 1 23;
+  animation: guide-flow 0.9s linear infinite;
+}
+
+@keyframes guide-flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+.guide-ring-fill {
+  fill: rgb(124 58 237 / 0.28);
+}
+
+.guide-ring {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.guide-ring-wave {
+  fill: none;
+  stroke: var(--capture);
+  stroke-width: 4px;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: guide-wave 1.6s ease-out infinite;
+}
+
+.is-arrived .guide-ring-fill {
+  fill: rgb(18 161 80 / 0.32);
+}
+
+.is-arrived .guide-ring-wave {
+  stroke: var(--ok);
+}
+
+@keyframes guide-wave {
+  from {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+.guide-pin circle {
+  fill: var(--capture);
   stroke: #fff;
   stroke-width: 3px;
+  transition: fill 0.3s var(--ease);
 }
 
-.guide-target-dot {
-  fill: #7c3aed;
-  stroke: #fff;
-  stroke-width: 3px;
-}
-
-.guide-target-label {
+.guide-pin text {
   fill: #fff;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
+}
+
+.guide-pin.is-arrived circle {
+  fill: var(--ok);
 }
 
 .guide-cross {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   transform: translate(-50%, -50%);
   pointer-events: none;
+  border: 2px solid rgb(255 255 255 / 0.9);
+  border-radius: 50%;
   background:
-    linear-gradient(#fff, #fff) center / 2px 100% no-repeat,
-    linear-gradient(#fff, #fff) center / 100% 2px no-repeat;
-  filter: drop-shadow(0 0 2px rgb(0 0 0 / 0.8));
+    radial-gradient(circle, #fff 0 3px, transparent 4px),
+    linear-gradient(#fff, #fff) center / 2px 14px no-repeat;
+  filter: drop-shadow(0 0 3px rgb(0 0 0 / 0.7));
+  transition: opacity 0.4s var(--ease);
+}
+
+.guide-cross.is-faint {
+  opacity: 0.35;
 }
 
 .guide-top {
@@ -2112,20 +2178,71 @@ button.insp-row:hover {
   right: 12px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
+}
+
+.guide-top .glass-title {
+  margin-left: auto;
+}
+
+.guide-mode {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgb(124 58 237 / 0.85);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.guide-hud {
+  position: absolute;
+  top: calc(max(12px, env(safe-area-inset-top)) + 56px);
+  left: 50%;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 180px;
+  padding: 10px 18px;
+  transform: translateX(-50%);
+  border-radius: var(--radius-lg);
+  background: rgb(14 23 38 / 0.55);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  text-align: center;
+  transition: background 0.3s var(--ease);
+}
+
+.guide-hud strong {
+  font-size: 28px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.guide-hud span {
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.guide-hud.is-arrived {
+  background: rgb(18 161 80 / 0.85);
+}
+
+.guide-hud.is-arrived strong {
+  font-size: 20px;
 }
 
 .guide-turn {
   position: absolute;
-  top: 45%;
+  top: 46%;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 10px 14px;
   border-radius: 999px;
-  background: rgb(124 58 237 / 0.85);
+  background: rgb(124 58 237 / 0.9);
   font-weight: 700;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.3);
+  animation: guide-nudge-left 1.2s ease-in-out infinite;
 }
 
 .guide-turn.is-left {
@@ -2135,10 +2252,23 @@ button.insp-row:hover {
 .guide-turn.is-right {
   right: 12px;
   flex-direction: row-reverse;
+  animation-name: guide-nudge-right;
 }
 
 .guide-turn.is-right svg {
   transform: scaleX(-1);
+}
+
+@keyframes guide-nudge-left {
+  50% {
+    transform: translateX(-6px);
+  }
+}
+
+@keyframes guide-nudge-right {
+  50% {
+    transform: translateX(6px);
+  }
 }
 
 .guide-panel {
@@ -2150,9 +2280,19 @@ button.insp-row:hover {
   margin: 0 auto;
   padding: 16px;
   border-radius: var(--radius-lg);
-  background: var(--surface);
+  background: rgb(255 255 255 / 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   color: var(--text);
   box-shadow: var(--shadow);
+  animation: guide-panel-in 0.35s var(--ease);
+}
+
+@keyframes guide-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
 }
 
 .guide-panel h2 {
@@ -2173,10 +2313,29 @@ button.insp-row:hover {
   flex: 1;
 }
 
-.guide-fov {
-  display: grid;
-  gap: 4px;
-  margin-top: 12px;
+.guide-step {
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.btn-success {
+  background: var(--ok);
+  color: #fff;
+  border-color: var(--ok);
+}
+
+.guide-settings {
+  margin-top: 10px;
   font-size: 12.5px;
   color: var(--muted);
+}
+
+.guide-settings summary {
+  cursor: pointer;
+}
+
+.guide-settings label {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
 }

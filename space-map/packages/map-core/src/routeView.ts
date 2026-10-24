@@ -1,7 +1,7 @@
 // Маршрут с плана в «настоящем» пространстве: линия на полу в панораме (ТЗ 5.7, 5.10)
-// и поверх видео с камеры на экране съёмки (ТЗ 5.4). План — 2D в метрах, пол — z = 0,
-// камера стоит в известной точке плана на высоте cameraHeight. Этого хватает, пока человек
-// только поворачивается на месте (3 степени свободы); идти с такой разметкой нельзя — положение не отслеживается.
+// и поверх камеры на экране съёмки (ТЗ 5.4). План — 2D в метрах, пол — z = 0.
+// Где камера на плане, знают по-разному: в панораме — точка съёмки; на ходу — WebXR (ARCore сам
+// отслеживает положение, `ArFrame` связывает его мир с планом) или шаги вдоль линии маршрута (`StepDetector`).
 import { rotateVector, type Quat, type Vec3 } from './capture.ts';
 import { azimuth, distance, hasLineOfSight, normalize180, normalize360 } from './geometry.ts';
 import type { MapDocument, PanoramaPlacement, Vec2 } from './types.ts';
@@ -178,25 +178,48 @@ export function routeOnCamera(
 
 // ── Общее ──
 
-/** Точки маршрута с шагом step, начиная с места на маршруте, ближайшего к `from`. */
-function samplesAhead(route: Vec2[], from: Vec2, step: number): Vec2[] {
-  let bestSeg = 0;
-  let bestT = 0;
-  let bestD = Infinity;
-  for (let i = 0; i < route.length - 1; i++) {
-    const a = route[i]!;
-    const b = route[i + 1]!;
+/** Ближайшее к `p` место на линии: номер отрезка, доля внутри него, путь вдоль линии от начала и расстояние до линии. */
+export function nearestOnLine(line: Vec2[], p: Vec2): { segment: number; t: number; along: number; distance: number } {
+  let best = { segment: 0, t: 0, along: 0, distance: line.length ? distance(p, line[0]!) : Infinity };
+  let walked = 0;
+  for (let i = 0; i < line.length - 1; i++) {
+    const a = line[i]!;
+    const b = line[i + 1]!;
     const dx = b[0] - a[0];
     const dy = b[1] - a[1];
     const len2 = dx * dx + dy * dy;
-    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((from[0] - a[0]) * dx + (from[1] - a[1]) * dy) / len2));
-    const d = distance(from, [a[0] + t * dx, a[1] + t * dy]);
-    if (d < bestD - 1e-9) {
-      bestD = d;
-      bestSeg = i;
-      bestT = t;
-    }
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2));
+    const d = distance(p, [a[0] + t * dx, a[1] + t * dy]);
+    if (d < best.distance - 1e-9) best = { segment: i, t, along: walked + t * Math.sqrt(len2), distance: d };
+    walked += Math.sqrt(len2);
   }
+  return best;
+}
+
+/** Длина линии, м. */
+export function lineLength(line: Vec2[]): number {
+  let s = 0;
+  for (let i = 1; i < line.length; i++) s += distance(line[i - 1]!, line[i]!);
+  return s;
+}
+
+/** Точка на линии в `along` метрах от начала (с обрезкой по концам). */
+export function pointAlong(line: Vec2[], along: number): Vec2 {
+  if (line.length === 0) return [0, 0];
+  let left = Math.max(0, along);
+  for (let i = 0; i < line.length - 1; i++) {
+    const a = line[i]!;
+    const b = line[i + 1]!;
+    const len = distance(a, b);
+    if (left <= len) return len < 1e-9 ? a : [a[0] + ((b[0] - a[0]) * left) / len, a[1] + ((b[1] - a[1]) * left) / len];
+    left -= len;
+  }
+  return line[line.length - 1]!;
+}
+
+/** Точки маршрута с шагом step, начиная с места на маршруте, ближайшего к `from`. */
+function samplesAhead(route: Vec2[], from: Vec2, step: number): Vec2[] {
+  const { segment: bestSeg, t: bestT } = nearestOnLine(route, from);
   const out: Vec2[] = [];
   for (let i = bestSeg; i < route.length - 1; i++) {
     const a = route[i]!;
@@ -209,6 +232,129 @@ function samplesAhead(route: Vec2[], from: Vec2, step: number): Vec2[] {
   out.push(route[route.length - 1]!);
   return out;
 }
+
+/** Плавный переход между ориентациями: t = 0 — a, t = 1 — b. Короткий путь по сфере. */
+export function slerpQuat(a: Quat, b: Quat, t: number): Quat {
+  let [bx, by, bz, bw] = b;
+  let cos = a[0] * bx + a[1] * by + a[2] * bz + a[3] * bw;
+  if (cos < 0) {
+    [bx, by, bz, bw] = [-bx, -by, -bz, -bw];
+    cos = -cos;
+  }
+  let ka = 1 - t;
+  let kb = t;
+  if (cos < 0.9995) {
+    const angle = Math.acos(Math.min(1, cos));
+    const sin = Math.sin(angle);
+    ka = Math.sin((1 - t) * angle) / sin;
+    kb = Math.sin(t * angle) / sin;
+  }
+  const q: Quat = [a[0] * ka + bx * kb, a[1] * ka + by * kb, a[2] * ka + bz * kb, a[3] * ka + bw * kb];
+  const n = Math.hypot(...q);
+  return [q[0] / n, q[1] / n, q[2] / n, q[3] / n];
+}
+
+// ── Шаги ──
+
+export interface StepDetectorOptions {
+  /** Порог «вверх» над средним, м/с²: выше — шаг. */
+  high?: number;
+  /** Порог «вниз»: ниже — готовы ловить следующий шаг. */
+  low?: number;
+  /** Не чаще одного шага за столько миллисекунд (быстрая ходьба — ~3 шага в секунду). */
+  minInterval?: number;
+}
+
+/**
+ * Шагомер по акселерометру (`devicemotion`, ускорение с гравитацией). Ищет пики модуля ускорения
+ * над медленно плывущим средним, с гистерезисом и минимальным интервалом — дрожь руки шагом не считается.
+ */
+export class StepDetector {
+  steps = 0;
+  private mean = 9.81;
+  private fast = 0;
+  private armed = true;
+  private last = -Infinity;
+  private readonly high: number;
+  private readonly low: number;
+  private readonly minInterval: number;
+
+  constructor(options: StepDetectorOptions = {}) {
+    this.high = options.high ?? 1.2;
+    this.low = options.low ?? 0.2;
+    this.minInterval = options.minInterval ?? 300;
+  }
+
+  /** a — модуль ускорения, м/с²; t — время, мс. true — только что сделан шаг. */
+  push(a: number, t: number): boolean {
+    this.mean += (a - this.mean) * 0.02;
+    this.fast += (a - this.mean - this.fast) * 0.35;
+    if (this.armed && this.fast > this.high && t - this.last >= this.minInterval) {
+      this.steps++;
+      this.last = t;
+      this.armed = false;
+      return true;
+    }
+    if (!this.armed && this.fast < this.low) this.armed = true;
+    return false;
+  }
+}
+
+// ── WebXR ──
+
+/** Мир WebXR: x — вправо, y — вверх, −z — вперёд (куда смотрела камера при старте), метры. */
+export type XrPoint = Vec3;
+
+/**
+ * Связь мира WebXR с планом: в мире камера стояла в `camera`, на плане — в `stand`;
+ * поворот `delta` — на сколько градусов по часовой азимут плана больше азимута в мире.
+ */
+export interface ArFrame {
+  stand: Vec2;
+  camera: XrPoint;
+  delta: number;
+  /** Высота пола в мире WebXR (для `local-floor` — 0). */
+  floorY: number;
+}
+
+/** Азимут направления в мире WebXR по горизонтали: 0 — вперёд (−z), по часовой. */
+export function xrAzimuth(dir: XrPoint): number {
+  return normalize360((Math.atan2(dir[0], -dir[2]) * 180) / Math.PI);
+}
+
+/**
+ * Привязка мира WebXR к плану прицелом: человек стоит в `stand`, камера в `camera` смотрит
+ * направлением `forward` на объект плана `landmark`. null — смотрит почти вертикально.
+ */
+export function arFrameFromAim(stand: Vec2, landmark: Vec2, camera: XrPoint, forward: XrPoint, floorY: number): ArFrame | null {
+  if (Math.hypot(forward[0], forward[2]) < 0.2) return null;
+  return { stand, camera, delta: normalize360(azimuth(stand, landmark) - xrAzimuth(forward)), floorY };
+}
+
+/** Точка мира WebXR — на плане. */
+export function arToPlan(frame: ArFrame, p: XrPoint): Vec2 {
+  const r = (frame.delta * Math.PI) / 180;
+  const du = p[0] - frame.camera[0];
+  const dv = -(p[2] - frame.camera[2]);
+  return [frame.stand[0] + du * Math.cos(r) + dv * Math.sin(r), frame.stand[1] - du * Math.sin(r) + dv * Math.cos(r)];
+}
+
+/** Точка плана на высоте `height` над полом — в мире WebXR. */
+export function planToAr(frame: ArFrame, q: Vec2, height = 0): XrPoint {
+  const r = (frame.delta * Math.PI) / 180;
+  const x = q[0] - frame.stand[0];
+  const y = q[1] - frame.stand[1];
+  const du = x * Math.cos(r) - y * Math.sin(r);
+  const dv = x * Math.sin(r) + y * Math.cos(r);
+  return [frame.camera[0] + du, frame.floorY + height, frame.camera[2] - dv];
+}
+
+/** Человек подтвердил, что стоит в точке плана `at`: сдвиг привязки снимает накопленный уход, поворот — прежний. */
+export function reanchorArFrame(frame: ArFrame, camera: XrPoint, at: Vec2): ArFrame {
+  return { ...frame, stand: at, camera };
+}
+
+// ── Общее ──
 
 function multiply(a: Quat, b: Quat): Quat {
   const [ax, ay, az, aw] = a;
