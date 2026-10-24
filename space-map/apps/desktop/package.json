@@ -54,6 +54,11 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
-    }
+    },
+    "electronLanguages": [
+      "ru",
+      "en-US"
+    ],
+    "compression": "maximum"
   }
 }
