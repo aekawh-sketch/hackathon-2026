@@ -32,6 +32,7 @@ import { Sheet, useMediaQuery, type SheetMode } from '../ui/Sheet.tsx';
 import { EditorCanvas, holeRef, type Selection, type Tool } from './EditorCanvas.tsx';
 import { Inspector } from './Inspector.tsx';
 import { useHistory } from './useHistory.ts';
+import { cancelText, captureNativeSphere, hasNativeCapture } from '../capture/native.ts';
 import { PanoramaPreview } from './PanoramaPreview.tsx';
 import { useServerSave, type SaveStatus } from './useServerSave.ts';
 
@@ -380,6 +381,16 @@ function Editor({ initial, server }: EditorProps) {
     uploadFor.current = pointId;
     panoFileRef.current?.click();
   };
+  // В приложении для Android — встроенная съёмка: снимок сразу уходит на сервер и встаёт в точку.
+  const shootPanoramaFor = async (pointId: string) => {
+    uploadFor.current = pointId;
+    try {
+      const blob = await captureNativeSphere();
+      await uploadPanorama(new File([blob], 'sphere.jpg', { type: blob.type || 'image/jpeg' }));
+    } catch (err) {
+      showToast(cancelText(err));
+    }
+  };
   const uploadPanorama = async (file: File) => {
     const point = docRef.current.capturePoints?.find((p) => p.id === uploadFor.current);
     if (!server || !point) return;
@@ -561,12 +572,12 @@ function Editor({ initial, server }: EditorProps) {
         <>
           <div className="tool-rail">{toolbar}</div>
           <aside className="inspector" aria-label="Свойства">
-            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onOpenPanorama={setPreview} />
+            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onOpenPanorama={setPreview} />
           </aside>
         </>
       ) : (
         <Sheet mode={sheetMode} onModeChange={setSheetMode} desktop={false} peekHeight={118} topGap={64} onHeight={setSheetHeight} label="Инструменты и свойства" header={toolbar}>
-          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onOpenPanorama={setPreview} />
+          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onOpenPanorama={setPreview} />
         </Sheet>
       )}
 

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Карта пространства</string>
+    <string name="camera_needed">Без камеры не снять фотосферу и не показать разметку маршрута.</string>
+    <string name="offline">Нет связи с сервером. Проверьте интернет и потяните, чтобы обновить.</string>
+</resources>

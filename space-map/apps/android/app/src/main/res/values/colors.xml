@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Как фон карты на сайте. -->
+    <color name="space_map_background">#E9EDF3</color>
+    <color name="space_map_primary">#2F5BEA</color>
+</resources>

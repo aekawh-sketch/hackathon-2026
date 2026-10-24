@@ -45,7 +45,7 @@ import {
 } from '@space-map/map-core';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
-import { appIntentUrl, isAndroid } from '../capture/externalApp.ts';
+import { APP_APK_URL, isAndroid } from '../capture/native.ts';
 import { UNIT_FILL } from '../plan/style.ts';
 import { CategoryBadge, Icon } from '../ui/icons.tsx';
 import { holeRef, type Selection, type Tool } from './EditorCanvas.tsx';
@@ -68,6 +68,8 @@ export interface InspectorProps {
   onOpenGuide: (pointId: string | null) => void;
   /** Загрузить готовую панораму в точку; нет — площадка без сервера (демо). */
   onUploadPanorama?: (pointId: string) => void;
+  /** Снять фотосферу встроенной съёмкой приложения; нет — не в приложении или демо без сервера. */
+  onShootPanorama?: (pointId: string) => void;
   /** Открыть панораму на весь экран — проверить, как она снята и повёрнута. */
   onOpenPanorama: (panoId: string) => void;
 }
@@ -214,7 +216,7 @@ function CapturePlan(props: InspectorProps) {
   );
 }
 
-function ShotPanel({ doc, point, shotLabels, onSelect, onCommit, onToast, onOpenGuide, onUploadPanorama, onOpenPanorama }: InspectorProps & { point: CapturePoint }) {
+function ShotPanel({ doc, point, shotLabels, onSelect, onCommit, onToast, onOpenGuide, onUploadPanorama, onShootPanorama, onOpenPanorama }: InspectorProps & { point: CapturePoint }) {
   const room = unitAt(doc, point.level, point.pos)?.name ?? 'вне помещения';
   const label = shotLabels.get(point.id);
   const pano = point.panorama ? doc.panoramas.find((p) => p.id === point.panorama) : undefined;
@@ -249,9 +251,14 @@ function ShotPanel({ doc, point, shotLabels, onSelect, onCommit, onToast, onOpen
             <Icon name="route" size={18} /> Маршрут с камерой отсюда
           </button>
         )}
-        {!pano && onUploadPanorama && isAndroid() && (
-          <a className="btn btn-secondary" href={appIntentUrl()}>
-            <Icon name="camera" size={18} /> Снять приложением 360
+        {!pano && onShootPanorama && (
+          <button type="button" className="btn btn-success" onClick={() => onShootPanorama(point.id)}>
+            <Icon name="camera" size={18} /> Снять фотосферу
+          </button>
+        )}
+        {!pano && !onShootPanorama && isAndroid() && (
+          <a className="btn btn-secondary" href={APP_APK_URL}>
+            <Icon name="download" size={18} /> Скачать приложение для съёмки
           </a>
         )}
         {!pano && onUploadPanorama && (

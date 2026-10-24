@@ -36,7 +36,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, venuesApi } from '../api.ts';
 import { Icon } from '../ui/icons.tsx';
 import { arSupported, ArScene, ArStartError, type SphereProgress, type XrPose } from './arScene.ts';
-import { APP_NAME, APP_REPO, appIntentUrl, isAndroid } from './externalApp.ts';
+import { APP_APK_URL, cancelText, captureNativeSphere, hasNativeCapture, isAndroid } from './native.ts';
 
 /** Телефон держат на уровне глаз. */
 const CAMERA_HEIGHT = 1.5;
@@ -58,7 +58,7 @@ export interface CaptureGuideProps {
 }
 
 type Mode = 'ar' | 'steps';
-/** external — снимаем фотосферу в приложении 360 и ждём файл обратно. */
+/** external — снимаем фотосферу встроенной съёмкой приложения, разметка на это время выключена. */
 type Phase = 'intro' | 'aim' | 'guide' | 'sphere' | 'external' | 'done';
 
 /** Готово, если снято столько сферы; раньше можно, но дыры будут заметны. */
@@ -92,6 +92,9 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
   const [saving, setSaving] = useState(false);
   /** Фотосфера в этой точке уже сохранена. */
   const [savedHere, setSavedHere] = useState(false);
+  /** Идёт встроенная съёмка в приложении. */
+  const [shooting, setShooting] = useState(false);
+  const native = hasNativeCapture();
   /** Привязку ставим заново из этой точки плана (человек точно в ней), а не из оценки положения. */
   const [standAt, setStandAt] = useState<Vec2 | null>(null);
   /** Почему просим навести крестик ещё раз. */
@@ -350,11 +353,26 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
     }
   };
 
-  /** Снимать в приложении 360: AR не переживёт переход в другое приложение — закрываем его и ждём файл обратно. */
-  const openExternal = () => {
+  /**
+   * Снять фотосферу встроенной съёмкой приложения. Камеру страницы отпускаем — её займёт экран съёмки;
+   * после неё разметку включим заново и уточним направление, стоя в точке.
+   */
+  const shootNative = async () => {
+    if (!target) return;
     setPhase('external');
+    setError(null);
     ar.current?.end();
-    window.location.href = appIntentUrl();
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setShooting(true);
+    try {
+      const blob = await captureNativeSphere();
+      await saveShot(blob, null, CAMERA_HEIGHT, target.pos);
+    } catch (err) {
+      setError(cancelText(err));
+    } finally {
+      setShooting(false);
+    }
   };
 
   /** После съёмки в приложении: к следующей точке — заново камера и прицел, стоя ровно в этой точке. */
@@ -628,10 +646,16 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
             </p>
             {isArrived && !savedHere && (
               <div className="guide-shoot">
-                {isAndroid() && (
-                  <button type="button" className="btn btn-success btn-block" disabled={saving} onClick={openExternal}>
-                    <Icon name="camera" size={18} /> Снять приложением 360
+                {native ? (
+                  <button type="button" className="btn btn-success btn-block" disabled={saving} onClick={() => void shootNative()}>
+                    <Icon name="camera" size={18} /> Снять фотосферу
                   </button>
+                ) : (
+                  isAndroid() && (
+                    <a className="btn btn-success btn-block" href={APP_APK_URL}>
+                      <Icon name="download" size={18} /> Скачать приложение для съёмки
+                    </a>
+                  )
                 )}
                 <div className="row">
                   {mode === 'ar' && (
@@ -708,39 +732,24 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
         )}
         {phase === 'external' && (
           <>
-            <h2>
-              Точка {targetNo}: снимите фотосферу в {APP_NAME}
-            </h2>
-            {savedHere ? (
+            <h2>Точка {targetNo}: фотосфера</h2>
+            {shooting || saving ? (
+              <p>{saving ? 'Сохраняем фотосферу…' : 'Идёт съёмка: наводите прицел на точки, кадры снимаются сами.'}</p>
+            ) : savedHere ? (
               <p>
-                ✓ Панорама встала в точку {targetNo}. Направление задайте потом: «К плану» → точка с галочкой → «Открыть панораму» → «Повернуть по
+                ✓ Фотосфера встала в точку {targetNo}. Направление задайте потом: «К плану» → точка с галочкой → «Открыть панораму» → «Повернуть по
                 двери».
               </p>
             ) : (
-              <ol className="guide-steps">
-                <li>В приложении наводите прицел на точки — кадры снимаются сами. Дождитесь склейки и сохраните сферу.</li>
-                <li>Вернитесь сюда и нажмите «Загрузить снятую» — выберите последнюю фотографию.</li>
-              </ol>
-            )}
-            {!savedHere && (
-              <button type="button" className="btn btn-success btn-block" disabled={saving} onClick={() => fileRef.current?.click()}>
-                {saving ? 'Сохраняем…' : 'Загрузить снятую'}
+              <button type="button" className="btn btn-success btn-block" onClick={() => void shootNative()}>
+                <Icon name="camera" size={18} /> Снять ещё раз
               </button>
             )}
             <div className="row">
-              <a className="btn btn-secondary" href={appIntentUrl()}>
-                Открыть приложение
-              </a>
-              <button type="button" className={`btn ${savedHere ? 'btn-primary' : 'btn-ghost'}`} disabled={saving} onClick={() => void continueRoute()}>
+              <button type="button" className={`btn ${savedHere ? 'btn-primary' : 'btn-ghost'}`} disabled={saving || shooting} onClick={() => void continueRoute()}>
                 {step + 1 >= route.legs.length ? 'Закончить' : savedHere ? 'Продолжить маршрут' : 'Без съёмки — дальше'}
               </button>
             </div>
-            <p className="hint">
-              Приложения нет — «Открыть приложение» скачает его (APK, 44 МБ), разрешите установку из браузера.{' '}
-              <a href={APP_REPO} target="_blank" rel="noreferrer">
-                О приложении
-              </a>
-            </p>
           </>
         )}
         {phase === 'done' && (

@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { ApiError, auth, venuesApi, type User, type VenueSummary } from '../api.ts';
 import { Icon } from '../ui/icons.tsx';
+import { APP_APK_URL, hasNativeCapture } from '../capture/native.ts';
 import { PublishDialog } from './PublishDialog.tsx';
 import { useSession } from './session.tsx';
 
@@ -133,6 +134,11 @@ export default function VenuesPage() {
         <p className="hint org-foot">
           <Link to="/app/editor">Попробовать редактор без сохранения на сервер</Link>
         </p>
+        {!hasNativeCapture() && (
+          <p className="hint org-foot">
+            <a href={APP_APK_URL}>Приложение для Android</a> — тот же кабинет и встроенная съёмка фотосфер.
+          </p>
+        )}
       </main>
 
       {publishing && <PublishDialog venue={publishing} onClose={() => setPublishing(null)} onPublished={updated} />}
