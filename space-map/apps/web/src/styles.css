@@ -2815,3 +2815,13 @@ button.insp-row:hover {
   gap: 8px;
   margin-top: 8px;
 }
+
+/* Опасное, но не главное действие: обычная кнопка с красным текстом. */
+.btn-danger-text {
+  color: var(--danger);
+}
+
+.modal-text p {
+  margin: 0 0 10px;
+  color: var(--text-2);
+}
