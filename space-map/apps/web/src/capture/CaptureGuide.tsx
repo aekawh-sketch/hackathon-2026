@@ -33,7 +33,7 @@ import {
 } from '@space-map/map-core';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../ui/icons.tsx';
-import { arSupported, ArScene, type XrPose } from './arScene.ts';
+import { arSupported, ArScene, ArStartError, type XrPose } from './arScene.ts';
 
 /** Телефон держат на уровне глаз. */
 const CAMERA_HEIGHT = 1.5;
@@ -71,6 +71,8 @@ export default function CaptureGuide({ doc, level, startId, onClose }: CaptureGu
   const [step, setStep] = useState(firstStep);
   const [phase, setPhase] = useState<Phase>(firstStep >= route.legs.length ? 'done' : 'intro');
   const [error, setError] = useState<string | null>(null);
+  /** Почему не запустился AR — имя ошибки браузера; показываем, что с ней делать, и даём выбор. */
+  const [arFailure, setArFailure] = useState<string | null>(null);
   const [arrived, setArrived] = useState(false);
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const rootRef = useRef<HTMLDivElement>(null);
@@ -178,6 +180,7 @@ export default function CaptureGuide({ doc, level, startId, onClose }: CaptureGu
 
   const start = async () => {
     setError(null);
+    setArFailure(null);
     if (!window.isSecureContext) return setError('Камера и датчики работают только по защищённой ссылке (https).');
     if (mode === 'ar') {
       try {
@@ -192,9 +195,8 @@ export default function CaptureGuide({ doc, level, startId, onClose }: CaptureGu
         await scene.start();
         ar.current = scene;
         setPhase('aim');
-      } catch {
-        setError('AR не запустился на этом телефоне — включили режим по шагам. Нажмите кнопку ещё раз.');
-        setMode('steps');
+      } catch (err) {
+        setArFailure(err instanceof ArStartError ? err.code : 'Error');
       }
       return;
     }
@@ -376,10 +378,39 @@ export default function CaptureGuide({ doc, level, startId, onClose }: CaptureGu
                 {firstStep === 0 ? 'Встаньте у входа.' : 'Встаньте в выбранную точку.'}
               </p>
             )}
-            {route.legs.length > 0 && (
-              <button type="button" className="btn btn-primary btn-block" disabled={!mode} onClick={() => void start()}>
-                <Icon name="camera" size={18} /> {mode === 'ar' ? 'Включить AR' : 'Включить камеру'}
-              </button>
+            {inAppBrowser() && (
+              <p className="notice">
+                Похоже, ссылка открыта во встроенном браузере приложения — AR там часто не работает. Откройте её в самом Chrome: ⋮ → «Открыть в
+                браузере».
+              </p>
+            )}
+            {arFailure ? (
+              <>
+                <p className="notice">
+                  {arFailureText(arFailure)} <small className="guide-code">Код: {arFailure}</small>
+                </p>
+                <div className="row">
+                  <button type="button" className="btn btn-secondary" onClick={() => void start()}>
+                    Ещё раз AR
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => {
+                      setArFailure(null);
+                      setMode('steps');
+                    }}
+                  >
+                    По шагам
+                  </button>
+                </div>
+              </>
+            ) : (
+              route.legs.length > 0 && (
+                <button type="button" className="btn btn-primary btn-block" disabled={!mode} onClick={() => void start()}>
+                  <Icon name="camera" size={18} /> {mode === 'ar' ? 'Включить AR' : 'Включить камеру'}
+                </button>
+              )
             )}
           </>
         )}
@@ -443,6 +474,27 @@ export default function CaptureGuide({ doc, level, startId, onClose }: CaptureGu
       </div>
     </div>
   );
+}
+
+/** Что делать, если AR не запустился, — по имени ошибки браузера. */
+function arFailureText(code: string): string {
+  switch (code) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return 'Браузер не дал камеру для AR. Разрешите камеру сайту (значок слева от адреса → Разрешения) и откройте ссылку в самом Chrome, а не во встроенном браузере приложения.';
+    case 'NotSupportedError':
+    case 'no_xr':
+      return 'Этот браузер не запускает AR. Откройте ссылку в самом Chrome (не из Telegram или VK) и проверьте, что установлены «Сервисы Google Play для AR» из Play Маркета.';
+    case 'no_overlay':
+      return 'AR запустился, но без кнопок поверх камеры. Откройте ссылку в самом Chrome.';
+    default:
+      return 'AR не запустился. Откройте ссылку в самом Chrome или продолжите по шагам.';
+  }
+}
+
+/** Встроенный браузер приложения (WebView Telegram, VK, Instagram…) — по строке браузера, не всегда точно. */
+function inAppBrowser(): boolean {
+  return /; wv\)|Telegram|Instagram|FBA[NV]|VKClient/i.test(navigator.userAgent);
 }
 
 /** Кольцо точки на полу в перспективе: многоугольник по точкам окружности; null — кольцо не целиком в кадре. */

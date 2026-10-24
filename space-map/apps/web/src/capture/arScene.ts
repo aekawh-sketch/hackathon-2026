@@ -10,7 +10,17 @@ export interface XrPose {
   forward: XrPoint;
 }
 
-/** Есть ли на устройстве AR с отслеживанием положения. */
+/** AR не запустился: `code` — имя ошибки браузера (NotSupportedError, NotAllowedError…) или наше (`no_xr`, `no_overlay`). */
+export class ArStartError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** Есть ли на устройстве AR с отслеживанием положения. Ответ «да» не гарантирует запуск — см. `ArStartError`. */
 export async function arSupported(): Promise<boolean> {
   try {
     return !!navigator.xr && (await navigator.xr.isSessionSupported('immersive-ar'));
@@ -91,14 +101,24 @@ export class ArScene {
   /** Запуск AR-сеанса — только по нажатию кнопки. */
   async start(): Promise<void> {
     const xr = navigator.xr;
-    if (!xr) throw new Error('WebXR недоступен');
-    const overlay = { optionalFeatures: ['dom-overlay'], domOverlay: { root: this.overlay } };
+    if (!xr) throw new ArStartError('no_xr', 'WebXR недоступен');
     let session: XRSession;
     try {
-      session = await xr.requestSession('immersive-ar', { requiredFeatures: ['local-floor'], ...overlay });
+      // Один запрос, всё необязательное: повторный запрос после отказа браузер может не пустить —
+      // нажатие кнопки уже «израсходовано», а обязательная возможность, которой нет, роняет весь запуск.
+      session = await xr.requestSession('immersive-ar', { optionalFeatures: ['local-floor', 'dom-overlay'], domOverlay: { root: this.overlay } });
+    } catch (err) {
+      throw new ArStartError(err instanceof DOMException ? err.name : 'Error', err instanceof Error ? err.message : String(err));
+    }
+    // Без слоя поверх камеры не видно кнопок — в таком AR не нажать «Навёл».
+    if (!session.domOverlayState) {
+      await session.end().catch(() => undefined);
+      throw new ArStartError('no_overlay', 'Браузер не показывает кнопки поверх AR');
+    }
+    try {
+      await session.requestReferenceSpace('local-floor');
       this.space = 'local-floor';
     } catch {
-      session = await xr.requestSession('immersive-ar', overlay);
       this.space = 'local';
     }
     this.session = session;
