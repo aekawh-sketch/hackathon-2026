@@ -389,6 +389,11 @@ export default function CaptureGuide({ doc, level, startId, onClose }: CaptureGu
                 <p className="notice">
                   {arFailureText(arFailure)} <small className="guide-code">Код: {arFailure}</small>
                 </p>
+                {/* В Play Маркете «Сервисы Google Play для AR» видны только на поддерживаемых телефонах — прямая ссылка отвечает сразу. */}
+                <a className="btn btn-ghost btn-block" href="https://play.google.com/store/apps/details?id=com.google.ar.core" target="_blank" rel="noreferrer">
+                  Проверить AR в Play Маркете
+                </a>
+                <p className="hint">«Не поддерживается на вашем устройстве» — значит, AR на этом телефоне не будет, снимайте по шагам.</p>
                 <div className="row">
                   <button type="button" className="btn btn-secondary" onClick={() => void start()}>
                     Ещё раз AR
