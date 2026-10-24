@@ -64,6 +64,24 @@ const TOOL_HINT: Record<Tool, string> = {
   shot: 'Точки панорам рассчитаны по плану. Нажмите в помещении — своя точка; тяните точку, чтобы сдвинуть',
 };
 
+/** Есть ли выбранный объект в документе. */
+function selectionExists(doc: MapDocument, s: NonNullable<Selection>): boolean {
+  switch (s.kind) {
+    case 'unit':
+      return doc.units.some((u) => u.id === s.id);
+    case 'place':
+      return doc.places.some((p) => p.id === s.id);
+    case 'hole': {
+      const { unitId, index } = holeRef(s.id);
+      return !!doc.units.find((u) => u.id === unitId)?.holes?.[index];
+    }
+    case 'shot':
+      return !!doc.capturePoints?.some((p) => p.id === s.id && p.origin !== 'removed');
+    case 'opening':
+      return doc.openings.some((o) => o.id === s.id);
+  }
+}
+
 /** Демо без сервера: правки живут в этом браузере. */
 export default function EditorPage() {
   return <Editor initial={() => loadEditedDemo() ?? builtInDemo()} />;
@@ -237,28 +255,15 @@ function Editor({ initial, server }: EditorProps) {
     [history.commit],
   );
 
-  const select = (s: Selection) => {
+  /** Выбрать объект. На телефоне шторка показывает его свойства; keepSheet — выбор по ходу перетаскивания, шторку не трогаем. */
+  const select = (s: Selection, opts?: { keepSheet?: boolean }) => {
     setSelection(s);
-    if (!desktop) setSheetMode(s ? 'auto' : 'peek');
+    if (!desktop && !opts?.keepSheet) setSheetMode(s ? 'auto' : 'peek');
   };
 
   // Выбор пропал после отмены — снимаем.
   useEffect(() => {
-    if (!selection) return;
-    const exists =
-      selection.kind === 'unit'
-        ? doc.units.some((u) => u.id === selection.id)
-        : selection.kind === 'place'
-          ? doc.places.some((p) => p.id === selection.id)
-          : selection.kind === 'hole'
-            ? (() => {
-                const { unitId, index } = holeRef(selection.id);
-                return !!doc.units.find((u) => u.id === unitId)?.holes?.[index];
-              })()
-            : selection.kind === 'shot'
-              ? !!doc.capturePoints?.some((p) => p.id === selection.id && p.origin !== 'removed')
-              : doc.openings.some((o) => o.id === selection.id);
-    if (!exists) setSelection(null);
+    if (selection && !selectionExists(doc, selection)) setSelection(null);
   }, [doc, selection]);
 
   // Клавиши: инструменты, отмена, удаление, стрелки.
@@ -490,8 +495,11 @@ function Editor({ initial, server }: EditorProps) {
             shotRoute={shotPlan.legs}
             onSelect={select}
             onCommit={(next, s) => {
+              // Новый объект — показываем его свойства. Сдвиг или размер уже существующего — шторку не трогаем:
+              // свернули её, чтобы видеть план, — пусть так и остаётся.
+              const created = !!s && !selectionExists(doc, s);
               commit(next, s);
-              if (s && !desktop) setSheetMode('auto');
+              if (created && !desktop) setSheetMode('auto');
             }}
             onToolDone={() => setTool('select')}
             onToast={showToast}

@@ -72,7 +72,8 @@ export interface EditorCanvasProps {
   shotLabels: Map<string, string>;
   /** Маршрут съёмки — показывается, пока выбран инструмент «Съёмка» или точка. */
   shotRoute: Vec2[][];
-  onSelect: (s: Selection) => void;
+  /** keepSheet — выбор по ходу перетаскивания: на телефоне шторка не выезжает. */
+  onSelect: (s: Selection, opts?: { keepSheet?: boolean }) => void;
   onCommit: (doc: MapDocument, select?: Selection) => void;
   onToolDone: () => void;
   onToast: (message: string) => void;
@@ -563,7 +564,7 @@ export function EditorCanvas(props: EditorCanvasProps) {
       setView((v) => ({ ...v, x: v.x + s[0] - prev[0], y: v.y + s[1] - prev[1] }));
       return;
     }
-    if (d.mode.kind === 'unit' && selection?.id !== d.mode.id) props.onSelect({ kind: 'unit', id: d.mode.id });
+    if (d.mode.kind === 'unit' && selection?.id !== d.mode.id) props.onSelect({ kind: 'unit', id: d.mode.id }, { keepSheet: true });
     dragTo(d.mode, s);
   };
 
