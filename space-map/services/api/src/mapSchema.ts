@@ -91,6 +91,7 @@ export const MapDocumentSchema = Type.Object(
         photos: Type.Array(Id, { maxItems: 5 }),
         hours: Type.Union([Type.String({ maxLength: 200 }), Type.Null()]),
         hidden: Type.Boolean(),
+        panorama: Type.Optional(Type.Union([Id, Type.Null()])),
       }),
       { maxItems: 5000 },
     ),

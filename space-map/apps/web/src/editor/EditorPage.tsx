@@ -3,6 +3,7 @@
 // демо без сервера (`/app/editor`) — в браузере, и `/m/demo` в этом же браузере видит изменения, если API недоступен.
 import {
   addPanoramaAtPoint,
+  setPlacePanorama,
   capturePointForPlace,
   captureRoute,
   DEFAULT_DOOR_PRESET,
@@ -384,19 +385,24 @@ function Editor({ initial, server }: EditorProps) {
   // Снятая или загруженная панорама — на план. Загрузка идёт долго, поэтому берём свежий документ, а не тот, что был при нажатии.
   const docRef = useRef(doc);
   docRef.current = doc;
-  const placePanorama = (shot: ShotPanorama) => {
-    commit(addPanoramaAtPoint(docRef.current, shot).doc);
+  // Снято или загружено из карточки места (placeId) — это панорама места: её покажут в его карточке.
+  const placePanorama = (shot: ShotPanorama, placeId: string | null = null) => {
+    const added = addPanoramaAtPoint(docRef.current, shot);
+    commit(placeId && added.doc.places.some((p) => p.id === placeId) ? setPlacePanorama(added.doc, placeId, added.id) : added.doc);
     showToast(shot.heading === null ? 'Панорама встала в точку. Метки и переходы в ней появятся, когда будет задано её направление' : 'Фотосфера сохранена и встала в точку');
   };
   const panoFileRef = useRef<HTMLInputElement>(null);
   const uploadFor = useRef<string | null>(null);
-  const uploadPanoramaFor = (pointId: string) => {
+  const uploadPlace = useRef<string | null>(null);
+  const uploadPanoramaFor = (pointId: string, placeId: string | null = null) => {
     uploadFor.current = pointId;
+    uploadPlace.current = placeId;
     panoFileRef.current?.click();
   };
   // В приложении для Android — встроенная съёмка: снимок сразу уходит на сервер и встаёт в точку.
-  const shootPanoramaFor = async (pointId: string) => {
+  const shootPanoramaFor = async (pointId: string, placeId: string | null = null) => {
     uploadFor.current = pointId;
+    uploadPlace.current = placeId;
     try {
       const blob = await captureNativeSphere();
       await uploadPanorama(new File([blob], 'sphere.jpg', { type: blob.type || 'image/jpeg' }));
@@ -419,19 +425,20 @@ function Editor({ initial, server }: EditorProps) {
   };
   const shootForPlace = (placeId: string) => {
     const pointId = pointForPlace(placeId);
-    if (pointId) void shootPanoramaFor(pointId);
+    if (pointId) void shootPanoramaFor(pointId, placeId);
   };
   const uploadForPlace = (placeId: string) => {
     const pointId = pointForPlace(placeId);
-    if (pointId) uploadPanoramaFor(pointId);
+    if (pointId) uploadPanoramaFor(pointId, placeId);
   };
   const uploadPanorama = async (file: File) => {
     const point = docRef.current.capturePoints?.find((p) => p.id === uploadFor.current);
+    const placeId = uploadPlace.current;
     if (!server || !point) return;
     showToast('Загружаем панораму…');
     try {
       const asset = await venuesApi.uploadPanorama(server.venue.id, file);
-      placePanorama({ pointId: point.id, pano: asset.id, level: point.level, pos: point.pos, heading: null, cameraHeight: 1.5 });
+      placePanorama({ pointId: point.id, pano: asset.id, level: point.level, pos: point.pos, heading: null, cameraHeight: 1.5 }, placeId);
     } catch (err) {
       showToast(err instanceof ApiError ? err.message : 'Не удалось загрузить панораму');
     }

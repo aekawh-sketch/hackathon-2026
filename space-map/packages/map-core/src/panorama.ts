@@ -171,20 +171,28 @@ export interface PlacePanorama {
   panorama: PanoramaPlacement;
   /** Куда повернуть взгляд при открытии, чтобы место было перед глазами. null — панорама не ориентирована. */
   yaw: number | null;
-  /** Как найдена: метка места в панораме, общий узел, та же комната, видно через дверь. */
-  reason: 'marker' | 'node' | 'room' | 'visible';
+  /** Как найдена: своя (снята для места), метка места в панораме, общий узел, та же комната, видно через дверь. */
+  reason: 'own' | 'marker' | 'node' | 'room' | 'visible';
 }
 
 /**
- * Панорама, в которой посетитель увидит место. Сначала — где стоит подтверждённая метка этого места,
- * потом снятая у самого места, потом ближайшая в той же комнате, потом ближайшая, откуда место видно.
- * Так кнопка «Открыть панораму» есть у места, даже если метку в панораме ещё не поставили.
+ * Панорама, в которой посетитель увидит место. У места с привязкой (`place.panorama`, все новые места) — только
+ * своя: снятая или загруженная из его карточки; null — панорамы нет, даже если рядом есть чужие.
+ * У мест, сделанных до привязки, — как раньше: где стоит подтверждённая метка этого места, потом снятая у самого
+ * места, потом ближайшая в той же комнате, потом ближайшая, откуда место видно.
  */
 export function panoramaForPlace(doc: MapDocument, place: Place): PlacePanorama | null {
   const onLevel = doc.panoramas.filter((pa) => pa.level === place.level);
   const nearest = (list: PanoramaPlacement[]) => [...list].sort((a, b) => distance(a.pos, place.pos) - distance(b.pos, place.pos))[0];
   const facing = (pa: PanoramaPlacement): number | null =>
     pa.heading === null || distance(pa.pos, place.pos) < 0.3 ? null : round1(normalize180(azimuth(pa.pos, place.pos) - pa.heading));
+
+  if (place.panorama !== undefined) {
+    const own = place.panorama === null ? undefined : doc.panoramas.find((pa) => pa.id === place.panorama);
+    if (!own) return null;
+    const mark = own.markers.find((m) => m.place === place.id && m.status === 'accepted');
+    return { panorama: own, yaw: mark?.yaw ?? facing(own), reason: 'own' };
+  }
 
   const marked = nearest(onLevel.filter((pa) => pa.markers.some((m) => m.place === place.id && m.status === 'accepted')));
   if (marked) return { panorama: marked, yaw: marked.markers.find((m) => m.place === place.id)!.yaw, reason: 'marker' };

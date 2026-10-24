@@ -159,6 +159,7 @@ function renameIn(doc: MapDocument, key: Renamable, map: Map<string, string>): M
       return {
         ...doc,
         panoramas: ids(doc.panoramas).map((pa) => ({ ...pa, links: pa.links.map((l) => ({ ...l, to: r(l.to) })) })),
+        places: doc.places.map((p) => (p.panorama ? { ...p, panorama: r(p.panorama) } : p)),
         capturePoints: (doc.capturePoints ?? []).map((c) => (c.panorama ? { ...c, panorama: r(c.panorama) } : c)),
       };
     case 'obstacles':
@@ -182,10 +183,14 @@ function repair(doc: MapDocument): MapDocument {
   const unitIds = new Set(units.map((u) => u.id));
   const categories = new Set(doc.categories.map((c) => c.id));
   const fallbackCategory = doc.categories[0]?.id;
-  const places = onLevel(doc.places).map((p) => (categories.has(p.category) || !fallbackCategory ? p : { ...p, category: fallbackCategory }));
-  const placeIds = new Set(places.map((p) => p.id));
   const panoramas = onLevel(doc.panoramas);
   const panoIds = new Set(panoramas.map((p) => p.id));
+  const places = onLevel(doc.places).map((p) => {
+    const category = categories.has(p.category) || !fallbackCategory ? p.category : fallbackCategory;
+    const panorama = p.panorama && !panoIds.has(p.panorama) ? null : p.panorama;
+    return category === p.category && panorama === p.panorama ? p : { ...p, category, panorama };
+  });
+  const placeIds = new Set(places.map((p) => p.id));
   return {
     ...doc,
     units: units.map((u) => {

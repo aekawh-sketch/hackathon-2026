@@ -443,6 +443,11 @@ export function updatePlace(doc: MapDocument, id: string, patch: Partial<Pick<Pl
   return { ...doc, places: doc.places.map((p) => (p.id === id ? { ...p, ...patch } : p)) };
 }
 
+/** Привязать к месту его панораму (снятую из карточки места) или отвязать — null. */
+export function setPlacePanorama(doc: MapDocument, placeId: string, panoramaId: string | null): MapDocument {
+  return { ...doc, places: doc.places.map((p) => (p.id === placeId ? { ...p, panorama: panoramaId } : p)) };
+}
+
 export function addPlace(doc: MapDocument, level: string, pos: Vec2, category: string, name = 'Новое место'): { doc: MapDocument; id: string } {
   const id = newId(doc, 'p');
   const place: Place = {
@@ -458,6 +463,8 @@ export function addPlace(doc: MapDocument, level: string, pos: Vec2, category: s
     photos: [],
     hours: null,
     hidden: false,
+    // Новое место без панорамы, пока её не снимут для него: чужая панорама рядом — не его.
+    panorama: null,
   };
   return { doc: rebuildGraph({ ...doc, places: [...doc.places, place] }, level), id };
 }

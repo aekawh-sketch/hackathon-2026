@@ -55,6 +55,7 @@ export function validateReferences(doc: MapDocument): Issue[] {
     need(levels.has(p.level), `places[${i}].level`, `нет этажа ${p.level}`);
     need(categories.has(p.category), `places[${i}].category`, `нет категории ${p.category}`);
     if (p.node !== null) need(nodes.has(p.node), `places[${i}].node`, `нет узла ${p.node}`);
+    if (p.panorama) need(panoramas.has(p.panorama), `places[${i}].panorama`, `нет панорамы ${p.panorama}`);
   });
   doc.panoramas.forEach((pa, i) => {
     need(levels.has(pa.level), `panoramas[${i}].level`, `нет этажа ${pa.level}`);
@@ -92,10 +93,11 @@ export function deletePlace(doc: MapDocument, id: string): MapDocument {
   };
 }
 
-/** Удалить панораму вместе с переходами, которые в неё ведут. Точка съёмки снова ждёт съёмки. */
+/** Удалить панораму вместе с переходами, которые в неё ведут. Точка съёмки снова ждёт съёмки, место — без панорамы. */
 export function deletePanorama(doc: MapDocument, id: string): MapDocument {
   return {
     ...doc,
+    places: doc.places.map((p) => (p.panorama === id ? { ...p, panorama: null } : p)),
     panoramas: doc.panoramas
       .filter((pa) => pa.id !== id)
       .map((pa) => ({ ...pa, links: pa.links.filter((l) => l.to !== id) })),

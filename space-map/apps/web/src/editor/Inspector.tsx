@@ -486,6 +486,7 @@ function UnitPanel({ doc, unit, onSelect, onCommit, onToast }: InspectorProps & 
 // ── Место ──
 
 const PLACE_PANO_REASON: Record<PlacePanorama['reason'], string> = {
+  own: 'Снята для этого места.',
   marker: 'Место отмечено в этой панораме.',
   node: 'Панорама снята у самого места.',
   room: 'Ближайшая панорама в этом помещении.',

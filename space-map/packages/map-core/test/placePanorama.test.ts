@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { demoVenue, panoramaForPlace, rectPolygon, type MapDocument, type PanoramaPlacement, type Place, type Vec2 } from '../src/index.ts';
+import { addPlace, deletePanorama, demoVenue, panoramaForPlace, rectPolygon, setPlacePanorama, validateReferences, type MapDocument, type PanoramaPlacement, type Place, type Vec2 } from '../src/index.ts';
 
 const L = 'L1';
 
@@ -82,6 +82,32 @@ describe('панорама для места', () => {
     const p = place('стенд', [4, 4]);
     const doc = plan([pano('raw', [2, 2], { heading: null })], [p]);
     expect(panoramaForPlace(doc, p)).toMatchObject({ panorama: { id: 'raw' }, yaw: null });
+  });
+});
+
+describe('своя панорама места', () => {
+  it('новое место пустое, даже если рядом есть панорамы и место в них отмечено', () => {
+    const doc = plan([pano('hall', [5, 4])], []);
+    const added = addPlace(doc, L, [4, 4], 'hall', 'Туалет');
+    const p = added.doc.places.find((x) => x.id === added.id)!;
+    expect(p.panorama).toBeNull();
+    const marked = { ...added.doc, panoramas: added.doc.panoramas.map((pa) => ({ ...pa, markers: [{ place: p.id, yaw: 10, pitch: 0, status: 'accepted' as const }] })) };
+    expect(panoramaForPlace(marked, p)).toBeNull();
+  });
+
+  it('снятая для места — его, взгляд по метке или на место', () => {
+    const p = { ...place('стенд', [4, 4]), panorama: 'mine' };
+    const doc = plan([pano('near', [4.5, 4]), pano('mine', [2, 4])], [p]);
+    expect(panoramaForPlace(doc, p)).toMatchObject({ panorama: { id: 'mine' }, yaw: 90, reason: 'own' });
+  });
+
+  it('удалили панораму — место снова пустое, ссылок в пустоту нет', () => {
+    const doc = plan([pano('mine', [2, 4])], [place('стенд', [4, 4])]);
+    const bound = setPlacePanorama(doc, 'стенд', 'mine');
+    const after = deletePanorama(bound, 'mine');
+    expect(after.places[0]!.panorama).toBeNull();
+    expect(validateReferences(after).filter((i) => i.path.startsWith('places') && i.path.endsWith('.panorama'))).toEqual([]);
+    expect(validateReferences({ ...bound, panoramas: [] }).some((i) => i.path === 'places[0].panorama')).toBe(true);
   });
 });
 

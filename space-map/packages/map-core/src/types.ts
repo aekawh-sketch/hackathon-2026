@@ -119,6 +119,11 @@ export interface Place {
   photos: string[];
   hours: string | null;
   hidden: boolean;
+  /**
+   * Своя панорама места — снятая или загруженная из его карточки (ID размещения в `panoramas`).
+   * null — своей нет, карточка без панорамы. Поля нет — место сделано до привязки: панорама подбирается сама.
+   */
+  panorama?: string | null;
 }
 
 export type SuggestionStatus = 'suggested' | 'accepted';
