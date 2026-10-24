@@ -2470,3 +2470,54 @@ button.insp-row:hover {
 .guide-shoot {
   margin-bottom: 8px;
 }
+
+/* Ушли с места съёмки: стрелка к нему внизу, над панелью. */
+.guide-home {
+  position: absolute;
+  left: 50%;
+  bottom: calc(max(12px, env(safe-area-inset-bottom)) + 200px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100% - 32px);
+  padding: 10px 16px 10px 10px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgb(18 161 80 / 0.92);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.3);
+  animation: guide-panel-in 0.3s var(--ease);
+}
+
+.guide-home.is-stop {
+  background: rgb(229 72 77 / 0.92);
+}
+
+.guide-home-arrow {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--ok);
+  transition: transform 0.15s linear;
+}
+
+.guide-home.is-stop .guide-home-arrow {
+  color: var(--danger);
+}
+
+.guide-home-text {
+  display: grid;
+  gap: 1px;
+}
+
+.guide-home-text strong {
+  font-size: 15px;
+}
+
+.guide-home-text small {
+  font-size: 12.5px;
+  opacity: 0.9;
+}

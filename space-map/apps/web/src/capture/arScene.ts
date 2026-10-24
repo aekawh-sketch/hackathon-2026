@@ -49,6 +49,11 @@ export interface SphereProgress {
   hint: 'left' | 'right' | 'up' | 'down' | null;
   /** Кадров камеры нет: браузер не дал `camera-access`. */
   noCamera: boolean;
+  /**
+   * Место съёмки, если телефон от него ушёл: сколько метров и под каким углом от взгляда
+   * (градусы, + — правее, по часовой). null — на месте или положение условное.
+   */
+  home: { distance: number; angle: number } | null;
 }
 
 // В @types/webxr нет модуля доступа к камере (WebXR Raw Camera Access) — описываем то, чем пользуемся.
@@ -74,6 +79,9 @@ const MAX_MOVE = 1.2;
 const JUMP = 0.25;
 /** Столько без положения — считаем, что опора потеряна. */
 const LOST_MS = 700;
+/** Дальше — показываем на полу и внизу экрана, куда вернуться. */
+const HOME_HINT = 0.45;
+const HOME = new THREE.Color('#12A150');
 
 const COLOR = new THREE.Color('#7C3AED');
 const ARRIVED = new THREE.Color('#12A150');
@@ -119,6 +127,11 @@ export class ArScene {
     lastDots: number;
     dots: THREE.Points;
     camera: THREE.ExternalTexture;
+    /** Место съёмки на полу: зелёное кольцо и бегущая к нему стрелка от ног. */
+    home: THREE.Group;
+    homeArrow: THREE.Mesh;
+    homeChevrons: THREE.Texture;
+    floorY: number;
   } | null = null;
 
   constructor(
@@ -240,10 +253,29 @@ export class ArScene {
 
   // ── Фотосфера ──
 
-  /** Начать съёмку фотосферы с места, где сейчас камера. Лента и кольцо прячутся, вокруг — точки «сюда навести». */
-  startSphere(): void {
+  /**
+   * Начать съёмку фотосферы с места, где сейчас камера. Лента и кольцо прячутся, вокруг — точки «сюда навести»,
+   * на полу — зелёное кольцо места съёмки. `floorY` — высота пола в мире WebXR.
+   */
+  startSphere(floorY: number): void {
     if (!this.pose) throw new Error('Нет положения камеры');
     this.cancelSphere();
+    const home = new THREE.Group();
+    const flat = (geometry: THREE.BufferGeometry, color: THREE.Color | string, opacity: number) => {
+      const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide }));
+      mesh.rotation.x = -Math.PI / 2;
+      home.add(mesh);
+      return mesh;
+    };
+    flat(new THREE.CircleGeometry(0.3, 40), HOME, 0.3);
+    flat(new THREE.RingGeometry(0.28, 0.34, 48), '#FFFFFF', 0.95);
+    const homeChevrons = this.chevrons.clone();
+    homeChevrons.needsUpdate = true;
+    // Плоскость 1 × 1 сразу на полу: вдоль x — длина (по ней бегут шевроны), вдоль z — ширина.
+    const arrowGeometry = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    const homeArrow = new THREE.Mesh(arrowGeometry, new THREE.MeshBasicMaterial({ map: homeChevrons, color: HOME, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+    homeArrow.visible = false;
+    this.scene.add(home, homeArrow);
     const dots = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ map: dotTexture(), color: COLOR, size: 0.11, transparent: true, depthTest: false, alphaTest: 0.2 }));
     dots.renderOrder = 10;
     this.scene.add(dots);
@@ -259,7 +291,12 @@ export class ArScene {
       lastDots: 0,
       dots,
       camera: new THREE.ExternalTexture(null),
+      home,
+      homeArrow,
+      homeChevrons,
+      floorY,
     };
+    home.position.set(this.pose.position[0], floorY + 0.01, this.pose.position[2]);
     this.route.visible = false;
     this.target.visible = false;
     this.updateDots();
@@ -286,8 +323,10 @@ export class ArScene {
     const s = this.sphere;
     if (!s) return;
     this.sphere = null;
-    this.scene.remove(s.dots);
+    this.scene.remove(s.dots, s.home, s.homeArrow);
     s.dots.geometry.dispose();
+    s.homeArrow.geometry.dispose();
+    s.homeChevrons.dispose();
     s.builder.dispose();
     this.route.visible = true;
     this.target.visible = this.route.children.length > 0;
@@ -338,6 +377,7 @@ export class ArScene {
       s.center.add(here.clone().sub(s.last));
       s.history.length = 0;
     }
+    s.home.position.set(s.center.x, s.floorY + 0.01, s.center.z);
     s.last = here;
     const dx = here.x - s.center.x;
     const dz = here.z - s.center.z;
@@ -347,6 +387,23 @@ export class ArScene {
     const moved = away > MAX_MOVE;
     const far = away > FAR_MOVE;
     s.lastPoseAt = time;
+
+    // Ушли с места — стрелка на полу от ног к кольцу и направление для подсказки внизу экрана.
+    let home: SphereProgress['home'] = null;
+    s.homeArrow.visible = away > HOME_HINT;
+    if (away > HOME_HINT) {
+      const len = away;
+      s.homeArrow.position.set((here.x + s.center.x) / 2, s.floorY + 0.015, (here.z + s.center.z) / 2);
+      s.homeArrow.rotation.y = Math.atan2(dz, -dx);
+      s.homeArrow.scale.set(len, 1, RIBBON_WIDTH);
+      s.homeChevrons.repeat.x = len / TILE;
+      s.homeChevrons.offset.x = -((time / 1000) * FLOW) % 1;
+      const facing = Math.atan2(forward.x, -forward.z);
+      const toHome = Math.atan2(-dx, dz);
+      let angle = ((toHome - facing) * 180) / Math.PI;
+      angle = ((angle + 540) % 360) - 180;
+      home = { distance: away, angle };
+    }
 
     // Телефон неподвижен, если за последние 250 мс взгляд почти не сдвинулся.
     s.history.push({ t: time, f: forward.clone() });
@@ -380,7 +437,7 @@ export class ArScene {
         const off = Math.atan2(Math.hypot(c.x, c.y), -c.z);
         if (off > (20 * Math.PI) / 180) hint = Math.abs(c.x) >= Math.abs(c.y) ? (c.x > 0 ? 'right' : 'left') : c.y > 0 ? 'up' : 'down';
       }
-      this.callbacks.onSphere?.({ fraction: s.coverage.fraction, frames: s.builder.frames, moved, far, weak, lost: false, steady, hint, noCamera });
+      this.callbacks.onSphere?.({ fraction: s.coverage.fraction, frames: s.builder.frames, moved, far, weak, lost: false, steady, hint, noCamera, home });
     }
   }
 
@@ -399,7 +456,7 @@ export class ArScene {
       const s = this.sphere;
       s.lastReport = time;
       s.history.length = 0;
-      this.callbacks.onSphere?.({ fraction: s.coverage.fraction, frames: s.builder.frames, moved: false, far: false, weak: true, lost: true, steady: false, hint: null, noCamera: false });
+      this.callbacks.onSphere?.({ fraction: s.coverage.fraction, frames: s.builder.frames, moved: false, far: false, weak: true, lost: true, steady: false, hint: null, noCamera: false, home: null });
     }
     if (viewer) {
       const { position: p, orientation: o } = viewer.transform;

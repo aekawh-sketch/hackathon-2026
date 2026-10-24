@@ -290,7 +290,7 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
     if (!scene.cameraAccess) return setError('Браузер не дал кадры камеры для съёмки — загрузите готовую панораму.');
     setError(null);
     setSphere(null);
-    scene.startSphere();
+    scene.startSphere(frame ? frame.floorY : scene.space === 'local-floor' ? 0 : scene.pose.position[1] - CAMERA_HEIGHT);
     setPhase('sphere');
   };
 
@@ -426,7 +426,18 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
 
       {(phase === 'aim' || phase === 'guide' || phase === 'sphere') && <div className={`guide-cross ${phase === 'guide' ? 'is-faint' : ''}`} aria-hidden />}
       {phase === 'sphere' && flash > 0 && <div key={flash} className="guide-flash" aria-hidden />}
-      {phase === 'sphere' && sphere?.hint && sphere.fraction < SPHERE_DONE && !sphere.moved && !sphere.lost && (
+      {phase === 'sphere' && sphere?.home && (
+        <div className={`guide-home ${sphere.moved ? 'is-stop' : ''}`} aria-live="polite">
+          <span className="guide-home-arrow" style={{ transform: `rotate(${Math.round(sphere.home.angle)}deg)` }}>
+            <Icon name="chevronUp" size={30} stroke={3} />
+          </span>
+          <span className="guide-home-text">
+            <strong>Вернитесь на место · {fmtMeters(sphere.home.distance)}</strong>
+            <small>{sideOf(sphere.home.angle)} — к зелёному кольцу на полу</small>
+          </span>
+        </div>
+      )}
+      {phase === 'sphere' && sphere?.hint && sphere.fraction < SPHERE_DONE && !sphere.moved && !sphere.lost && !sphere.home && (
         <div className={`guide-tilt is-${sphere.hint}`} aria-hidden>
           <Icon name="back" size={30} />
         </div>
@@ -721,6 +732,14 @@ function firstVisible(doc: MapDocument, level: string, from: Vec2, line: Vec2[])
     last = p;
   }
   return last;
+}
+
+/** Где место съёмки относительно взгляда — словами. */
+function sideOf(angle: number): string {
+  const a = Math.abs(angle);
+  if (a <= 30) return 'впереди';
+  if (a >= 150) return 'позади';
+  return angle > 0 ? 'справа' : 'слева';
 }
 
 function fmtMeters(m: number): string {
