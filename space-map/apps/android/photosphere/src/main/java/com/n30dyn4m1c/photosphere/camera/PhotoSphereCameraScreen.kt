@@ -55,6 +55,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -64,6 +65,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -159,6 +161,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -181,6 +184,15 @@ private const val TAG = "PhotoSphereCamera"
  * would have frozen.
  */
 private const val THREE_A_LOCK_TIMEOUT_MS = 6_000L
+
+/**
+ * «Пересчитать свет»: сколько после снятия блокировки не верить отчёту «сошлось».
+ *
+ * Первые кадры после разблокировки ещё несут состояние прежней экспозиции, и HAL может сразу
+ * доложить CONVERGED — блокировка встала бы на старые значения, а сцена (коридор с лампами после
+ * тёмной комнаты) так и осталась бы засвеченной. За это время 3A успевает начать поиск заново.
+ */
+private const val REMETER_SETTLE_MS = 800L
 
 /**
  * How much taller a ring capture's canvas band is than the lens's vertical
@@ -278,6 +290,8 @@ fun PhotoSphereCameraScreen(
     // pinned to the exposure reached so far. Written from the camera thread and
     // the main thread; Compose snapshot state is safe to write from either.
     var isThreeALocked by remember { mutableStateOf(false) }
+    // «Пересчитать свет»: появляется, когда камера привязана, — снимает блокировку AE/AWB и ставит её заново.
+    val remeter = remember { AtomicReference<(() -> Unit)?>(null) }
 
     // How much of the sphere the plan walks: the whole sphere (rings out to
     // both poles) or just the horizon ring — a regular pano that goes all the
@@ -541,6 +555,39 @@ fun PhotoSphereCameraScreen(
                     }
             }
         }
+        // «Пересчитать свет» (кнопка на экране): человек перешёл в другой свет — из комнаты в коридор с лампами —
+        // и зафиксированная экспозиция больше не подходит. Блокировка снимается, 3A сходится на новой сцене,
+        // и [lockThreeA] фиксирует новые значения. Пока подбирается, затвор не срабатывает (isThreeALocked = false).
+        val remeterNotBefore = AtomicLong(0L)
+        val remeterThreeA: () -> Unit = {
+            val control = camera2Control.get()
+            if (control != null && threeALocked.compareAndSet(true, false)) {
+                isThreeALocked = false
+                remeterNotBefore.set(SystemClock.elapsedRealtime() + REMETER_SETTLE_MS)
+                runCatching {
+                    control.addCaptureRequestOptions(
+                        CaptureRequestOptions.Builder()
+                            .setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, false)
+                            .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, false)
+                            .build()
+                    )
+                }
+                    .onSuccess {
+                        // Тот же запасной путь, что при старте: если HAL так и не доложит «сошлось».
+                        scope.launch {
+                            delay(THREE_A_LOCK_TIMEOUT_MS)
+                            lockThreeA()
+                        }
+                    }
+                    .onFailure { error ->
+                        // Разблокировать не вышло — значит, прежняя блокировка на месте.
+                        threeALocked.set(true)
+                        isThreeALocked = true
+                        Log.w(TAG, "Could not unlock 3A for re-metering", error)
+                    }
+            }
+        }
+        remeter.set(remeterThreeA)
         val preview = Preview.Builder()
             // Pinned to the stills' shape. Left to itself CameraX picks a
             // preview close to the display's aspect ratio — 16:9 or taller on a
@@ -577,7 +624,7 @@ fun PhotoSphereCameraScreen(
                             val state = result.get(CaptureResult.CONTROL_AE_STATE)
                             val settled = state == CaptureResult.CONTROL_AE_STATE_CONVERGED ||
                                 state == CaptureResult.CONTROL_AE_STATE_FLASH_REQUIRED
-                            if (settled) lockThreeA()
+                            if (settled && SystemClock.elapsedRealtime() >= remeterNotBefore.get()) lockThreeA()
                         }
                     }
                 )
@@ -1089,6 +1136,18 @@ fun PhotoSphereCameraScreen(
                     ringCount = run.ringCount,
                 ),
                 lockBadge = lockBadge,
+                exposureLocked = isThreeALocked,
+                // Только если камера умеет фиксировать экспозицию или баланс белого — иначе пересчитывать нечего.
+                onRemeter = if (captureProfile?.let { it.aeLockSupported || it.awbLockSupported } == true) {
+                    {
+                        remeter.get()?.invoke()
+                        if (bufferedFrames.isNotEmpty()) {
+                            scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.capture_remeter_mid_sphere)) }
+                        }
+                    }
+                } else {
+                    null
+                },
                 isComplete = run.isComplete,
                 captureScope = captureScope,
                 // A mode change would renumber the targets already-shot frames
@@ -1243,6 +1302,8 @@ private fun CaptureHud(
     ringCount: Int,
     hint: String,
     lockBadge: String?,
+    exposureLocked: Boolean,
+    onRemeter: (() -> Unit)?,
     isComplete: Boolean,
     canStitch: Boolean,
     onFinish: () -> Unit,
@@ -1372,6 +1433,9 @@ private fun CaptureHud(
             )
             if (lockBadge != null) {
                 FocusLockChip(text = lockBadge)
+            }
+            if (onRemeter != null) {
+                RemeterButton(locked = exposureLocked, onClick = onRemeter)
             }
         }
 
@@ -1685,6 +1749,39 @@ private fun UndoButton(
 }
 
 /** The small status chip that says what the lens is doing. */
+@Composable
+private fun RemeterButton(
+    locked: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onClick,
+        enabled = locked,
+        modifier = modifier.heightIn(min = 40.dp),
+        shape = PillShape,
+        color = GlassSurface,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.WbSunny,
+                contentDescription = null,
+                tint = if (locked) SphereAccent else GlassContent.copy(alpha = 0.6f),
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = stringResource(if (locked) R.string.capture_remeter else R.string.capture_remeter_working),
+                style = MaterialTheme.typography.labelLarge,
+                color = GlassContent.copy(alpha = if (locked) 0.95f else 0.7f),
+            )
+        }
+    }
+}
+
 @Composable
 private fun FocusLockChip(
     text: String,

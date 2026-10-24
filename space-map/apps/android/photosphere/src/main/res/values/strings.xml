@@ -40,6 +40,10 @@
     <string name="capture_lock_locked">Фокус, экспозиция и баланс белого зафиксированы</string>
     <string name="capture_lock_hint">Коснитесь видоискателя, чтобы навести фокус</string>
     <string name="capture_lock_fixed">Объектив без автофокуса</string>
+    <!-- «Пересчитать свет»: снова подобрать экспозицию и баланс белого под текущее место. -->
+    <string name="capture_remeter">Пересчитать свет</string>
+    <string name="capture_remeter_working">Подбираем свет…</string>
+    <string name="capture_remeter_mid_sphere">Свет пересчитан. Склейка выровняет яркость уже снятых кадров; если швы будут заметны — начните сферу заново.</string>
     <string name="capture_hint_search">Наведите прицел на точку</string>
     <string name="capture_hint_hold">Не двигайте телефон…</string>
     <string name="capture_hint_ring_done">Пояс %1$d из %2$d снят — можно склеивать или продолжить</string>

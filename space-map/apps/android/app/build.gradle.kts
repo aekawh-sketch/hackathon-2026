@@ -13,8 +13,8 @@ android {
         applicationId = "ru.spacemap.android"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
         // Откуда грузить сайт. Другой стенд: ./gradlew assembleDebug -PstartUrl=https://…
         val startUrl = (project.findProperty("startUrl") as String?) ?: "https://193-233-88-64.sslip.io/app"
         buildConfigField("String", "START_URL", "\"$startUrl\"")
