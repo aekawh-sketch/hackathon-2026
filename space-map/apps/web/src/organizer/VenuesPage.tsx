@@ -143,8 +143,8 @@ export default function VenuesPage() {
         </div>
         <div className="org-top-actions">
           {phone && (
-            <button type="button" className="btn btn-secondary" onClick={() => setScanOpen(true)}>
-              <Icon name="qr" size={18} /> Сканировать
+            <button type="button" className="btn btn-secondary" aria-label="Сканировать QR-код проекта" onClick={() => setScanOpen(true)}>
+              <Icon name="qr" size={18} /> <span className="btn-label">Сканировать</span>
             </button>
           )}
           <button type="button" className="btn btn-ghost" onClick={() => void logout().then(() => navigate('/app/login'))}>

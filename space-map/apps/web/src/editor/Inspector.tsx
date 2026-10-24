@@ -641,7 +641,7 @@ function HolePanel({ doc, unit, index, onSelect, onCommit, onToast }: InspectorP
 
 const DOOR_TYPES: { value: DoorType; label: string }[] = [
   { value: 'single', label: 'Дверь' },
-  { value: 'double', label: 'Двустворчатая' },
+  { value: 'double', label: 'Двойная' },
   { value: 'passage', label: 'Проём' },
 ];
 

@@ -152,17 +152,25 @@ p {
   justify-content: center;
   gap: 8px;
   min-height: var(--tap);
+  max-width: 100%;
   padding: 0 16px;
   border-radius: 12px;
   border: 1px solid transparent;
   font-weight: 600;
   font-size: 15px;
+  line-height: 1.25;
   text-decoration: none;
-  white-space: nowrap;
+  /* Не влезает в узкий экран — переносится ровными строками по центру, а не вылезает за кнопку. */
+  text-align: center;
+  text-wrap: balance;
   transition:
     background 0.15s,
     border-color 0.15s,
     transform 0.1s;
+}
+
+.btn svg {
+  flex-shrink: 0;
 }
 
 .btn:active:not(:disabled) {
@@ -276,6 +284,9 @@ p {
 .segmented button {
   display: inline-flex;
   align-items: center;
+  /* Кнопка бывает растянута (flex: 1) — подпись по центру, а не у левого края. */
+  justify-content: center;
+  text-align: center;
   gap: 6px;
   min-height: 34px;
   padding: 0 12px;
@@ -498,10 +509,14 @@ p {
 .brand-title {
   font-size: 15px;
   font-weight: 700;
+  line-height: 1.25;
   letter-spacing: -0.01em;
-  white-space: nowrap;
+  /* Длинное название площадки — в две строки, а не обрывком с многоточием. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-wrap: balance;
 }
 
 .brand-sub {
@@ -510,6 +525,13 @@ p {
   gap: 6px;
   color: var(--muted);
   font-size: 12.5px;
+}
+
+@media (max-width: 380px) {
+  /* Самые узкие телефоны: значок площадки уступает место названию. */
+  .topbar .brand-mark {
+    display: none;
+  }
 }
 
 @media (max-width: 420px) {
@@ -591,11 +613,22 @@ p {
 
 .panel-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   padding: 14px 14px 12px 16px;
   border-bottom: 1px solid var(--border);
+}
+
+/* Длинное название площадки забирает строку целиком, кнопки вида уходят под него — вправо. */
+.panel-header .brand {
+  flex: 1 1 auto;
+  min-width: 180px;
+}
+
+.panel-header .topbar-actions {
+  margin-left: auto;
 }
 
 .panel-body {
@@ -1227,16 +1260,34 @@ button.route-end:hover {
 .editor-title strong {
   font-size: 15px;
   font-weight: 700;
-  white-space: nowrap;
+  line-height: 1.2;
+  /* Название площадки — до двух строк целиком, а не обрывком. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-wrap: balance;
 }
 
-.editor-title strong,
 .editor-title small {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.is-mobile .editor-title strong {
+  font-size: 14px;
+}
+
+.is-mobile .editor-top {
+  gap: 6px;
+  padding-inline: 10px;
+}
+
+@media (max-width: 380px) {
+  .is-mobile .editor-title strong {
+    font-size: 13px;
+  }
 }
 
 .editor-title small {
@@ -1318,8 +1369,9 @@ button.route-end:hover {
 
 .is-mobile .tool-btn {
   flex: 1 1 0;
-  min-width: 44px;
-  padding-inline: 2px;
+  /* Самая длинная подпись — «Комната»: кнопка не уже неё. */
+  min-width: 54px;
+  padding-inline: 3px;
   font-size: 10.5px;
 }
 
@@ -1780,6 +1832,8 @@ button.insp-row:hover {
 
 .auth-page {
   display: grid;
+  grid-template-columns: minmax(0, 400px);
+  justify-content: center;
   place-items: center;
   min-height: 100dvh;
   padding: 16px;
@@ -2004,13 +2058,14 @@ button.insp-row:hover {
 
 /* ── Вход одной кнопкой ── */
 
-.auth-guest {
-  width: 100%;
+.auth-quick {
+  display: grid;
+  gap: 10px;
   margin-top: 18px;
 }
 
 .auth-guest-hint {
-  margin: 8px 0 0;
+  margin: 10px 0 0;
   text-align: center;
 }
 
@@ -2562,7 +2617,7 @@ button.insp-row:hover {
 /* Ссылки в подсказках: зона нажатия выше строки, а строки не раздвигаются. */
 .hint a,
 .org-foot a,
-.auth-page a {
+.auth-page a:not(.btn) {
   display: inline-block;
   padding: 10px 0;
   margin: -10px 0;
@@ -2606,6 +2661,27 @@ button.insp-row:hover {
 .venue-search {
   flex: 1 1 260px;
   min-height: 44px;
+}
+
+/* Узкий экран: фильтр — на всю ширину, кнопки делят её поровну и не вылезают за край. */
+@media (max-width: 480px) {
+  .venue-toolbar .segmented {
+    flex: 1 1 100%;
+  }
+
+  .venue-toolbar .segmented button {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0 8px;
+  }
+
+  .org-top-actions .btn-label {
+    display: none;
+  }
+
+  .org-top-actions .btn {
+    padding: 0 12px;
+  }
 }
 
 .venue-search input {
@@ -2922,4 +2998,23 @@ button.insp-row:hover {
   font-weight: 600;
   transform: translateX(-50%);
   animation: fade 0.2s ease-out;
+}
+
+/* Переносы: заголовки и короткие подписи — ровными строками, у абзацев — без одинокого слова в последней строке. */
+h1,
+h2,
+h3,
+.insp-section h3,
+.modal h2,
+.toast,
+.pill {
+  text-wrap: balance;
+}
+
+p,
+li,
+.hint,
+.insp-note,
+.notice {
+  text-wrap: pretty;
 }

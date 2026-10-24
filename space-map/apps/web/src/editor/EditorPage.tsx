@@ -229,6 +229,16 @@ function Editor({ initial, server }: EditorProps) {
   const [menu, setMenu] = useState(false);
   const [sheetMode, setSheetMode] = useState<SheetMode>('peek');
   const [sheetHeight, setSheetHeight] = useState(0);
+  // Высота шапки на телефоне: длинное название площадки встаёт в две строки — план и подсказка сдвигаются под неё.
+  const topRef = useRef<HTMLElement>(null);
+  const [topHeight, setTopHeight] = useState(64);
+  useEffect(() => {
+    const el = topRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setTopHeight(Math.round(el.getBoundingClientRect().height)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const [fitKey, setFitKey] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const firstSave = useRef(true);
@@ -381,7 +391,7 @@ function Editor({ initial, server }: EditorProps) {
     </div>
   );
 
-  const insets = desktop ? { top: 76, left: 96, right: 372, bottom: 0 } : { top: 64, bottom: sheetHeight };
+  const insets = desktop ? { top: 76, left: 96, right: 372, bottom: 0 } : { top: topHeight, bottom: sheetHeight };
 
   // Порядок съёмки: номера точек на плане и пунктир маршрута между ними.
   const shotPlan = useMemo(() => {
@@ -455,6 +465,8 @@ function Editor({ initial, server }: EditorProps) {
 
   // phoneOnly — только в меню «Ещё» на телефоне: на компьютере для этого есть своя кнопка в шапке.
   const menuItems: { icon: IconName; label: string; onClick: () => void; pressed?: boolean; danger?: boolean; phoneOnly?: boolean }[] = [
+    // На телефоне сканер — в «Ещё»: в шапке место нужно названию площадки.
+    ...(desktop ? [] : [{ icon: 'qr' as IconName, label: 'Сканировать QR-код проекта', onClick: () => setScanOpen(true) }]),
     ...(desktop ? [] : [{ icon: (view === 'plan' ? 'cube' : 'map') as IconName, label: view === 'plan' ? 'Показать в 3D' : 'Вернуться к плану', onClick: () => setView(view === 'plan' ? '3d' : 'plan') }]),
     { icon: 'layers', label: 'Сетка маршрутов', onClick: () => setShowGraph((g) => !g), pressed: showGraph },
     { icon: 'camera', label: 'Точки съёмки', onClick: () => setShowShots((v) => !v), pressed: showShots },
@@ -516,10 +528,10 @@ function Editor({ initial, server }: EditorProps) {
             </Suspense>
           </ErrorBoundary>
         )}
-        {view === 'plan' && <div className="tool-hint" style={desktop ? { left: 112, top: 88 } : { top: 70 }}>{TOOL_HINT[tool]}</div>}
+        {view === 'plan' && <div className="tool-hint" style={desktop ? { left: 112, top: 88 } : { top: topHeight + 6 }}>{TOOL_HINT[tool]}</div>}
       </main>
 
-      <header className="editor-top">
+      <header className="editor-top" ref={topRef}>
         <Link
           to={server ? '/app' : '/m/demo'}
           className="icon-btn"
@@ -532,7 +544,9 @@ function Editor({ initial, server }: EditorProps) {
           <strong>{server ? (venue?.name ?? doc.venue.name) : desktop ? 'Редактор площадки' : 'Редактор'}</strong>
           <small className={server && (remote.status.kind === 'error' || remote.status.kind === 'conflict') ? 'save-problem' : undefined}>
             {server ? (
-              (saveStatusText(remote.status) ?? (venue?.publishedVersion !== null ? `Опубликована · /m/${venue?.slug}` : 'Черновик — ещё не опубликована'))
+              // На телефоне шапка узкая — статус коротко, без ссылки.
+              (saveStatusText(remote.status) ??
+                (venue?.publishedVersion !== null ? (desktop ? `Опубликована · /m/${venue?.slug}` : 'Опубликована') : desktop ? 'Черновик — ещё не опубликована' : 'Черновик'))
             ) : saved === 'saved' ? (
               <>
                 <Icon name="check" size={13} /> Сохранено в браузере
@@ -558,11 +572,7 @@ function Editor({ initial, server }: EditorProps) {
                 <Icon name="qr" />
               </button>
             )
-          ) : (
-            <button type="button" className="icon-btn" aria-label="Сканировать QR-код проекта" title="Сканировать QR-код проекта" onClick={() => setScanOpen(true)}>
-              <Icon name="qr" />
-            </button>
-          )}
+          ) : null}
           {desktop && (
           <div className="segmented compact" role="group" aria-label="Вид">
             <button type="button" aria-pressed={view === 'plan'} onClick={() => setView('plan')}>

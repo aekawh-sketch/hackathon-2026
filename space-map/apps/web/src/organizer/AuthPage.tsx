@@ -18,19 +18,18 @@ export default function AuthPage() {
 
   // Только свои пути внутри кабинета — не уводим по ссылке на чужой сайт.
   const next = params.get('next')?.startsWith('/app') ? params.get('next')! : '/app';
-  // Куда уйти после входа. Гостя — сразу в редактор его площадки: иначе перенаправление «вошёл — в кабинет»
-  // срабатывает после navigate() и уводит на «Мои площадки».
+  // Куда уйти после входа гостем: задаём до setUser — перенаправление «вошёл» ниже срабатывает сразу.
   const after = useRef<string | null>(null);
   if (user) return <Navigate to={after.current ?? next} replace />;
 
-  // Одна кнопка — и сразу редактор: своя копия демо-площадки, без email и пароля.
+  // Одна кнопка — и сразу «Все площадки», без email и пароля.
   const tryAsGuest = async () => {
     setBusy(true);
     setError(null);
     try {
-      const { user: guest, venueId, shared } = await auth.guest();
-      // Общий доступ: можно править любую площадку — пришёл с «Редактировать план» на карте, туда и ведём.
-      after.current = shared && next.startsWith('/app/venues/') ? next : `/app/venues/${venueId}`;
+      const { user: guest, shared } = await auth.guest();
+      // Пришёл с «Редактировать план» на карте (общий доступ) — в редактор этой карты, иначе — к списку площадок.
+      after.current = shared && next.startsWith('/app/venues/') ? next : '/app';
       setUser(guest);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не удалось открыть редактор. Попробуйте ещё раз.');
@@ -66,13 +65,15 @@ export default function AuthPage() {
           </div>
         </div>
 
-        <button type="button" className="btn btn-primary auth-guest" disabled={busy} onClick={() => void tryAsGuest()}>
-          <Icon name="edit" size={18} /> Открыть редактор без регистрации
-        </button>
-        <p className="hint auth-guest-hint">
-          Своя копия демо-площадки: рисуйте, ставьте места и двери, публикуйте. Без регистрации площадки видны только в этом браузере —
-          уже начали на другом устройстве? Сохраните там аккаунт («Мои площадки» → «Сохранить аккаунт») и войдите здесь по почте.
-        </p>
+        <div className="auth-quick">
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void tryAsGuest()}>
+            <Icon name="edit" size={18} /> Открыть редактор без регистрации
+          </button>
+          <Link className="btn btn-secondary" to="/m/demo">
+            <Icon name="eye" size={18} /> Посмотреть как посетитель
+          </Link>
+        </div>
+        <p className="hint auth-guest-hint">Без почты и пароля. Аккаунт можно сохранить потом — в «Моих площадках».</p>
 
         <div className="auth-divider" role="separator">
           <span>или войдите</span>
@@ -118,9 +119,6 @@ export default function AuthPage() {
         <button type="submit" className="btn btn-secondary auth-submit" disabled={busy}>
           {busy ? 'Подождите…' : mode === 'login' ? 'Войти' : 'Создать аккаунт'}
         </button>
-        <p className="hint auth-foot">
-          Посетителям вход не нужен. <Link to="/m/demo">Открыть демо-карту</Link>
-        </p>
       </form>
     </div>
   );
