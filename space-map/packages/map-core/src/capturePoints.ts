@@ -323,7 +323,7 @@ export interface CaptureRoute {
 /**
  * В каком порядке обходить неснятые точки: от входа «ближайшая следующая» по реальным путям, затем
  * улучшение перестановками 2-opt (ТЗ 5.9, п. 21). Это маршрут для того, кто снимает.
- * @param start откуда начинает съёмку; по умолчанию — QR-якорь или вход этажа
+ * @param start откуда начинает съёмку; по умолчанию — место «Вход», входной проём или QR-якорь
  */
 export function captureRoute(doc: MapDocument, level: string, start?: Vec2): CaptureRoute {
   const points = pendingCapturePoints(doc, level);
@@ -576,12 +576,16 @@ function placeCheck(doc: MapDocument, level: string, pos: Vec2): string | null {
 }
 
 function defaultStart(doc: MapDocument, level: string): Vec2 | null {
+  const entrancePlace = doc.places.find((p) => p.level === level && p.category === 'entrance');
+  if (entrancePlace) return entrancePlace.pos;
+  const entrance = doc.openings.find((o) => o.level === level && o.kind === 'entrance');
+  if (entrance) {
+    const unit = doc.units.find((u) => u.id === entrance.units[0]);
+    if (unit) return doorAxisPoint(entrance, unit);
+  }
   const anchor = doc.anchors.find((a) => a.level === level);
   if (anchor) return anchor.pos;
-  const entrance = doc.openings.find((o) => o.level === level && o.kind === 'entrance');
-  if (!entrance) return null;
-  const unit = doc.units.find((u) => u.id === entrance.units[0]);
-  return unit ? doorAxisPoint(entrance, unit) : null;
+  return null;
 }
 
 function samePoint(a: CapturePoint, b: CapturePoint): boolean {

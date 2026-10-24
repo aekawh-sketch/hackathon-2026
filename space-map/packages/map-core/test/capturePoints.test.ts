@@ -42,6 +42,7 @@ function plan(units: (Partial<Unit> & { id: string; polygon: Vec2[] })[], openin
       places: [],
       panoramas: [],
       anchors: [],
+      capturePoints: [],
     },
     L,
   );
@@ -129,8 +130,12 @@ describe('расстановка точек съёмки', () => {
     expect(connected(doc, points)).toBe(true);
   });
 
-  it('демо: у отснятых панорам новых точек нет, пол закрыт, ссылки целы', () => {
-    const doc = refreshCapturePoints(rebuildGraph(demoVenue(), L));
+  it('у отснятой панорамы новых точек нет, пол закрыт, ссылки целы', () => {
+    const base = plan([{ id: 'r', polygon: rectPolygon([0, 0], [10, 8]) }]);
+    const doc = refreshCapturePoints({ ...base, panoramas: [{
+      id: 'pa', pano: 'test-pano', level: L, pos: [5, 4], node: null, heading: 0, cameraHeight: 1.5,
+      markers: [], customMarkers: [], links: [],
+    }] });
     expect(validateReferences(doc)).toEqual([]);
     const auto = activeCapturePoints(doc, L);
     for (const pano of doc.panoramas) expect(auto.every((p) => distance(p.pos, pano.pos) >= 1.5)).toBe(true);
@@ -195,7 +200,11 @@ describe('правка точек съёмки', () => {
 
 describe('маршрут съёмки', () => {
   it('обходит все неснятые точки, начинается у входа, не проходит сквозь стены', () => {
-    const doc = refreshCapturePoints(rebuildGraph(demoVenue(), L));
+    const base = plan([
+      { id: 'a', polygon: rectPolygon([0, 0], [12, 8]) },
+      { id: 'b', polygon: rectPolygon([12, 0], [24, 8]) },
+    ], [door('ab', [12, 3.5], [12, 4.5], ['a', 'b'])]);
+    const doc = refreshCapturePoints({ ...base, anchors: [{ id: 'qr', level: L, pos: [0.5, 4], facing: 0, code: 'ENTRANCE' }] });
     const route = captureRoute(doc, L);
     const pending = pendingCapturePoints(doc, L).map((p) => p.id);
     expect([...route.order].sort()).toEqual([...pending].sort());
@@ -205,6 +214,22 @@ describe('маршрут съёмки', () => {
     for (const leg of route.legs) {
       for (let i = 1; i < leg.line.length; i++) expect(hasLineOfSight(doc, L, leg.line[i - 1]!, leg.line[i]!)).toBe(true);
     }
+  });
+
+  it('начинает от места «Вход», даже если QR-якорь остался в старом месте', () => {
+    const base = plan([{ id: 'r', polygon: rectPolygon([0, 0], [12, 8]) }]);
+    const entrance: Vec2 = [1, 4];
+    const staleAnchor: Vec2 = [11, 4];
+    const doc = refreshCapturePoints({
+      ...base,
+      places: [{
+        id: 'entrance', level: L, pos: entrance, node: null, polygon: null, name: 'Вход', category: 'entrance',
+        number: null, description: '', photos: [], hours: null, hidden: false,
+      }],
+      anchors: [{ id: 'qr', level: L, pos: staleAnchor, facing: 0, code: 'ENTRANCE' }],
+    });
+
+    expect(captureRoute(doc, L).legs[0]!.line[0]).toEqual(entrance);
   });
 
   it('точки в коридоре — по порядку от входа', () => {

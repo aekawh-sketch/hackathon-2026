@@ -1,3 +1,4 @@
+import { businessCentreFixture } from './fixtures/businessCentre.ts';
 import { describe, expect, it } from 'vitest';
 import {
   angleBetween,
@@ -6,7 +7,6 @@ import {
   deleteNode,
   deletePanorama,
   deletePlace,
-  demoVenue,
   directionFromAngles,
   hasLineOfSight,
   headingFromCorrespondence,
@@ -37,7 +37,7 @@ describe('геометрия', () => {
   });
 
   it('стена закрывает видимость, дверь — нет', () => {
-    const doc = demoVenue();
+    const doc = businessCentreFixture();
     expect(hasLineOfSight(doc, 'L1', [5, 5.5], [20, 5.5])).toBe(true); // холл → коридор через проход
     expect(hasLineOfSight(doc, 'L1', [5, 5.5], [24, 10.5])).toBe(false); // холл → зал «Север» сквозь стену
     expect(hasLineOfSight(doc, 'L1', [24.75, 5.5], [24.75, 10])).toBe(true); // коридор → зал через дверь
@@ -45,7 +45,7 @@ describe('геометрия', () => {
 });
 
 describe('маршрут', () => {
-  const doc = demoVenue();
+  const doc = businessCentreFixture();
   const graph = new NavGraph(doc);
 
   it('идёт по графу через коридор, а не сквозь стену', () => {
@@ -89,7 +89,7 @@ describe('панорамы', () => {
   });
 
   it('проекция места: yaw от heading, pitch от высоты', () => {
-    const doc = demoVenue();
+    const doc = businessCentreFixture();
     const pano = doc.panoramas.find((p) => p.id === 'pa-lobby')!;
     const p = projectToPanorama(doc, pano, 'L1', [5, 9.5])!;
     expect(p.yaw).toBeCloseTo(0);
@@ -97,7 +97,7 @@ describe('панорамы', () => {
   });
 
   it('подсказки меток: за стеной нет, рядом есть', () => {
-    const doc = demoVenue();
+    const doc = businessCentreFixture();
     const corridor = doc.panoramas.find((p) => p.id === 'pa-corridor')!;
     const ids = suggestMarkers(doc, corridor).map((m) => m.place);
     expect(ids).not.toContain('p-booth-14'); // в выставочном зале за стеной
@@ -107,18 +107,18 @@ describe('панорамы', () => {
   });
 
   it('для схемы подсказки выключены', () => {
-    const doc = demoVenue();
+    const doc = businessCentreFixture();
     doc.venue.scaleClass = 'schematic';
     expect(suggestMarkers(doc, doc.panoramas[0]!)).toEqual([]);
   });
 
   it('подсказки переходов не предлагают уже связанные', () => {
-    const doc = demoVenue();
+    const doc = businessCentreFixture();
     expect(suggestLinks(doc, doc.panoramas.find((p) => p.id === 'pa-lobby')!)).toEqual([]);
   });
 
   it('прогулка: три панорамы по маршруту подряд', () => {
-    const doc = demoVenue();
+    const doc = businessCentreFixture();
     const graph = new NavGraph(doc);
     const r = graph.route('n-lobby', 'n-b');
     if (!r.ok) throw new Error('нет маршрута');
@@ -128,7 +128,7 @@ describe('панорамы', () => {
   });
 
   it('прогулка: без перехода — разрыв, а не прыжок', () => {
-    const doc = demoVenue();
+    const doc = businessCentreFixture();
     for (const pa of doc.panoramas) pa.links = pa.links.filter((l) => !(l.to === 'pa-hall-b' || pa.id === 'pa-hall-b'));
     const graph = new NavGraph(doc);
     const r = graph.route('n-lobby', 'n-b');
@@ -141,11 +141,11 @@ describe('панорамы', () => {
 
 describe('целостность', () => {
   it('демо-площадка без висящих ссылок', () => {
-    expect(validateReferences(demoVenue())).toEqual([]);
+    expect(validateReferences(businessCentreFixture())).toEqual([]);
   });
 
   it('удаление не оставляет висящих ссылок', () => {
-    let doc = demoVenue();
+    let doc = businessCentreFixture();
     doc.panoramas[0]!.markers.push({ place: 'p-desk', yaw: 10, pitch: 0, status: 'accepted' });
     doc = deletePlace(doc, 'p-desk');
     doc = deletePanorama(doc, 'pa-corridor');
@@ -154,7 +154,7 @@ describe('целостность', () => {
   });
 
   it('висящая ссылка находится', () => {
-    const doc = demoVenue();
+    const doc = businessCentreFixture();
     doc.places[0]!.node = 'nope';
     expect(validateReferences(doc)).toHaveLength(1);
   });
@@ -162,7 +162,7 @@ describe('целостность', () => {
 
 describe('поиск', () => {
   it('по названию, синониму категории и номеру', () => {
-    const doc = demoVenue();
+    const doc = businessCentreFixture();
     expect(searchPlaces(doc, 'кофе')[0]!.id).toBe('p-coffee');
     expect(searchPlaces(doc, 'уборная')[0]!.id).toBe('p-wc');
     expect(searchPlaces(doc, '14')[0]!.id).toBe('p-booth-14');
@@ -187,7 +187,7 @@ describe('съёмка: направления', () => {
 
 describe('3D-модель', () => {
   it('общие стены склеены, в дверях проёмы', () => {
-    const model = buildModel3D(demoVenue(), 'L1');
+    const model = buildModel3D(businessCentreFixture(), 'L1');
     // Нижняя граница коридора y = 4 общая с туалетом и залом: стены там не дублируются.
     const onY4 = model.walls.filter((w) => Math.abs(w.a[1] - 4) < 1e-6 && Math.abs(w.b[1] - 4) < 1e-6);
     const covered = onY4.reduce((s, w) => s + Math.abs(w.b[0] - w.a[0]), 0);

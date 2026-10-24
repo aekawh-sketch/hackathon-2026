@@ -1,10 +1,10 @@
+import { businessCentreFixture } from './fixtures/businessCentre.ts';
 import { describe, expect, it } from 'vitest';
 import {
   addHole,
   addPlace,
   buildModel3D,
   deleteHole,
-  demoVenue,
   distance,
   hasLineOfSight,
   holeAt,
@@ -25,7 +25,7 @@ import {
 const L = 'L1';
 
 function single(unit: Partial<Unit> & { polygon: Vec2[] }): MapDocument {
-  const doc = demoVenue();
+  const doc = businessCentreFixture();
   return {
     ...doc,
     units: [{ id: 'r', level: L, kind: 'hall', name: 'Зал', walkable: true, ...unit }],
@@ -138,7 +138,7 @@ describe('разделение', () => {
   });
 
   it('дверь на стене отрезанной части переходит к ней', () => {
-    const doc = demoVenue();
+    const doc = businessCentreFixture();
     // Выставочный зал 14–30 × 0–4, дверь в коридор на x 20–21,5. Режем по x = 24: дверь остаётся у западной части.
     const r = splitUnit(doc, 'u-c', [24, 0], [24, 4]);
     if (!r.ok) throw new Error(r.message);
@@ -172,7 +172,7 @@ describe('разделение', () => {
 
 describe('вход с улицы', () => {
   it('на наружной стене — вход по центру свободной наружной части', () => {
-    const doc = demoVenue();
+    const doc = businessCentreFixture();
     // Нижняя стена выставочного зала y = 0, x 14–30 — наружная.
     const r = placeEntrance(doc, 'u-c', [16, 0])!;
     const o = r.doc.openings.find((x) => x.id === r.id)!;

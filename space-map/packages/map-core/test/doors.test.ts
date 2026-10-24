@@ -1,7 +1,7 @@
+import { businessCentreFixture } from './fixtures/businessCentre.ts';
 import { describe, expect, it } from 'vitest';
 import {
   centerOpening,
-  demoVenue,
   distance,
   doorLeaves,
   doorStyleOf,
@@ -21,7 +21,7 @@ import {
 
 /** Две комнаты 6×4 рядом: общая стена x = 6, y 0…4. Без дверей. */
 function twoRooms(): MapDocument {
-  const doc = demoVenue();
+  const doc = businessCentreFixture();
   return {
     ...doc,
     units: [
@@ -159,7 +159,7 @@ describe('створки', () => {
   });
 
   it('у старых дверей без настроек — значения по умолчанию', () => {
-    const doc = demoVenue();
+    const doc = businessCentreFixture();
     const o = doc.openings.find((x) => x.id === 'd-a')!;
     expect(doorStyleOf(doc, o)).toMatchObject({ leaves: 1, openAngle: 90 });
   });

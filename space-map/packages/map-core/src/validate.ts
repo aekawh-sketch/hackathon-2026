@@ -1,6 +1,6 @@
 // Целостность ссылок внутри документа (п. 69) и каскадное удаление.
 import type { MapDocument } from './types.ts';
-import { pointInPolygon } from './geometry.ts';
+import { pointInPolygon, pointSegmentDistance, polygonEdges } from './geometry.ts';
 
 export interface Issue {
   path: string;
@@ -32,7 +32,9 @@ export function validateReferences(doc: MapDocument): Issue[] {
       need(units.has(u.parent), `units[${i}].parent`, `нет родительского помещения ${u.parent}`);
       if (parent) {
         need(parent.level === u.level, `units[${i}].parent`, 'родитель находится на другом этаже');
-        need(u.polygon.every((p) => pointInPolygon(p, parent.polygon)), `units[${i}].parent`, 'комната выходит за границы родителя');
+        const inside = u.polygon.every((p) => pointInPolygon(p, parent.polygon)
+          || polygonEdges(parent.polygon).some(([a, b]) => pointSegmentDistance(p, a, b) < 1e-9));
+        need(inside, `units[${i}].parent`, 'комната выходит за границы родителя');
       }
     }
     u.holes?.forEach((h, j) => need(h.length >= 3, `units[${i}].holes[${j}]`, 'меньше трёх вершин'));

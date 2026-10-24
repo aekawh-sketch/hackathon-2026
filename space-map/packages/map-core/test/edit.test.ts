@@ -1,10 +1,10 @@
+import { businessCentreFixture } from './fixtures/businessCentre.ts';
 import { describe, expect, it } from 'vitest';
 import {
   addDoor,
   addPlace,
   createRoom,
   deleteUnit,
-  demoVenue,
   duplicateUnit,
   movePlace,
   NavGraph,
@@ -50,7 +50,7 @@ describe('пересечения и общие стены', () => {
 
 describe('граф из плана', () => {
   it('маршрут по построенному графу обходит стены и не короче прямой', () => {
-    const doc = rebuildGraph(demoVenue(), L);
+    const doc = rebuildGraph(businessCentreFixture(), L);
     expect(validateReferences(doc)).toEqual([]);
     const r = routeLength(doc, 'p-entrance', 'p-hall-b');
     expect(r.ok).toBe(true);
@@ -60,7 +60,7 @@ describe('граф из плана', () => {
   });
 
   it('все места на этаже достижимы', () => {
-    const doc = rebuildGraph(demoVenue(), L);
+    const doc = rebuildGraph(businessCentreFixture(), L);
     for (const p of doc.places) {
       if (p.id === 'p-entrance') continue;
       expect(routeLength(doc, 'p-entrance', p.id).ok).toBe(true);
@@ -70,7 +70,7 @@ describe('граф из плана', () => {
 
 describe('создание помещения', () => {
   it('новая комната без двери не попадает в маршруты; дверь ставится вручную', () => {
-    const base = rebuildGraph(demoVenue(), L);
+    const base = rebuildGraph(businessCentreFixture(), L);
     // Справа от коридора: 30–34 × 4–8.
     const { doc, id } = createRoom(base, L, rectPolygon([30, 4], [34, 8]), { name: 'Кладовая' });
     expect(doc.units.find((u) => u.id === id)?.name).toBe('Кладовая');
@@ -86,13 +86,13 @@ describe('создание помещения', () => {
   });
 
   it('пересечение с существующими помещениями находится', () => {
-    expect(overlappingUnits(demoVenue(), L, rectPolygon([8, 8], [12, 12])).map((u) => u.id).sort()).toEqual(['u-a', 'u-lobby']);
-    expect(overlappingUnits(demoVenue(), L, rectPolygon([30, 0], [34, 4]))).toEqual([]);
+    expect(overlappingUnits(businessCentreFixture(), L, rectPolygon([8, 8], [12, 12])).map((u) => u.id).sort()).toEqual(['u-a', 'u-lobby']);
+    expect(overlappingUnits(businessCentreFixture(), L, rectPolygon([30, 0], [34, 4]))).toEqual([]);
   });
 
   it('вложенная комната вырезается из родителя и соединяется с ним дверью', () => {
     const host = { id: 'u-host', level: L, kind: 'hall' as const, name: 'Зал', walkable: true, polygon: rectPolygon([0, 0], [20, 20]) };
-    const base: MapDocument = { ...demoVenue(), units: [host], openings: [], places: [], panoramas: [], anchors: [], obstacles: [], graph: { nodes: [], edges: [] } };
+    const base: MapDocument = { ...businessCentreFixture(), units: [host], openings: [], places: [], panoramas: [], anchors: [], obstacles: [], graph: { nodes: [], edges: [] } };
     const nested = createRoom(base, L, rectPolygon([4, 4], [8, 8]), { name: 'Переговорная' });
     const room = nested.doc.units.find((u) => u.id === nested.id)!;
     const parent = nested.doc.units.find((u) => u.id === host.id)!;
@@ -119,7 +119,7 @@ describe('создание помещения', () => {
 
   it('сдвиг и удаление вложенной комнаты синхронизируют вырез родителя', () => {
     const host = { id: 'u-host', level: L, kind: 'hall' as const, name: 'Зал', walkable: true, polygon: rectPolygon([0, 0], [20, 20]) };
-    const base: MapDocument = { ...demoVenue(), units: [host], openings: [], places: [], panoramas: [], anchors: [], obstacles: [], graph: { nodes: [], edges: [] } };
+    const base: MapDocument = { ...businessCentreFixture(), units: [host], openings: [], places: [], panoramas: [], anchors: [], obstacles: [], graph: { nodes: [], edges: [] } };
     const created = createRoom(base, L, rectPolygon([4, 4], [8, 8]));
     const moved = translateUnit(created.doc, created.id, [2, 1]);
     const movedRoom = moved.units.find((u) => u.id === created.id)!;
@@ -134,7 +134,7 @@ describe('создание помещения', () => {
 
 describe('сдвиг и форма', () => {
   it('сдвиг уносит места внутри; оторванная дверь пропадает, новую ставят вручную', () => {
-    const base = rebuildGraph(demoVenue(), L);
+    const base = rebuildGraph(businessCentreFixture(), L);
     const { doc: withRoom, id } = createRoom(base, L, rectPolygon([30, 4], [34, 8]));
     const withDoor = rebuildGraph(placeDoor(withRoom, id, 'u-corridor')!.doc, L);
     const placed = addPlace(withDoor, L, [32, 6], 'room', 'Склад');
@@ -150,7 +150,7 @@ describe('сдвиг и форма', () => {
   });
 
   it('изменение размера сохраняет дверь на общей стене', () => {
-    const base = rebuildGraph(demoVenue(), L);
+    const base = rebuildGraph(businessCentreFixture(), L);
     const created = createRoom(base, L, rectPolygon([30, 4], [34, 8]));
     const id = created.id;
     const doc = placeDoor(created.doc, id, 'u-corridor')!.doc;
@@ -161,7 +161,7 @@ describe('сдвиг и форма', () => {
   });
 
   it('перенос места перестраивает его узел', () => {
-    const doc = movePlace(rebuildGraph(demoVenue(), L), 'p-coffee', [3, 3]);
+    const doc = movePlace(rebuildGraph(businessCentreFixture(), L), 'p-coffee', [3, 3]);
     expect(doc.places.find((p) => p.id === 'p-coffee')!.pos).toEqual([3, 3]);
     expect(routeLength(doc, 'p-entrance', 'p-coffee').ok).toBe(true);
   });
@@ -169,7 +169,7 @@ describe('сдвиг и форма', () => {
 
 describe('удаление и копия', () => {
   it('удаление помещения убирает двери, места и метки в панорамах', () => {
-    let doc = demoVenue();
+    let doc = businessCentreFixture();
     doc = refreshPanoramaMarkers(doc);
     const next = deleteUnit(doc, 'u-a');
     expect(next.units.some((u) => u.id === 'u-a')).toBe(false);
@@ -180,7 +180,7 @@ describe('удаление и копия', () => {
   });
 
   it('копия встаёт рядом без пересечений', () => {
-    const doc = rebuildGraph(demoVenue(), L);
+    const doc = rebuildGraph(businessCentreFixture(), L);
     const copy = duplicateUnit(doc, 'u-wc');
     expect(copy).not.toBeNull();
     const unit = copy!.doc.units.find((u) => u.id === copy!.id)!;
@@ -188,7 +188,7 @@ describe('удаление и копия', () => {
   });
 
   it('дверь вручную между соседями', () => {
-    const doc = addDoor(demoVenue(), 'u-a', 'u-b', [18, 10]);
+    const doc = addDoor(businessCentreFixture(), 'u-a', 'u-b', [18, 10]);
     const door = doc.openings[doc.openings.length - 1]!;
     expect(door.units).toEqual(['u-a', 'u-b']);
     expect(door.segment[0][0]).toBeCloseTo(18);
