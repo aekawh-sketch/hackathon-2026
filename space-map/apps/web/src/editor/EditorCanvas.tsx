@@ -193,7 +193,8 @@ export function EditorCanvas(props: EditorCanvasProps) {
         return Math.hypot(q[0] - s[0], q[1] - s[1]) <= placeHit;
       });
   };
-  const shotsVisible = props.showShots || tool === 'shot';
+  // «Точки съёмки» в меню прячет и точки, и кружки панорам в них; инструмент «Съёмка» включает их сам (EditorPage).
+  const shotsVisible = props.showShots;
   const hitShot = (s: Vec2) =>
     shotsVisible
       ? activeCapturePoints(doc, level).find((p) => {
@@ -704,7 +705,8 @@ export function EditorCanvas(props: EditorCanvasProps) {
             </Layer>
             <Layer listening={false}>
               {shotsVisible && (tool === 'shot' || selection?.kind === 'shot') && <CaptureRouteLine view={view} legs={props.shotRoute} />}
-              {shown.panoramas
+              {shotsVisible &&
+                shown.panoramas
                 .filter((p) => p.level === level)
                 .map((p) => {
                   const [x, y] = toScreen(p.pos);

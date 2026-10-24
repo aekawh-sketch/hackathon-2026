@@ -243,6 +243,10 @@ function Editor({ initial, server }: EditorProps) {
   const [view, setView] = useState<'plan' | '3d'>('plan');
   const [showGraph, setShowGraph] = useState(false);
   const [showShots, setShowShots] = useState(true);
+  // Инструмент «Съёмка» работает с точками — включаем их показ.
+  useEffect(() => {
+    if (tool === 'shot') setShowShots(true);
+  }, [tool]);
   /** Экран камеры с маршрутом съёмки: с какой точки (null — от входа). */
   const [guide, setGuide] = useState<{ from: string | null } | null>(null);
   /** Открытая на весь экран панорама. */
@@ -512,7 +516,19 @@ function Editor({ initial, server }: EditorProps) {
         ]),
     ...(desktop ? [] : [{ icon: (view === 'plan' ? 'cube' : 'map') as IconName, label: view === 'plan' ? 'Показать в 3D' : 'Вернуться к плану', onClick: () => setView(view === 'plan' ? '3d' : 'plan') }]),
     { icon: 'layers', label: 'Сетка маршрутов', onClick: () => setShowGraph((g) => !g), pressed: showGraph },
-    { icon: 'camera', label: 'Точки съёмки', onClick: () => setShowShots((v) => !v), pressed: showShots },
+    {
+      icon: 'camera',
+      label: 'Точки съёмки',
+      // Спрятали точки — инструмент «Съёмка» и выбранная точка без них не нужны.
+      onClick: () => {
+        if (showShots) {
+          if (tool === 'shot') setTool('select');
+          if (selection?.kind === 'shot') setSelection(null);
+        }
+        setShowShots(!showShots);
+      },
+      pressed: showShots,
+    },
     { icon: 'download', label: 'Скачать карту (JSON)', onClick: download },
     { icon: 'upload', label: 'Загрузить карту из файла', onClick: () => fileRef.current?.click() },
     ...(server
@@ -567,7 +583,7 @@ function Editor({ initial, server }: EditorProps) {
         ) : (
           <ErrorBoundary fallback={<div className="screen-message">Не удалось загрузить 3D.</div>}>
             <Suspense fallback={<div className="screen-message"><div className="loader" /></div>}>
-              <Model3DView doc={doc} level={level} insets={insets} selectedPlace={selection?.kind === 'place' ? selection.id : null} showPanoramas />
+              <Model3DView doc={doc} level={level} insets={insets} selectedPlace={selection?.kind === 'place' ? selection.id : null} showPanoramas={showShots} />
             </Suspense>
           </ErrorBoundary>
         )}
