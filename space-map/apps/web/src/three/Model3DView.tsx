@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
+import { drawFloorPlan, type FloorPlan } from '../plan/floorTexture.ts';
 import { ENTRANCE, PANORAMA, ROUTE, UNIT_FLOOR_3D } from '../plan/style.ts';
 import { polygonCentroid, type Insets } from '../plan/viewport.ts';
 import { categoryIconPath, Icon } from '../ui/icons.tsx';
@@ -35,6 +36,15 @@ export function buildScene(doc: MapDocument, level: string): THREE.Group {
   const root = new THREE.Group();
   root.name = doc.venue.name;
 
+  // На полу — 2D-план этажа: одна текстура на все помещения, у каждого пола она лежит по координатам плана.
+  const plan = drawFloorPlan(doc, level);
+  let planTop: THREE.MeshStandardMaterial | null = null;
+  if (plan) {
+    const map = new THREE.CanvasTexture(plan.canvas);
+    map.colorSpace = THREE.SRGBColorSpace;
+    map.anisotropy = 8; // пол видно под острым углом — без анизотропии подписи расплываются
+    planTop = new THREE.MeshStandardMaterial({ map, roughness: 0.92, metalness: 0 });
+  }
   const floors = new THREE.Group();
   floors.name = 'floors';
   for (const floor of model.floors) {
@@ -42,10 +52,11 @@ export function buildScene(doc: MapDocument, level: string): THREE.Group {
     // Вырез — дыра и в полу: колонна или шахта не покрыта полом помещения.
     for (const hole of floor.holes) shape.holes.push(new THREE.Path(hole.map((p) => new THREE.Vector2(p[0], p[1]))));
     const color = UNIT_FLOOR_3D[floor.kind as keyof typeof UNIT_FLOOR_3D] ?? '#EDF1F7';
-    const mesh = new THREE.Mesh(
-      new THREE.ExtrudeGeometry(shape, { depth: 0.06, bevelEnabled: false }),
-      new THREE.MeshStandardMaterial({ color, roughness: 0.92, metalness: 0 }),
-    );
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth: 0.06, bevelEnabled: false });
+    const side = new THREE.MeshStandardMaterial({ color, roughness: 0.92, metalness: 0 });
+    if (plan) planUV(geometry, plan);
+    // Группы ExtrudeGeometry: 0 — верх и низ (план), 1 — торцы плиты (цвет пола).
+    const mesh = new THREE.Mesh(geometry, planTop ? [planTop, side] : side);
     mesh.rotation.x = -Math.PI / 2; // Shape лежит в XY → кладём на пол, выдавливание идёт вверх
     mesh.receiveShadow = true;
     mesh.name = `floor:${floor.unit}`;
@@ -140,6 +151,17 @@ export function buildScene(doc: MapDocument, level: string): THREE.Group {
     root.add(mesh);
   }
   return root;
+}
+
+/** Координаты текстуры по плану: точка (x, y) пола берёт свой пиксель плана — помещения стыкуются без швов. */
+function planUV(geometry: THREE.BufferGeometry, plan: FloorPlan) {
+  const pos = geometry.getAttribute('position');
+  const uv = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) {
+    uv[i * 2] = (pos.getX(i) - plan.minX) / plan.width;
+    uv[i * 2 + 1] = (pos.getY(i) - plan.minY) / plan.height;
+  }
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
 }
 
 // ── Подписи и значки: спрайты из canvas, всегда повёрнуты к камере ──
