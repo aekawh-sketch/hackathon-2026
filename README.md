@@ -21,7 +21,6 @@ space-map/
   apps/ios/            приложение для iPhone и iPad (SwiftUI + WKWebView)
   infra/               настройки веб-сервера для Docker
   docs/                STATUS — что сделано и проверено, DECISIONS — принятые решения
-  TZ.md                техническое задание
 ```
 
 ## Локальный сервер в Docker
