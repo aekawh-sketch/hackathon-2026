@@ -542,11 +542,17 @@ p {
   transition: none;
 }
 
+.sheet.is-dragging .sheet-handle {
+  background: var(--muted);
+}
+
 .sheet-grab {
   flex-shrink: 0;
-  padding: 8px 16px 4px;
+  padding: 10px 16px 4px;
   touch-action: none;
   cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .sheet-handle {
@@ -1301,6 +1307,9 @@ button.route-end:hover {
   /* Инструментов больше, чем помещается на узком экране, — панель листается вбок. */
   overflow-x: auto;
   scrollbar-width: none;
+  /* Вверх-вниз по инструментам тянется шторка, а не страница. */
+  touch-action: pan-x;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .is-mobile .tool-bar::-webkit-scrollbar {
