@@ -240,7 +240,7 @@ function ShotPanel({ doc, point, shotLabels, onSelect, onCommit, onToast, onOpen
           Встаньте в точку, держите телефон на уровне глаз и поворачивайтесь вокруг камеры. Координаты: {fmt(point.pos[0])}; {fmt(point.pos[1])} м.
         </p>
       </Section>
-      <div className="insp-actions">
+      <div className="insp-actions shot-actions">
         {pano && (
           <button type="button" className="btn btn-primary" onClick={() => onOpenPanorama(pano.id)}>
             <Icon name="pano" size={18} /> Открыть панораму
