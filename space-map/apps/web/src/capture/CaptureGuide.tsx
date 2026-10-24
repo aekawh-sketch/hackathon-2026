@@ -36,6 +36,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, venuesApi } from '../api.ts';
 import { Icon } from '../ui/icons.tsx';
 import { arSupported, ArScene, ArStartError, type SphereProgress, type XrPose } from './arScene.ts';
+import { APP_NAME, APP_REPO, appIntentUrl, isAndroid } from './externalApp.ts';
 
 /** Телефон держат на уровне глаз. */
 const CAMERA_HEIGHT = 1.5;
@@ -57,7 +58,8 @@ export interface CaptureGuideProps {
 }
 
 type Mode = 'ar' | 'steps';
-type Phase = 'intro' | 'aim' | 'guide' | 'sphere' | 'done';
+/** external — снимаем фотосферу в приложении 360 и ждём файл обратно. */
+type Phase = 'intro' | 'aim' | 'guide' | 'sphere' | 'external' | 'done';
 
 /** Готово, если снято столько сферы; раньше можно, но дыры будут заметны. */
 const SPHERE_DONE = 0.97;
@@ -200,7 +202,8 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
     );
   }, [phase, frame, step]);
 
-  const start = async () => {
+  /** Запуск камеры. `forceAim` — после перерыва (съёмка в другом приложении) направление ставим заново. */
+  const start = async (forceAim = false) => {
     setError(null);
     setArFailure(null);
     if (!window.isSecureContext) return setError('Камера и датчики работают только по защищённой ссылке (https).');
@@ -223,7 +226,8 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
           onEnd: () => {
             ar.current = null;
             setFrame(null);
-            setPhase((p) => (p === 'done' ? p : 'intro'));
+            // Ушли снимать в приложение 360 — AR закрылся сам, экран ждёт файл.
+            setPhase((p) => (p === 'done' || p === 'external' ? p : 'intro'));
           },
         });
         await scene.start();
@@ -243,13 +247,14 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
       }
       window.addEventListener('deviceorientation', onOrientation);
       window.addEventListener('devicemotion', onMotion);
+      streamRef.current?.getTracks().forEach((t) => t.stop());
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play().catch(() => undefined);
       }
-      setPhase(worldHeading === null ? 'aim' : 'guide');
+      setPhase(forceAim || worldHeading === null ? 'aim' : 'guide');
     } catch {
       setError('Не удалось включить камеру. Проверьте, что браузеру разрешён доступ к ней.');
     }
@@ -320,9 +325,9 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
     setPhase('guide');
   };
 
-  /** Фотосфера готова: на сервер и на план; в демо без сервера — файлом на телефон. */
-  const saveShot = async (blob: Blob, heading: number | null, cameraHeight: number) => {
-    if (!target || !here) return;
+  /** Фотосфера готова: на сервер и на план; в демо без сервера — файлом на телефон. `pos` — где стояли, по умолчанию оценка положения. */
+  const saveShot = async (blob: Blob, heading: number | null, cameraHeight: number, at: Vec2 | null = here) => {
+    if (!target || !at) return;
     if (!venueId) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -335,7 +340,7 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
     setSaving(true);
     try {
       const asset = await venuesApi.uploadPanorama(venueId, new File([blob], `sphere-${targetNo}.jpg`, { type: blob.type || 'image/jpeg' }));
-      onPanorama({ pointId: target.id, pano: asset.id, level, pos: here, heading, cameraHeight });
+      onPanorama({ pointId: target.id, pano: asset.id, level, pos: at, heading, cameraHeight });
       setSavedHere(true);
       setError(null);
     } catch (err) {
@@ -343,6 +348,27 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
     } finally {
       setSaving(false);
     }
+  };
+
+  /** Снимать в приложении 360: AR не переживёт переход в другое приложение — закрываем его и ждём файл обратно. */
+  const openExternal = () => {
+    setPhase('external');
+    ar.current?.end();
+    window.location.href = appIntentUrl();
+  };
+
+  /** После съёмки в приложении: к следующей точке — заново камера и прицел, стоя ровно в этой точке. */
+  const continueRoute = async () => {
+    legStartSteps.current = detector.current.steps;
+    shownAlong.current = 0;
+    const at = target?.pos ?? null;
+    setSavedHere(false);
+    if (step + 1 >= route.legs.length) return setPhase('done');
+    setStep(step + 1);
+    setStandAt(at);
+    setAimReason('shot');
+    setFrame(null);
+    await start(true);
   };
 
   const finishSphere = async () => {
@@ -470,7 +496,8 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
         hidden
         onChange={(e) => {
           const f = e.target.files?.[0];
-          if (f) void saveShot(f, null, CAMERA_HEIGHT);
+          // Загруженная панорама — в саму точку: человек стоял в кольце, а направление зададут по двери.
+          if (f) void saveShot(f, null, CAMERA_HEIGHT, target?.pos ?? null);
           e.target.value = '';
         }}
       />
@@ -556,7 +583,7 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
                 </a>
                 <p className="hint">«Не поддерживается на вашем устройстве» — значит, AR на этом телефоне не будет, снимайте по шагам.</p>
                 <div className="row">
-                  <button type="button" className="btn btn-secondary" onClick={() => void start()}>
+                  <button type="button" className="btn btn-secondary" onClick={() => void start(false)}>
                     Ещё раз AR
                   </button>
                   <button
@@ -573,7 +600,7 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
               </>
             ) : (
               route.legs.length > 0 && (
-                <button type="button" className="btn btn-primary btn-block" disabled={!mode} onClick={() => void start()}>
+                <button type="button" className="btn btn-primary btn-block" disabled={!mode} onClick={() => void start(false)}>
                   <Icon name="camera" size={18} /> {mode === 'ar' ? 'Включить AR' : 'Включить камеру'}
                 </button>
               )
@@ -611,15 +638,22 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
                     : `Идите по линии ровным шагом — разметка движется по шагам (${detector.current.steps - legStartSteps.current}).`}
             </p>
             {isArrived && !savedHere && (
-              <div className="row guide-shoot">
-                {mode === 'ar' && (
-                  <button type="button" className="btn btn-success" disabled={saving} onClick={startSphere}>
-                    <Icon name="camera" size={18} /> Снять фотосферу
+              <div className="guide-shoot">
+                {isAndroid() && (
+                  <button type="button" className="btn btn-success btn-block" disabled={saving} onClick={openExternal}>
+                    <Icon name="camera" size={18} /> Снять приложением 360
                   </button>
                 )}
-                <button type="button" className={`btn ${mode === 'ar' ? 'btn-secondary' : 'btn-success'}`} disabled={saving} onClick={() => fileRef.current?.click()}>
-                  {saving ? 'Сохраняем…' : 'Загрузить готовую'}
-                </button>
+                <div className="row">
+                  {mode === 'ar' && (
+                    <button type="button" className={`btn ${isAndroid() ? 'btn-secondary' : 'btn-success'}`} disabled={saving} onClick={startSphere}>
+                      Снять в браузере
+                    </button>
+                  )}
+                  <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => fileRef.current?.click()}>
+                    {saving ? 'Сохраняем…' : 'Загрузить готовую'}
+                  </button>
+                </div>
               </div>
             )}
             <div className="row">
@@ -670,6 +704,43 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
               </button>
             </div>
             {(sphere?.fraction ?? 0) >= SPHERE_MIN && (sphere?.fraction ?? 0) < SPHERE_DONE && <p className="hint">Можно сохранить и так, но неснятые места будут тёмными.</p>}
+          </>
+        )}
+        {phase === 'external' && (
+          <>
+            <h2>
+              Точка {targetNo}: снимите фотосферу в {APP_NAME}
+            </h2>
+            {savedHere ? (
+              <p>
+                ✓ Панорама встала в точку {targetNo}. Направление задайте потом: «К плану» → точка с галочкой → «Открыть панораму» → «Повернуть по
+                двери».
+              </p>
+            ) : (
+              <ol className="guide-steps">
+                <li>В приложении наводите прицел на точки — кадры снимаются сами. Дождитесь склейки и сохраните сферу.</li>
+                <li>Вернитесь сюда и нажмите «Загрузить снятую» — выберите последнюю фотографию.</li>
+              </ol>
+            )}
+            {!savedHere && (
+              <button type="button" className="btn btn-success btn-block" disabled={saving} onClick={() => fileRef.current?.click()}>
+                {saving ? 'Сохраняем…' : 'Загрузить снятую'}
+              </button>
+            )}
+            <div className="row">
+              <a className="btn btn-secondary" href={appIntentUrl()}>
+                Открыть приложение
+              </a>
+              <button type="button" className={`btn ${savedHere ? 'btn-primary' : 'btn-ghost'}`} disabled={saving} onClick={() => void continueRoute()}>
+                {step + 1 >= route.legs.length ? 'Закончить' : savedHere ? 'Продолжить маршрут' : 'Без съёмки — дальше'}
+              </button>
+            </div>
+            <p className="hint">
+              Приложения нет — «Открыть приложение» скачает его (APK, 44 МБ), разрешите установку из браузера.{' '}
+              <a href={APP_REPO} target="_blank" rel="noreferrer">
+                О приложении
+              </a>
+            </p>
           </>
         )}
         {phase === 'done' && (

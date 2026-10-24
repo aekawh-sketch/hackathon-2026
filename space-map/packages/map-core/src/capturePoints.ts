@@ -5,7 +5,7 @@
 import { rebuildGraph } from './edit.ts';
 import { distance, hasLineOfSight, normalize360, pointInUnit, pointSegmentDistance, polygonArea, polygonEdges, segmentIntersection, signedArea, unitRings } from './geometry.ts';
 import { NavGraph, nearestVisibleNode, routePolyline } from './graph.ts';
-import { acceptSuggestions, suggestLinks } from './panorama.ts';
+import { acceptSuggestions, headingFromCorrespondence, suggestLinks } from './panorama.ts';
 import type { CapturePoint, MapDocument, Opening, PanoramaPlacement, Unit, Vec2 } from './types.ts';
 
 export interface CapturePlanOptions {
@@ -246,17 +246,60 @@ export function addPanoramaAtPoint(doc: MapDocument, shot: ShotPanorama): { doc:
   };
   let next = rebuildGraph({ ...doc, panoramas: [...doc.panoramas, placement] }, shot.level);
   if (shot.pointId) next = attachPanoramaToPoint(next, shot.pointId, id);
-  next = acceptSuggestions(next, id);
-  // Соседи получают переход сюда; их остальные подсказки не трогаем.
+  return { doc: linkPanorama(next, id), id };
+}
+
+/**
+ * Повернуть панораму по одному соответствию (ТЗ 5.6): в панораме нажали на объект под углом `yawInPano`,
+ * на плане он стоит в `target`. Метки мест и переходы этой панорамы считаются заново.
+ */
+export function orientPanorama(doc: MapDocument, panoId: string, target: Vec2, yawInPano: number): MapDocument {
+  const pano = doc.panoramas.find((p) => p.id === panoId);
+  if (!pano) return doc;
+  const heading = Math.round(headingFromCorrespondence(pano.pos, target, yawInPano) * 10) / 10;
+  const next: MapDocument = { ...doc, panoramas: doc.panoramas.map((p) => (p.id === panoId ? { ...p, heading, markers: [], links: [] } : p)) };
+  return linkPanorama(next, panoId);
+}
+
+/** Метки мест и переходы панорамы — по плану; соседи получают переход к ней (их остальные подсказки не трогаем). */
+function linkPanorama(doc: MapDocument, id: string): MapDocument {
+  let next = acceptSuggestions(doc, id);
+  const level = next.panoramas.find((p) => p.id === id)?.level;
   next = {
     ...next,
     panoramas: next.panoramas.map((pa) => {
-      if (pa.id === id || pa.level !== shot.level) return pa;
+      if (pa.id === id || pa.level !== level || pa.links.some((l) => l.to === id)) return pa;
       const back = suggestLinks(next, pa).filter((l) => l.to === id);
       return back.length ? { ...pa, links: [...pa.links, ...back.map((l) => ({ ...l, status: 'accepted' as const }))] } : pa;
     }),
   };
-  return { doc: next, id };
+  return next;
+}
+
+export interface Landmark {
+  pos: Vec2;
+  /** Как назвать человеку: «Дверь в «Коридор»», «Вход с улицы», «Стойка регистрации». */
+  name: string;
+  kind: 'door' | 'place';
+  distance: number;
+}
+
+/** Двери и места, которые видно из точки, — ближние первыми. По ним задают направление панорамы или AR. */
+export function visibleLandmarks(doc: MapDocument, level: string, from: Vec2, minDistance = 1): Landmark[] {
+  const here = doc.units.find((u) => u.level === level && pointInUnit(from, u));
+  const unitName = (id: string) => doc.units.find((u) => u.id === id)?.name ?? '';
+  const out: Landmark[] = [];
+  for (const o of doc.openings) {
+    if (o.level !== level) continue;
+    const pos: Vec2 = [(o.segment[0][0] + o.segment[1][0]) / 2, (o.segment[0][1] + o.segment[1][1]) / 2];
+    const other = o.units.find((u) => u !== here?.id);
+    const name = o.kind === 'entrance' ? 'Вход с улицы' : other ? `Дверь в «${unitName(other)}»` : 'Дверь';
+    out.push({ pos, name, kind: 'door', distance: distance(from, pos) });
+  }
+  for (const p of doc.places) {
+    if (p.level === level && !p.hidden) out.push({ pos: p.pos, name: p.name, kind: 'place', distance: distance(from, p.pos) });
+  }
+  return out.filter((l) => l.distance >= minDistance && hasLineOfSight(doc, level, from, l.pos)).sort((a, b) => a.distance - b.distance);
 }
 
 // ── Маршрут съёмки ──

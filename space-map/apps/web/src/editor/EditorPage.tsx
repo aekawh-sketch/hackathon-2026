@@ -598,7 +598,7 @@ function Editor({ initial, server }: EditorProps) {
         </div>
       )}
 
-      {preview && <PanoramaPreview doc={doc} panoId={preview} onClose={() => setPreview(null)} />}
+      {preview && <PanoramaPreview doc={doc} panoId={preview} onCommit={(next) => commit(next)} onClose={() => setPreview(null)} />}
 
       {guide && (
         <ErrorBoundary fallback={<div className="screen-message">Не удалось открыть камеру.</div>}>

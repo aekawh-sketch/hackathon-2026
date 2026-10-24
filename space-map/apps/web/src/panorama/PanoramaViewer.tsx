@@ -32,14 +32,16 @@ export interface PanoramaViewerProps {
   /** Куда смотреть после загрузки, градусы. */
   initialYaw?: number;
   onMarkerClick?: (marker: PanoMarker) => void;
+  /** Нажали на саму панораму (не на метку): yaw и pitch в градусах — для «повернуть по двери». */
+  onPanoClick?: (yaw: number, pitch: number) => void;
   onError?: () => void;
 }
 
-export default function PanoramaViewer({ imageUrl, previewUrl, markers, routeLines = [], initialYaw = 0, onMarkerClick, onError }: PanoramaViewerProps) {
+export default function PanoramaViewer({ imageUrl, previewUrl, markers, routeLines = [], initialYaw = 0, onMarkerClick, onPanoClick, onError }: PanoramaViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
-  const callbacks = useRef({ onMarkerClick, onError });
-  callbacks.current = { onMarkerClick, onError };
+  const callbacks = useRef({ onMarkerClick, onPanoClick, onError });
+  callbacks.current = { onMarkerClick, onPanoClick, onError };
   const markersRef = useRef(markers);
   markersRef.current = markers;
 
@@ -63,6 +65,13 @@ export default function PanoramaViewer({ imageUrl, previewUrl, markers, routeLin
       if (found) callbacks.current.onMarkerClick?.(found);
     });
     viewer.addEventListener('panorama-error', () => callbacks.current.onError?.());
+    viewer.addEventListener('click', ({ data }) => {
+      if (data.rightclick) return;
+      const deg = (r: number) => (r * 180) / Math.PI;
+      // yaw у просмотрщика 0…360 — приводим к −180…180, как в документе карты.
+      const yaw = ((deg(data.yaw) + 540) % 360) - 180;
+      callbacks.current.onPanoClick?.(Math.round(yaw * 10) / 10, Math.round(deg(data.pitch) * 10) / 10);
+    });
     return () => {
       viewer.destroy();
       viewerRef.current = null;

@@ -45,6 +45,7 @@ import {
 } from '@space-map/map-core';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
+import { appIntentUrl, isAndroid } from '../capture/externalApp.ts';
 import { UNIT_FILL } from '../plan/style.ts';
 import { CategoryBadge, Icon } from '../ui/icons.tsx';
 import { holeRef, type Selection, type Tool } from './EditorCanvas.tsx';
@@ -247,6 +248,11 @@ function ShotPanel({ doc, point, shotLabels, onSelect, onCommit, onToast, onOpen
           <button type="button" className="btn btn-primary" onClick={() => onOpenGuide(point.id)}>
             <Icon name="route" size={18} /> Маршрут с камерой отсюда
           </button>
+        )}
+        {!pano && onUploadPanorama && isAndroid() && (
+          <a className="btn btn-secondary" href={appIntentUrl()}>
+            <Icon name="camera" size={18} /> Снять приложением 360
+          </a>
         )}
         {!pano && onUploadPanorama && (
           <button type="button" className="btn btn-secondary" onClick={() => onUploadPanorama(point.id)}>

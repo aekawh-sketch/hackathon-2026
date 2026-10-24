@@ -6,7 +6,9 @@ import {
   directionInFrame,
   equirectDirection,
   isLinked,
+  orientPanorama,
   pendingCapturePoints,
+  visibleLandmarks,
   rebuildGraph,
   refreshCapturePoints,
   SphereCoverage,
@@ -82,5 +84,29 @@ describe('снятая панорама — на план', () => {
     const neighbour = r.doc.panoramas.find((p) => p.id === 'pa-corridor')!;
     expect(neighbour.links.some((l) => l.to === r.id && l.status === 'accepted')).toBe(true);
     expect(isLinked(r.doc, r.id, 'pa-corridor')).toBe(true);
+  });
+});
+
+describe('направление загруженной панорамы по двери', () => {
+  it('без направления меток и переходов нет; нажали на дверь — появились, направление верное', () => {
+    const doc = refreshCapturePoints(rebuildGraph(demoVenue(), 'L1'));
+    const point = pendingCapturePoints(doc, 'L1').find((p) => p.pos[0] === 13 && p.pos[1] === 5.5)!;
+    const placed = addPanoramaAtPoint(doc, { pointId: point.id, pano: 'shot-2', level: 'L1', pos: point.pos, heading: null, cameraHeight: 1.5 });
+    const before = placed.doc.panoramas.find((p) => p.id === placed.id)!;
+    expect(before.links).toEqual([]);
+
+    // Из точки в коридоре видна дверь в переговорную «А» — она в списке ориентиров.
+    const marks = visibleLandmarks(placed.doc, 'L1', point.pos);
+    const doorA = marks.find((m) => m.name === 'Дверь в «Переговорная «А»»')!;
+    expect(doorA).toBeDefined();
+    expect(marks.every((m, i) => i === 0 || m.distance >= marks[i - 1]!.distance)).toBe(true);
+
+    // В панораме эта дверь оказалась под yaw = 30°: значит, центр панорамы смотрит на 30° левее двери.
+    const oriented = orientPanorama(placed.doc, placed.id, doorA.pos, 30);
+    const pano = oriented.panoramas.find((p) => p.id === placed.id)!;
+    expect(pano.heading).not.toBeNull();
+    expect(pano.links.length).toBeGreaterThan(0);
+    expect(isLinked(oriented, placed.id, 'pa-corridor')).toBe(true);
+    expect(validateReferences(oriented)).toEqual([]);
   });
 });
