@@ -1,5 +1,5 @@
 // Подсказки меток и переходов, ориентация, прогулка по маршруту — ТЗ 5.6, 5.7, 5.10.
-import { azimuth, distance, hasLineOfSight, normalize180, normalize360 } from './geometry.ts';
+import { azimuth, distance, hasLineOfSight, normalize180, normalize360, pointInUnit, unitAt } from './geometry.ts';
 import type { NavGraph } from './graph.ts';
 import type { MapDocument, PanoramaLink, PanoramaMarker, PanoramaPlacement, Place, Vec2 } from './types.ts';
 
@@ -165,6 +165,41 @@ function projectOnSegment(p: Vec2, a: Vec2, b: Vec2): { t: number; d: number } {
   const len2 = dx * dx + dy * dy;
   const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2));
   return { t, d: distance(p, [a[0] + t * dx, a[1] + t * dy]) };
+}
+
+export interface PlacePanorama {
+  panorama: PanoramaPlacement;
+  /** Куда повернуть взгляд при открытии, чтобы место было перед глазами. null — панорама не ориентирована. */
+  yaw: number | null;
+  /** Как найдена: метка места в панораме, общий узел, та же комната, видно через дверь. */
+  reason: 'marker' | 'node' | 'room' | 'visible';
+}
+
+/**
+ * Панорама, в которой посетитель увидит место. Сначала — где стоит подтверждённая метка этого места,
+ * потом снятая у самого места, потом ближайшая в той же комнате, потом ближайшая, откуда место видно.
+ * Так кнопка «Открыть панораму» есть у места, даже если метку в панораме ещё не поставили.
+ */
+export function panoramaForPlace(doc: MapDocument, place: Place): PlacePanorama | null {
+  const onLevel = doc.panoramas.filter((pa) => pa.level === place.level);
+  const nearest = (list: PanoramaPlacement[]) => [...list].sort((a, b) => distance(a.pos, place.pos) - distance(b.pos, place.pos))[0];
+  const facing = (pa: PanoramaPlacement): number | null =>
+    pa.heading === null || distance(pa.pos, place.pos) < 0.3 ? null : round1(normalize180(azimuth(pa.pos, place.pos) - pa.heading));
+
+  const marked = nearest(onLevel.filter((pa) => pa.markers.some((m) => m.place === place.id && m.status === 'accepted')));
+  if (marked) return { panorama: marked, yaw: marked.markers.find((m) => m.place === place.id)!.yaw, reason: 'marker' };
+
+  const atPlace = place.node ? onLevel.find((pa) => pa.node === place.node) : undefined;
+  if (atPlace) return { panorama: atPlace, yaw: facing(atPlace), reason: 'node' };
+
+  const room = unitAt(doc, place.level, place.pos);
+  const inRoom = room ? nearest(onLevel.filter((pa) => pointInUnit(pa.pos, room))) : undefined;
+  if (inRoom) return { panorama: inRoom, yaw: facing(inRoom), reason: 'room' };
+
+  const visible = nearest(
+    onLevel.filter((pa) => distance(pa.pos, place.pos) <= doc.settings.markerRange && hasLineOfSight(doc, place.level, pa.pos, place.pos)),
+  );
+  return visible ? { panorama: visible, yaw: facing(visible), reason: 'visible' } : null;
 }
 
 export function placeById(doc: MapDocument, id: string): Place | undefined {

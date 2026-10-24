@@ -190,7 +190,9 @@ function Editor({ initial, server }: EditorProps) {
   /** Экран камеры с маршрутом съёмки: с какой точки (null — от входа). */
   const [guide, setGuide] = useState<{ from: string | null } | null>(null);
   /** Открытая на весь экран панорама. */
-  const [preview, setPreview] = useState<string | null>(null);
+  // Открытая панорама и куда смотреть: у места — на само место.
+  const [preview, setPreview] = useState<{ id: string; yaw: number } | null>(null);
+  const openPreview = (id: string, yaw?: number) => setPreview({ id, yaw: yaw ?? 0 });
   const [toast, setToast] = useState<{ text: string; id: number } | null>(null);
   const [saved, setSaved] = useState<'saved' | 'error' | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -577,12 +579,12 @@ function Editor({ initial, server }: EditorProps) {
         <>
           <div className="tool-rail">{toolbar}</div>
           <aside className="inspector" aria-label="Свойства">
-            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onOpenPanorama={setPreview} />
+            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onOpenPanorama={openPreview} />
           </aside>
         </>
       ) : (
         <Sheet mode={sheetMode} onModeChange={setSheetMode} desktop={false} peekHeight={118} topGap={64} onHeight={setSheetHeight} label="Инструменты и свойства" header={toolbar}>
-          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onOpenPanorama={setPreview} />
+          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onOpenPanorama={openPreview} />
         </Sheet>
       )}
 
@@ -615,7 +617,7 @@ function Editor({ initial, server }: EditorProps) {
         </div>
       )}
 
-      {preview && <PanoramaPreview doc={doc} panoId={preview} onCommit={(next) => commit(next)} onClose={() => setPreview(null)} />}
+      {preview && <PanoramaPreview key={preview.id} doc={doc} panoId={preview.id} initialYaw={preview.yaw} onCommit={(next) => commit(next)} onClose={() => setPreview(null)} />}
 
       {guide && (
         <ErrorBoundary fallback={<div className="screen-message">Не удалось открыть камеру.</div>}>

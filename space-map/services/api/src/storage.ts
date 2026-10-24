@@ -1,7 +1,7 @@
 // Абстракция хранилища (ТЗ 4.6). Сейчас — локальный диск (том Docker, общий с воркером); S3 подключается вторым драйвером.
 // Ключи строит только сервер; проверка формата не даёт выйти за каталог хранилища.
 import { createReadStream } from 'node:fs';
-import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -9,6 +9,8 @@ export interface Storage {
   put(key: string, data: Buffer | string): Promise<void>;
   read(key: string): Promise<{ stream: Readable; size: number } | null>;
   delete(prefix: string): Promise<void>;
+  /** Копия файла под новым ключом (дублирование площадки вместе с панорамами). false — исходного файла нет. */
+  copy(from: string, to: string): Promise<boolean>;
   /** Путь на диске — для воркера склейки, который работает с файлами. */
   pathOf(key: string): string;
 }
@@ -49,6 +51,17 @@ export class LocalStorage implements Storage {
     } catch {
       return null;
     }
+  }
+
+  async copy(from: string, to: string): Promise<boolean> {
+    const src = this.pathOf(from);
+    const dst = this.pathOf(to);
+    if (!(await stat(src).catch(() => null))?.isFile()) return false;
+    await mkdir(dirname(dst), { recursive: true });
+    const tmp = `${dst}.${process.pid}.${Date.now()}.tmp`;
+    await copyFile(src, tmp);
+    await rename(tmp, dst);
+    return true;
   }
 
   async delete(prefix: string): Promise<void> {

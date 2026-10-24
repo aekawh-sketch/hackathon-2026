@@ -1,5 +1,5 @@
 // Все запросы к серверу — в одном модуле.
-import { acceptSuggestions, demoVenue, type MapDocument, type PanoramaPlacement } from '@space-map/map-core';
+import { acceptSuggestions, demoVenue, type MapDocument, type PanoramaPlacement, type PlanOutline } from '@space-map/map-core';
 import { loadEditedDemo } from './demoStore.ts';
 
 export interface LoadedMap {
@@ -104,6 +104,19 @@ export interface VenueSummary {
   updatedAt: string;
 }
 
+/** Строка списка «Мои площадки»: то, что нужно для карточки, без загрузки всего плана. */
+export interface VenueListItem extends VenueSummary {
+  editedAt: string;
+  /** Моя площадка: удалить её могу только я. */
+  isOwner: boolean;
+  /** Кто создал — при общем доступе, если не я. */
+  ownerName: string | null;
+  stats: { units: number; places: number; panoramas: number };
+  thumb: PlanOutline | null;
+  /** Панорама для обложки карточки. */
+  coverPano: string | null;
+}
+
 export interface Draft {
   revision: number;
   doc: MapDocument;
@@ -134,7 +147,13 @@ export const auth = {
 
 export const venuesApi = {
   /** Мои площадки; при общем доступе стенда (`openAccess`) — все. */
-  list: () => request<{ venues: VenueSummary[]; openAccess?: boolean }>('GET', '/api/venues'),
+  list: () => request<{ venues: VenueListItem[]; openAccess?: boolean }>('GET', '/api/venues'),
+  /** Копия с планом, местами и своими копиями панорам; не опубликована. */
+  duplicate: (id: string) => request<{ venue: VenueSummary }>('POST', `/api/venues/${id}/duplicate`).then((r) => r.venue),
+  /** Посетители больше не открывают карту по ссылке; черновик остаётся. */
+  unpublish: (id: string) => request<{ venue: VenueSummary }>('POST', `/api/venues/${id}/unpublish`).then((r) => r.venue),
+  /** Удалить навсегда; confirmName — точное название, защита от случайного нажатия. */
+  remove: (id: string, confirmName: string) => request<{ ok: true }>('DELETE', `/api/venues/${id}`, { confirmName }),
   create: (name: string) => request<{ venue: VenueSummary }>('POST', '/api/venues', { name }).then((r) => r.venue),
   get: (id: string) => request<{ venue: VenueSummary }>('GET', `/api/venues/${id}`).then((r) => r.venue),
   update: (id: string, patch: Partial<Pick<VenueSummary, 'name' | 'slug' | 'visibility' | 'embedDomains'>>) =>

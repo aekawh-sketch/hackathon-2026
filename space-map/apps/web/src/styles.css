@@ -2616,3 +2616,195 @@ button.insp-row:hover {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+/* ── Все площадки: поиск, фильтр, карточки с превью ── */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.venue-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.venue-search {
+  flex: 1 1 260px;
+  min-height: 44px;
+}
+
+.venue-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--text);
+  outline: none;
+}
+
+.seg-count {
+  margin-left: 4px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.venue-sort select {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  font: inherit;
+}
+
+.venue-list .venue-card {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  align-items: stretch;
+  gap: 16px;
+  padding: 12px;
+}
+
+.venue-thumb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  min-height: 120px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.venue-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.venue-thumb .plan-thumb {
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+}
+
+.venue-thumb-plan {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 64px;
+  height: 46px;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.9);
+  box-shadow: var(--shadow-sm);
+}
+
+.venue-thumb-plan .plan-thumb {
+  width: 100%;
+  height: 100%;
+  padding: 4px;
+}
+
+.venue-thumb-empty {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.venue-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.venue-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.venue-list .venue-card-actions {
+  margin-top: auto;
+  align-items: center;
+}
+
+.venue-menu .menu {
+  min-width: 230px;
+}
+
+@media (max-width: 600px) {
+  .venue-list .venue-card {
+    grid-template-columns: 1fr;
+  }
+
+  .venue-thumb {
+    aspect-ratio: 2 / 1;
+  }
+
+  .venue-list .venue-card-actions .btn {
+    flex: 1;
+  }
+}
+
+/* ── Превью панорамы места: нажал — открылась панорама ── */
+
+.pano-preview {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 2.4 / 1;
+  margin: 10px 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface-3);
+  cursor: pointer;
+}
+
+.pano-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.4s var(--ease);
+}
+
+.pano-preview:hover img {
+  transform: scale(1.04);
+}
+
+.pano-preview-label {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgb(14 23 38 / 0.72);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.insp .pano-preview {
+  margin: 0 0 8px;
+}

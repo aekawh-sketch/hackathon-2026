@@ -1,6 +1,6 @@
 // Сквозные проверки API на настоящей PostgreSQL (TEST_DATABASE_URL). ТЗ 13: владение, ревизии, публикация, загрузки.
 import { demoVenue, refreshCapturePoints, type MapDocument } from '@space-map/map-core';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import pg from 'pg';
@@ -369,6 +369,11 @@ describe('общий доступ (OPEN_ACCESS — стенд команды)', 
       const draft = (await teammate.req('GET', `/api/venues/${v.id}/draft`)).json();
       expect((await teammate.req('PUT', `/api/venues/${v.id}/draft`, { revision: draft.revision, doc: draft.doc })).statusCode).toBe(200);
 
+      // Править можно, а удалить чужую — нет: удаление необратимо.
+      const del = await teammate.req('DELETE', `/api/venues/${v.id}`, { confirmName: 'Общая площадка' });
+      expect(del.statusCode).toBe(403);
+      expect(del.json().code).toBe('not_owner');
+
       // Тот же сокомандник на API без флага — чужую площадку не видит.
       const strict = new Client();
       strict.cookies = teammate.cookies;
@@ -378,5 +383,69 @@ describe('общий доступ (OPEN_ACCESS — стенд команды)', 
       await open.close();
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('инструменты списка площадок', () => {
+  /** Площадка с загруженной панорамой, которая стоит на плане. */
+  async function venueWithPanorama(c: Client) {
+    const v = await newVenue(c, 'Склад «Восток»');
+    const pano = (await c.upload(`/api/venues/${v.id}/panoramas`, await image(2048, 1024))).json().panorama;
+    const { revision } = (await c.req('GET', `/api/venues/${v.id}/draft`)).json();
+    const doc: MapDocument = demoVenue();
+    doc.panoramas[0]!.pano = pano.id;
+    expect((await c.req('PUT', `/api/venues/${v.id}/draft`, { revision, doc })).statusCode).toBe(200);
+    return { v, pano, doc };
+  }
+
+  it('в списке — счётчики, миниатюра плана, обложка и «моя»', async () => {
+    const c = await newUser();
+    const { v, pano, doc } = await venueWithPanorama(c);
+    const item = (await c.req('GET', '/api/venues')).json().venues.find((x: { id: string }) => x.id === v.id);
+    expect(item.stats).toEqual({ units: doc.units.length, places: doc.places.length, panoramas: doc.panoramas.length });
+    expect(item.thumb.units.length).toBeGreaterThan(0);
+    expect(item.coverPano).toBe(pano.id);
+    expect(item.isOwner).toBe(true);
+    expect(item.ownerName).toBeNull();
+    expect(new Date(item.editedAt).getTime()).toBeGreaterThan(0);
+  });
+
+  it('дублирование: новая площадка со своими копиями панорам, исходная не меняется', async () => {
+    const c = await newUser();
+    const { v, pano } = await venueWithPanorama(c);
+    const dup = await c.req('POST', `/api/venues/${v.id}/duplicate`);
+    expect(dup.statusCode).toBe(201);
+    const copy = dup.json().venue;
+    expect(copy.id).not.toBe(v.id);
+    expect(copy.name).toBe('Склад «Восток» (копия)');
+    expect(copy.publishedVersion).toBeNull();
+    const copyDraft = (await c.req('GET', `/api/venues/${copy.id}/draft`)).json();
+    expect(copyDraft.doc.venue.id).toBe(copy.id);
+    const copyPano = copyDraft.doc.panoramas[0].pano;
+    expect(copyPano).not.toBe(pano.id);
+    expect((await c.req('GET', `/files/panoramas/${copyPano}/preview.jpg`)).statusCode).toBe(200);
+    expect((await c.req('GET', `/api/venues/${v.id}/draft`)).json().doc.panoramas[0].pano).toBe(pano.id);
+  });
+
+  it('снять с публикации: ссылка перестаёт открываться, повторная публикация — следующая версия', async () => {
+    const c = await newUser();
+    const v = await newVenue(c);
+    expect((await c.req('POST', `/api/venues/${v.id}/publish`)).json().version).toBe(1);
+    expect((await new Client().req('GET', `/p/${v.slug}/latest.json`)).statusCode).toBe(200);
+    const off = await c.req('POST', `/api/venues/${v.id}/unpublish`);
+    expect(off.json().venue.publishedVersion).toBeNull();
+    expect((await new Client().req('GET', `/p/${v.slug}/latest.json`)).statusCode).toBe(404);
+    expect((await c.req('POST', `/api/venues/${v.id}/publish`)).json().version).toBe(2);
+  });
+
+  it('удаление убирает и файлы панорам', async () => {
+    const c = await newUser();
+    const { v, pano } = await venueWithPanorama(c);
+    const panoDir = join(storageDir, 'panoramas', pano.id);
+    expect(await stat(panoDir).then(() => true, () => false)).toBe(true);
+    expect((await c.req('DELETE', `/api/venues/${v.id}`, { confirmName: 'не то' })).statusCode).toBe(422);
+    expect((await c.req('DELETE', `/api/venues/${v.id}`, { confirmName: 'Склад «Восток»' })).statusCode).toBe(200);
+    expect(await stat(panoDir).then(() => true, () => false)).toBe(false);
+    expect((await c.req('GET', `/api/venues/${v.id}`)).statusCode).toBe(404);
   });
 });

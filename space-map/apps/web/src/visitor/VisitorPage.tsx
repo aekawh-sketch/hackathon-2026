@@ -3,6 +3,7 @@ import {
   azimuth,
   NavGraph,
   nearestVisibleNode,
+  panoramaForPlace,
   normalize180,
   routeDirectionInPanorama,
   routeInPanorama,
@@ -149,13 +150,6 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
 
   // ── Панорамы ──
   const panoById = useMemo(() => new Map(doc.panoramas.map((p) => [p.id, p])), [doc]);
-  const panoramaForPlace = (place: Place): PanoramaPlacement | undefined => {
-    const withMarker = doc.panoramas
-      .filter((pa) => pa.markers.some((m) => m.place === place.id && m.status === 'accepted'))
-      .sort((a, b) => dist(a.pos, place.pos) - dist(b.pos, place.pos));
-    return withMarker[0] ?? doc.panoramas.find((pa) => pa.node === place.node);
-  };
-
   const openPanorama = (id: string, yaw?: number) => {
     setPanoPlace(null);
     setPano({ ids: [id], index: 0, tour: false, yaw: yaw ?? 0 });
@@ -448,20 +442,16 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
     );
   } else if (selectedPlace) {
     const cat = categories.get(selectedPlace.category);
+    const placePano = panoramaForPlace(doc, selectedPlace);
     content = (
       <PlaceCard
         place={selectedPlace}
         category={cat}
         room={roomOf(selectedPlace)}
-        hasPanorama={!!panoramaForPlace(selectedPlace)}
+        previewUrl={placePano ? panoramaUrls(placePano.panorama).preview : null}
         onRouteHere={() => routeHere(selectedPlace.id)}
         onRouteFrom={() => routeFromHere(selectedPlace.id)}
-        onPanorama={() => {
-          const pa = panoramaForPlace(selectedPlace);
-          if (!pa) return;
-          const marker = pa.markers.find((m) => m.place === selectedPlace.id);
-          openPanorama(pa.id, marker?.yaw);
-        }}
+        onPanorama={() => placePano && openPanorama(placePano.panorama.id, placePano.yaw ?? undefined)}
         onClose={() => {
           setSelected(null);
           setSheetMode('peek');
@@ -681,7 +671,8 @@ function PlaceCard(props: {
   place: Place;
   category: Category | undefined;
   room: string | null;
-  hasPanorama: boolean;
+  /** Превью панорамы, где видно место; null — панорамы рядом нет. */
+  previewUrl: string | null;
   onRouteHere: () => void;
   onRouteFrom: () => void;
   onPanorama: () => void;
@@ -704,6 +695,14 @@ function PlaceCard(props: {
           <Icon name="close" />
         </button>
       </header>
+      {props.previewUrl && (
+        <button type="button" className="pano-preview" onClick={props.onPanorama} aria-label={`Открыть панораму: ${place.name}`}>
+          <img src={props.previewUrl} alt="" loading="lazy" decoding="async" />
+          <span className="pano-preview-label">
+            <Icon name="pano" size={17} /> Открыть панораму
+          </span>
+        </button>
+      )}
       {place.description && <p className="place-desc">{place.description}</p>}
       {place.hours && <p className="hint">Часы работы: {place.hours}</p>}
       <div className="action-grid">
@@ -715,10 +714,10 @@ function PlaceCard(props: {
           <Icon name="from" size={18} />
           Отсюда
         </button>
-        {props.hasPanorama && (
+        {props.previewUrl && (
           <button type="button" className="btn btn-secondary" onClick={props.onPanorama}>
             <Icon name="pano" size={18} />
-            Панорама
+            Открыть панораму
           </button>
         )}
       </div>

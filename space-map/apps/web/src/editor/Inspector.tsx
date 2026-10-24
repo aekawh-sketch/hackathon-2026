@@ -1,5 +1,6 @@
 // Свойства выбранного: помещение, место, дверь или точка съёмки. Без выбора — сводка по площадке.
 import {
+  panoramaForPlace,
   activeCapturePoints,
   captureMinutes,
   pendingCapturePoints,
@@ -40,11 +41,13 @@ import {
   type MapDocument,
   type Opening,
   type Place,
+  type PlacePanorama,
   type Unit,
   type UnitKind,
 } from '@space-map/map-core';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
+import { panoramaUrls } from '../api.ts';
 import { APP_APK_URL, isAndroid } from '../capture/native.ts';
 import { UNIT_FILL } from '../plan/style.ts';
 import { CategoryBadge, Icon } from '../ui/icons.tsx';
@@ -73,7 +76,8 @@ export interface InspectorProps {
   /** Снять фотосферу встроенной съёмкой приложения; нет — не в приложении или демо без сервера. */
   onShootPanorama?: (pointId: string) => void;
   /** Открыть панораму на весь экран — проверить, как она снята и повёрнута. */
-  onOpenPanorama: (panoId: string) => void;
+  /** Открыть панораму; yaw — куда смотреть (у места — на само место). */
+  onOpenPanorama: (panoId: string, yaw?: number) => void;
 }
 
 export function Inspector(props: InspectorProps) {
@@ -254,6 +258,14 @@ function ShotPanel({ doc, point, shotLabels, onSelect, onCommit, onToast, onOpen
         title={label ? `№ ${label} · ${room}` : room}
         onClose={() => onSelect(null)}
       />
+      {pano && (
+        <button type="button" className="pano-preview" onClick={() => onOpenPanorama(pano.id)} aria-label="Открыть панораму">
+          <img src={panoramaUrls(pano).preview} alt="" loading="lazy" decoding="async" />
+          <span className="pano-preview-label">
+            <Icon name="pano" size={17} /> Открыть панораму
+          </span>
+        </button>
+      )}
       <Section>
         <p className="insp-note">
           {pano
@@ -491,8 +503,16 @@ function UnitPanel({ doc, unit, onSelect, onCommit, onToast }: InspectorProps & 
 
 // ── Место ──
 
-function PlacePanel({ doc, place, onSelect, onCommit, onToast }: InspectorProps & { place: Place }) {
+const PLACE_PANO_REASON: Record<PlacePanorama['reason'], string> = {
+  marker: 'Место отмечено в этой панораме.',
+  node: 'Панорама снята у самого места.',
+  room: 'Ближайшая панорама в этом помещении.',
+  visible: 'Место видно из этой панорамы.',
+};
+
+function PlacePanel({ doc, place, onSelect, onCommit, onToast, onOpenPanorama }: InspectorProps & { place: Place }) {
   const cat = doc.categories.find((c) => c.id === place.category);
+  const placePano = panoramaForPlace(doc, place);
   const patch = (p: Parameters<typeof updatePlace>[2]) => onCommit(updatePlace(doc, place.id, p), { kind: 'place', id: place.id });
   return (
     <div className="insp">
@@ -516,6 +536,26 @@ function PlacePanel({ doc, place, onSelect, onCommit, onToast }: InspectorProps 
         <TextField label="Описание" multiline value={place.description} onCommit={(description) => patch({ description })} />
         <Toggle label="Скрыть от посетителей" checked={place.hidden} onChange={(hidden) => patch({ hidden })} />
         <p className="insp-note">Чтобы передвинуть место, перетащите его значок на плане.</p>
+      </Section>
+      <Section title="Панорама">
+        {placePano ? (
+          <>
+            <button
+              type="button"
+              className="pano-preview"
+              onClick={() => onOpenPanorama(placePano.panorama.id, placePano.yaw ?? undefined)}
+              aria-label={`Открыть панораму: ${place.name}`}
+            >
+              <img src={panoramaUrls(placePano.panorama).preview} alt="" loading="lazy" decoding="async" />
+              <span className="pano-preview-label">
+                <Icon name="pano" size={17} /> Открыть панораму
+              </span>
+            </button>
+            <p className="insp-note">{PLACE_PANO_REASON[placePano.reason]} Посетитель увидит эту панораму в карточке места.</p>
+          </>
+        ) : (
+          <p className="insp-note">Рядом с местом панорамы пока нет. Снимите фотосферу в ближайшей точке съёмки — она появится здесь и в карточке у посетителей.</p>
+        )}
       </Section>
       <div className="insp-actions">
         <button

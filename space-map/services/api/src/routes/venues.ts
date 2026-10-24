@@ -1,14 +1,15 @@
 import { Type } from '@sinclair/typebox';
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
-import { validateReferences } from '@space-map/map-core';
-import { and, desc, eq } from 'drizzle-orm';
+import { planOutline, validateReferences, type MapDocument } from '@space-map/map-core';
+import { and, desc, eq, inArray } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import type { AppDeps } from '../app.ts';
 import { requireUser } from '../auth.ts';
-import { mapDrafts, mapVersions, users, venues } from '../db/schema.ts';
+import { captures, mapDrafts, mapVersions, panoramas, users, venues } from '../db/schema.ts';
 import { ApiError } from '../errors.ts';
 import { MapDocumentSchema } from '../mapSchema.ts';
 import { emptyVenueDoc, isValidSlug, slugify, slugWithSuffix } from '../venueTemplate.ts';
-import { ownedVenue, publish, type Venue } from '../venues.ts';
+import { isUuid, ownedVenue, publish, type Venue } from '../venues.ts';
 
 const VenueId = Type.Object({ id: Type.String() });
 
@@ -26,12 +27,30 @@ function venueView(v: Venue) {
 }
 
 export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db, storage, config }) => {
+  // Список для «Мои площадки»: счётчики, миниатюра плана, обложка-панорама, кто создал и когда правили.
   app.get('/', async (req) => {
     const user = requireUser(req);
     // Общий доступ (стенд команды) — все площадки, иначе только свои.
-    const query = db.select().from(venues);
+    const query = db
+      .select({ venue: venues, doc: mapDrafts.doc, draftAt: mapDrafts.updatedAt, ownerName: users.name })
+      .from(venues)
+      .leftJoin(mapDrafts, eq(mapDrafts.venueId, venues.id))
+      .leftJoin(users, eq(users.id, venues.ownerId));
     const rows = await (config.openAccess ? query : query.where(eq(venues.ownerId, user.id))).orderBy(desc(venues.updatedAt));
-    return { venues: rows.map(venueView), openAccess: config.openAccess };
+    const list = rows.map(({ venue, doc, draftAt, ownerName }) => {
+      const editedAt = draftAt && draftAt > venue.updatedAt ? draftAt : venue.updatedAt;
+      return {
+        ...venueView(venue),
+        editedAt,
+        isOwner: venue.ownerId === user.id,
+        ownerName: venue.ownerId === user.id ? null : (ownerName ?? null),
+        stats: doc ? { units: doc.units.length, places: doc.places.length, panoramas: doc.panoramas.length } : { units: 0, places: 0, panoramas: 0 },
+        thumb: doc ? planOutline(doc) : null,
+        coverPano: doc?.panoramas[0]?.pano ?? null,
+      };
+    });
+    list.sort((a, b) => b.editedAt.getTime() - a.editedAt.getTime());
+    return { venues: list, openAccess: config.openAccess };
   });
 
   app.post(
@@ -98,12 +117,62 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
     async (req) => {
       const user = requireUser(req);
       const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
+      // Даже при общем доступе удалить может только создатель: правка обратима, удаление — нет.
+      if (venue.ownerId !== user.id) throw new ApiError(403, 'not_owner', 'Удалить площадку может только её создатель');
       if (req.body.confirmName.trim() !== venue.name) throw new ApiError(422, 'confirm_mismatch', 'Введите точное название площадки');
+      const panoIds = (await db.select({ id: panoramas.id }).from(panoramas).where(eq(panoramas.venueId, venue.id))).map((r) => r.id);
+      const captureIds = (await db.select({ id: captures.id }).from(captures).where(eq(captures.venueId, venue.id))).map((r) => r.id);
       await db.delete(venues).where(eq(venues.id, venue.id));
+      // Файлы — после удаления строк: если что-то не сотрётся, в базе на них уже никто не ссылается.
       await storage.delete(`versions/${venue.id}`);
+      for (const id of panoIds) await storage.delete(`panoramas/${id}`);
+      for (const id of captureIds) await storage.delete(`captures/${id}`);
       return { ok: true };
     },
   );
+
+  // Копия площадки с планом, местами и своими копиями панорам. Не опубликована, создатель — тот, кто копирует.
+  app.post('/:id/duplicate', { schema: { params: VenueId } }, async (req, reply) => {
+    const user = requireUser(req);
+    const source = await ownedVenue(db, req.params.id, user.id, config.openAccess);
+    const [draft] = await db.select({ doc: mapDrafts.doc }).from(mapDrafts).where(eq(mapDrafts.venueId, source.id)).limit(1);
+    if (!draft) throw new ApiError(404, 'not_found', 'Черновик площадки не найден');
+    const name = `${source.name} (копия)`.slice(0, 120);
+
+    // Панорамы этой площадки копируются файлами под новыми ID, иначе копия зависела бы от исходной.
+    // Встроенные демо-панорамы (demo-…) общие — их не трогаем.
+    const ids = [...new Set(draft.doc.panoramas.map((p) => p.pano))].filter(isUuid);
+    const own = ids.length
+      ? await db.select().from(panoramas).where(and(eq(panoramas.venueId, source.id), inArray(panoramas.id, ids), eq(panoramas.status, 'ready')))
+      : [];
+    const mapping = new Map(own.map((p) => [p.id, randomUUID()]));
+    for (const [from, to] of mapping) {
+      for (const file of ['pano.jpg', 'preview.jpg']) await storage.copy(`panoramas/${from}/${file}`, `panoramas/${to}/${file}`);
+    }
+
+    const venue = await db.transaction(async (tx) => {
+      const [created] = await tx.insert(venues).values({ ownerId: user.id, name, slug: slugWithSuffix(slugify(source.name)) }).returning();
+      if (own.length) {
+        await tx.insert(panoramas).values(
+          own.map((p) => ({ id: mapping.get(p.id)!, venueId: created!.id, source: p.source, status: 'ready' as const, width: p.width, height: p.height, createdBy: user.id })),
+        );
+      }
+      const doc: MapDocument = structuredClone(draft.doc);
+      doc.venue = { ...doc.venue, id: created!.id, name };
+      doc.panoramas = doc.panoramas.map((p) => (mapping.has(p.pano) ? { ...p, pano: mapping.get(p.pano)! } : p));
+      await tx.insert(mapDrafts).values({ venueId: created!.id, doc, updatedBy: user.id });
+      return created!;
+    });
+    return reply.status(201).send({ venue: venueView(venue) });
+  });
+
+  // Снять с публикации: посетители по ссылке больше не открывают карту, черновик и история версий остаются.
+  app.post('/:id/unpublish', { schema: { params: VenueId } }, async (req) => {
+    const user = requireUser(req);
+    const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
+    const [updated] = await db.update(venues).set({ publishedVersion: null, updatedAt: new Date() }).where(eq(venues.id, venue.id)).returning();
+    return { venue: venueView(updated!) };
+  });
 
   // ── Черновик карты ──
 

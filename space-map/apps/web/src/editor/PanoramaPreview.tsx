@@ -13,8 +13,8 @@ const PanoramaViewer = lazy(() => import('../panorama/PanoramaViewer.tsx'));
 
 type Orient = null | { step: 'tap' } | { step: 'pick'; yaw: number; pitch: number };
 
-export function PanoramaPreview({ doc, panoId, onCommit, onClose }: { doc: MapDocument; panoId: string; onCommit: (doc: MapDocument) => void; onClose: () => void }) {
-  const [current, setCurrent] = useState({ id: panoId, yaw: 0 });
+export function PanoramaPreview({ doc, panoId, initialYaw = 0, onCommit, onClose }: { doc: MapDocument; panoId: string; initialYaw?: number; onCommit: (doc: MapDocument) => void; onClose: () => void }) {
+  const [current, setCurrent] = useState({ id: panoId, yaw: initialYaw });
   const [orient, setOrient] = useState<Orient>(null);
   const pano = doc.panoramas.find((p) => p.id === current.id);
   const room = pano ? unitAt(doc, pano.level, pano.pos)?.name : undefined;
