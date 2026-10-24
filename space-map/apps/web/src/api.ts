@@ -45,6 +45,20 @@ export function builtInDemo(): MapDocument {
   return doc;
 }
 
+/** Карта в каталоге «Все карты»: опубликованная и открытая. */
+export interface CatalogItem {
+  slug: string;
+  name: string;
+  updatedAt: string;
+  stats: { units: number; places: number; panoramas: number };
+  thumb: PlanOutline | null;
+  coverPano: string | null;
+}
+
+export async function loadCatalog(): Promise<CatalogItem[]> {
+  return (await getJson<{ venues: CatalogItem[] }>('/p/index.json')).venues;
+}
+
 export function panoramaUrls(p: PanoramaPlacement): { image: string; preview: string } {
   if (p.pano.startsWith('demo-')) {
     const base = `${import.meta.env.BASE_URL}demo/panoramas/${p.pano}`;

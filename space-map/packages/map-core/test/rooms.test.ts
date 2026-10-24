@@ -2,6 +2,7 @@ import { businessCentreFixture } from './fixtures/businessCentre.ts';
 import { describe, expect, it } from 'vitest';
 import {
   addHole,
+  addWall,
   addPlace,
   buildModel3D,
   deleteHole,
@@ -182,5 +183,52 @@ describe('вход с улицы', () => {
     expect(mid[1]).toBeCloseTo(0);
     expect(distance(o.segment[0], o.segment[1])).toBeCloseTo(0.9);
     expect(validateReferences(r.doc)).toEqual([]);
+  });
+});
+
+describe('стена линией', () => {
+  const hall = () => single({ polygon: rectPolygon([0, 0], [10, 6]) });
+
+  it('от стены до стены — две комнаты, прохода между ними нет', () => {
+    const r = addWall(hall(), L, [5, 0.2], [5, 5.8]);
+    if (!r.ok) throw new Error(r.message);
+    expect(r.kind).toBe('split');
+    expect(r.doc.units).toHaveLength(2);
+    const { doc, a, b } = withTwoPlaces(r.doc, [2, 3], [8, 3]);
+    expect(route(doc, a, b).ok).toBe(false);
+  });
+
+  it('отдельно стоящая — перегородка: сквозь неё не видно, маршрут обходит', () => {
+    const r = addWall(hall(), L, [5, 1.5], [5, 4.5]);
+    if (!r.ok) throw new Error(r.message);
+    expect(r.kind).toBe('partition');
+    expect(hasLineOfSight(r.doc, L, [3, 3], [7, 3])).toBe(false);
+    const { doc, a, b } = withTwoPlaces(r.doc, [3, 3], [7, 3]);
+    const path = route(doc, a, b);
+    expect(path.ok).toBe(true);
+    if (path.ok) expect(path.length).toBeGreaterThan(4.5);
+  });
+
+  it('от стены внутрь — стена в контуре: щели у стены нет, маршрут обходит свободный конец', () => {
+    const r = addWall(hall(), L, [5, 0.1], [5, 4]);
+    if (!r.ok) throw new Error(r.message);
+    expect(r.kind).toBe('notch');
+    const unit = r.doc.units[0]!;
+    expect(unit.polygon).toHaveLength(8);
+    expect(validateReferences(r.doc)).toEqual([]);
+    // Вдоль пола у самой стены — тоже закрыто: стена прижата к стене помещения.
+    expect(hasLineOfSight(r.doc, L, [3, 0.3], [7, 0.3])).toBe(false);
+    expect(hasLineOfSight(r.doc, L, [3, 5], [7, 5])).toBe(true);
+    const { doc, a, b } = withTwoPlaces(r.doc, [3, 1], [7, 1]);
+    const path = route(doc, a, b);
+    expect(path.ok).toBe(true);
+    if (path.ok) expect(path.length).toBeGreaterThan(6);
+  });
+
+  it('стена вдоль стены и в дверь — отказ с понятной причиной', () => {
+    expect(addWall(hall(), L, [1, 0.1], [6, 0.6])).toMatchObject({ ok: false });
+    const withDoor = { ...hall(), openings: [{ id: 'd', level: L, kind: 'entrance' as const, segment: [[4.5, 0], [5.5, 0]] as [Vec2, Vec2], units: ['r'] as [string] }] };
+    expect(addWall(withDoor, L, [5, 0.1], [5, 4])).toMatchObject({ ok: false, message: 'Стена упирается в дверь — сдвиньте стену или дверь' });
+    expect(addWall(hall(), L, [3, 3], [3.1, 3])).toMatchObject({ ok: false, message: 'Стена слишком короткая' });
   });
 });

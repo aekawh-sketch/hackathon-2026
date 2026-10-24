@@ -306,3 +306,21 @@ describe('фотосфера из карточки места', () => {
     expect(validateReferences(r.doc)).toEqual([]);
   });
 });
+
+describe('название точки съёмки', () => {
+  it('переживает пересчёт плана, рассчитанная с названием становится своей, пустое — убирает', async () => {
+    const { demoVenue, refreshCapturePoints, renameCapturePoint, panoramaPointName, updatePlace } = await import('../src/index.ts');
+    const doc = refreshCapturePoints(demoVenue());
+    const auto = doc.capturePoints!.find((p) => p.origin === 'auto' && p.panorama === null) ?? doc.capturePoints![0]!;
+    const named = renameCapturePoint(doc, auto.id, '  Вход в зал  ');
+    const point = named.capturePoints!.find((p) => p.id === auto.id)!;
+    expect(point.name).toBe('Вход в зал');
+    expect(point.origin).not.toBe('auto');
+    // Каждая правка в редакторе пересчитывает точки — название остаётся.
+    const after = refreshCapturePoints(updatePlace(named, named.places[0]!.id, { name: 'Другое имя' }));
+    expect(after.capturePoints!.find((p) => p.id === auto.id)?.name).toBe('Вход в зал');
+    const shot = doc.capturePoints!.find((p) => p.panorama !== null)!;
+    expect(panoramaPointName(renameCapturePoint(doc, shot.id, 'У сцены'), shot.panorama!)).toBe('У сцены');
+    expect(renameCapturePoint(named, auto.id, '   ').capturePoints!.find((p) => p.id === auto.id)?.name).toBeUndefined();
+  });
+});

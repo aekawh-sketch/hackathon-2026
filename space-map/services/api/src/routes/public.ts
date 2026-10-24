@@ -1,7 +1,8 @@
 // Публичная часть для посетителя (ТЗ 5.11, 6.3): только опубликованные карты; закрытые — только владельцу.
 import { Type } from '@sinclair/typebox';
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
-import { and, eq } from 'drizzle-orm';
+import { planOutline, type MapDocument } from '@space-map/map-core';
+import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { AppDeps } from '../app.ts';
 import { panoramas, venues } from '../db/schema.ts';
@@ -19,6 +20,33 @@ function canView(venue: Venue, req: FastifyRequest, openAccess: boolean): boolea
 
 export const publicRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db, storage, config }) => {
   const venueBySlug = async (slug: string) => (await db.select().from(venues).where(eq(venues.slug, slug)).limit(1))[0];
+
+  // Каталог «Все карты» для посетителя: только опубликованные открытые карты — то, что и так открывается по ссылке.
+  // Счётчики, миниатюра плана и обложка — из опубликованной версии, а не из черновика.
+  app.get('/p/index.json', async (_req, reply) => {
+    const rows = await db
+      .select()
+      .from(venues)
+      .where(and(isNotNull(venues.publishedVersion), eq(venues.visibility, 'public')))
+      .orderBy(desc(venues.updatedAt))
+      .limit(200);
+    const list = [];
+    for (const venue of rows) {
+      const file = await storage.read(versionKey(venue.id, venue.publishedVersion!));
+      if (!file) continue;
+      const doc = JSON.parse(await streamText(file.stream)) as MapDocument;
+      list.push({
+        slug: venue.slug,
+        name: doc.venue.name || venue.name,
+        updatedAt: venue.updatedAt,
+        stats: { units: doc.units.length, places: doc.places.filter((p) => !p.hidden).length, panoramas: doc.panoramas.length },
+        thumb: planOutline(doc),
+        coverPano: doc.panoramas[0]?.pano ?? null,
+      });
+    }
+    reply.header('cache-control', 'public, max-age=30');
+    return { venues: list };
+  });
 
   app.get('/p/:slug/latest.json', { schema: { params: Type.Object({ slug: Type.String({ maxLength: 48 }) }) } }, async (req, reply) => {
     const venue = await venueBySlug(req.params.slug);
@@ -62,6 +90,12 @@ export const publicRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db
     },
   );
 };
+
+async function streamText(stream: NodeJS.ReadableStream): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : (chunk as Buffer));
+  return Buffer.concat(chunks).toString('utf8');
+}
 
 function sendFile(reply: FastifyReply, file: { stream: NodeJS.ReadableStream; size: number }, type: string, cache: string) {
   return reply.header('content-type', type).header('content-length', file.size).header('cache-control', cache).send(file.stream);

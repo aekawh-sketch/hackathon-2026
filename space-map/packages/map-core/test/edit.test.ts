@@ -194,3 +194,19 @@ describe('удаление и копия', () => {
     expect(door.segment[0][0]).toBeCloseTo(18);
   });
 });
+
+describe('свои категории', () => {
+  it('добавить, переименовать, поставить месту; занятую не удалить, свободную — удалить', async () => {
+    const { addCategory, updateCategory, deleteCategory, updatePlace, validateReferences, demoVenue } = await import('../src/index.ts');
+    const base = demoVenue();
+    const { doc, id } = addCategory(base, { name: '  Фудкорт ', icon: 'coffee', color: '#E07A1F' });
+    expect(doc.categories.find((c) => c.id === id)).toMatchObject({ name: 'Фудкорт', icon: 'coffee', color: '#E07A1F' });
+    expect(addCategory(doc, { name: 'Ещё', icon: 'pin', color: '#123456' }).id).not.toBe(id);
+    const renamed = updateCategory(doc, id, { name: 'Фуд-корт', color: '#AA3300' });
+    expect(renamed.categories.find((c) => c.id === id)).toMatchObject({ name: 'Фуд-корт', color: '#AA3300' });
+    const used = updatePlace(renamed, renamed.places[0]!.id, { category: id });
+    expect(validateReferences(used)).toEqual([]);
+    expect(deleteCategory(used, id)).toBe(used);
+    expect(deleteCategory(renamed, id).categories.some((c) => c.id === id)).toBe(false);
+  });
+});

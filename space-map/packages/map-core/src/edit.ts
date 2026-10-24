@@ -2,7 +2,7 @@
 // Все функции чистые: принимают документ и возвращают новый — так работают «Отменить / Повторить».
 import { acceptSuggestions, pinnedMarkers } from './panorama.ts';
 import { distance, hasLineOfSight, pointInPolygon, pointInUnit, pointSegmentDistance, polygonArea, polygonEdges, segmentIntersection, signedArea, unitAt, unitRings } from './geometry.ts';
-import type { MapDocument, NavEdge, NavNode, Opening, Place, Unit, UnitKind, Vec2 } from './types.ts';
+import type { Category, MapDocument, NavEdge, NavNode, Opening, Place, Unit, UnitKind, Vec2 } from './types.ts';
 
 /** Шаг сетки редактора, метры. */
 export const GRID = 0.5;
@@ -441,6 +441,29 @@ export function movePlace(doc: MapDocument, id: string, pos: Vec2): MapDocument 
 
 export function updatePlace(doc: MapDocument, id: string, patch: Partial<Pick<Place, 'name' | 'category' | 'description' | 'number' | 'hours' | 'hidden'>>): MapDocument {
   return { ...doc, places: doc.places.map((p) => (p.id === id ? { ...p, ...patch } : p)) };
+}
+
+// ── Категории мест и зон ──
+
+/** Своя категория организатора: название, значок и цвет. ID — свободный `cat-N`. */
+export function addCategory(doc: MapDocument, category: { name: string; icon: string; color: string }): { doc: MapDocument; id: string } {
+  const used = new Set(doc.categories.map((c) => c.id));
+  let n = 1;
+  while (used.has(`cat-${n}`)) n++;
+  const id = `cat-${n}`;
+  const name = category.name.trim().slice(0, 120) || 'Новая категория';
+  return { doc: { ...doc, categories: [...doc.categories, { id, name, icon: category.icon, color: category.color, synonyms: [] }] }, id };
+}
+
+export function updateCategory(doc: MapDocument, id: string, patch: Partial<Pick<Category, 'name' | 'icon' | 'color'>>): MapDocument {
+  const clean = patch.name !== undefined ? { ...patch, name: patch.name.trim().slice(0, 120) || 'Без названия' } : patch;
+  return { ...doc, categories: doc.categories.map((c) => (c.id === id ? { ...c, ...clean } : c)) };
+}
+
+/** Удалить категорию можно, только если ни одно место её не использует: места без категории не бывает. */
+export function deleteCategory(doc: MapDocument, id: string): MapDocument {
+  if (doc.places.some((p) => p.category === id)) return doc;
+  return { ...doc, categories: doc.categories.filter((c) => c.id !== id) };
 }
 
 /** Привязать к месту его панораму (снятую из карточки места) или отвязать — null. */

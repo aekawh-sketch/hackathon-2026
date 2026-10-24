@@ -203,6 +203,8 @@ export interface CapturePoint {
   origin: 'auto' | 'manual' | 'removed';
   /** Панорама, снятая в этой точке; null — ещё не снята. */
   panorama: string | null;
+  /** Название от организатора («Вход в зал», «У сцены») — чтобы не путать панорамы, связывая переходы. */
+  name?: string;
 }
 
 export interface Anchor {

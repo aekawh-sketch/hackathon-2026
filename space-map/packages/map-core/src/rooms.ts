@@ -1,6 +1,7 @@
-// Вырезы в помещении и разделение помещения на два. Двери между частями организатор ставит сам.
+// Вырезы в помещении, разделение помещения на два и стены, проведённые линией. Двери между частями
+// организатор ставит сам.
 import { reconcileOpenings, newId, polygonsOverlap, rebuildGraph } from './edit.ts';
-import { distance, pointInPolygon, pointSegmentDistance, polygonArea, polygonEdges, segmentIntersection } from './geometry.ts';
+import { distance, pointInPolygon, pointInUnit, pointSegmentDistance, polygonArea, polygonEdges, segmentIntersection } from './geometry.ts';
 import type { MapDocument, Unit, Vec2 } from './types.ts';
 
 export type RoomResult = { ok: true; doc: MapDocument; id: string; index?: number } | { ok: false; message: string };
@@ -157,6 +158,136 @@ export function splitUnit(doc: MapDocument, unitId: string, a: Vec2, b: Vec2): R
   let next: MapDocument = { ...doc, openings, units: [...doc.units.map((u) => (u.id === unit.id ? keep : u)), added] };
   next = reconcileOpenings(next);
   return { ok: true, doc: rebuildGraph(next, unit.level), id, chord: [round2v(p1), round2v(p2)] };
+}
+
+// ── Стена линией ──
+
+/** Толщина стены, проведённой линией, м — как стены в 3D. */
+export const PARTITION_THICKNESS = 0.16;
+/** Конец стены ближе этого к стене помещения прилипает к ней. */
+const WALL_SNAP = 0.35;
+
+export type WallResult =
+  | { ok: true; doc: MapDocument; unitId: string; kind: 'split' | 'partition' | 'notch'; line: [Vec2, Vec2]; addedUnit?: string }
+  | { ok: false; message: string };
+
+/**
+ * Стена по линии ab — как её провёл организатор:
+ * - от стены до стены — помещение делится на два (`splitUnit`), дверь между ними ставится отдельно;
+ * - оба конца внутри — отдельная перегородка: узкий вырез, вокруг него стены на плане и в 3D, маршрут его обходит;
+ * - один конец у стены — стена, отходящая от стены: узкий вырез в контуре помещения (иначе вырез касался бы стены,
+ *   и между ними оставалась бы щель, через которую прошёл бы маршрут).
+ */
+export function addWall(doc: MapDocument, level: string, a: Vec2, b: Vec2): WallResult {
+  if (distance(a, b) < 0.3) return { ok: false, message: 'Стена слишком короткая' };
+  const mid: Vec2 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  // Самое маленькое помещение под серединой линии: комната внутри зала раньше зала.
+  const unit = doc.units
+    .filter((u) => u.level === level && pointInUnit(mid, u))
+    .sort((x, y) => polygonArea(x.polygon) - polygonArea(y.polygon))[0];
+  if (!unit) return { ok: false, message: holeAt(doc, level, mid) ? 'Здесь уже стена или вырез' : 'Проведите стену внутри помещения' };
+  const stuck = (p: Vec2) => !pointInPolygon(p, unit.polygon) || polygonEdges(unit.polygon).some(([c, d]) => pointSegmentDistance(p, c, d) < WALL_SNAP);
+  const aStuck = stuck(a);
+  const bStuck = stuck(b);
+
+  if (aStuck && bStuck) {
+    const r = splitUnit(doc, unit.id, a, b);
+    if (!r.ok) return { ok: false, message: r.message === 'Проведите линию поперёк комнаты — от стены до стены' ? 'Стена должна идти от стены до стены одной линией' : r.message };
+    return { ok: true, doc: r.doc, unitId: unit.id, kind: 'split', line: r.chord!, addedUnit: r.id };
+  }
+
+  if (!aStuck && !bStuck) {
+    const r = addHole(doc, unit.id, partitionRect(a, b));
+    if (!r.ok) return { ok: false, message: r.message.replace('Вырез', 'Стена').replace('вырез', 'стену').replace('Вырезы', 'Стены') };
+    return { ok: true, doc: r.doc, unitId: unit.id, kind: 'partition', line: [round2v(a), round2v(b)] };
+  }
+
+  return addNotch(doc, unit, aStuck ? b : a, aStuck ? a : b);
+}
+
+/** Прямоугольник толщиной в стену вдоль отрезка ab. */
+function partitionRect(a: Vec2, b: Vec2): Vec2[] {
+  const len = distance(a, b);
+  const t = PARTITION_THICKNESS / 2;
+  const n: Vec2 = [(-(b[1] - a[1]) / len) * t, ((b[0] - a[0]) / len) * t];
+  return [
+    [a[0] + n[0], a[1] + n[1]],
+    [b[0] + n[0], b[1] + n[1]],
+    [b[0] - n[0], b[1] - n[1]],
+    [a[0] - n[0], a[1] - n[1]],
+  ];
+}
+
+/** Стена от стены помещения внутрь: от `free` в сторону `toward` до первой стены — узкий вырез в контуре. */
+function addNotch(doc: MapDocument, unit: Unit, free: Vec2, toward: Vec2): WallResult {
+  const ring = unit.polygon;
+  const len = distance(free, toward);
+  const u: Vec2 = [(toward[0] - free[0]) / len, (toward[1] - free[1]) / len];
+  // Где луч от свободного конца упирается в стену.
+  let hit: { point: Vec2; edge: number; t: number } | null = null;
+  const far: Vec2 = [free[0] + u[0] * 1e5, free[1] + u[1] * 1e5];
+  polygonEdges(ring).forEach(([c, d], i) => {
+    const p = segmentIntersection(free, far, c, d);
+    if (!p) return;
+    const t = distance(free, p);
+    if (!hit || t < hit.t) hit = { point: p, edge: i, t };
+  });
+  const h = hit as { point: Vec2; edge: number; t: number } | null;
+  if (!h) return { ok: false, message: 'Проведите стену от стены внутрь помещения' };
+  const H = h.point;
+  const P = ring[h.edge]!;
+  const Q = ring[(h.edge + 1) % ring.length]!;
+  const eLen = distance(P, Q);
+  const e: Vec2 = [(Q[0] - P[0]) / eLen, (Q[1] - P[1]) / eLen];
+  const d: Vec2 = [-u[0], -u[1]]; // от стены внутрь
+  if (Math.abs(d[0] * e[0] + d[1] * e[1]) > Math.cos((25 * Math.PI) / 180)) return { ok: false, message: 'Стена почти вдоль стены — проведите её поперёк' };
+  const t = PARTITION_THICKNESS / 2;
+  const n: Vec2 = [-d[1] * t, d[0] * t];
+  // Боковые стороны стены до линии стены помещения: где они в неё упираются.
+  const onEdge = (o: Vec2): Vec2 | null => {
+    const back: Vec2 = [o[0] - d[0] * 50, o[1] - d[1] * 50];
+    const fwd: Vec2 = [o[0] + d[0] * 50, o[1] + d[1] * 50];
+    return segmentIntersection(back, fwd, P, Q);
+  };
+  const Ep = onEdge([H[0] + n[0], H[1] + n[1]]);
+  const Em = onEdge([H[0] - n[0], H[1] - n[1]]);
+  if (!Ep || !Em) return { ok: false, message: 'Слишком близко к углу — отведите стену от угла' };
+  const Fp: Vec2 = [free[0] + n[0], free[1] + n[1]];
+  const Fm: Vec2 = [free[0] - n[0], free[1] - n[1]];
+  const proj = (p: Vec2) => (p[0] - P[0]) * e[0] + (p[1] - P[1]) * e[1];
+  const [E1, F1, F2, E2] = proj(Ep) <= proj(Em) ? [Ep, Fp, Fm, Em] : [Em, Fm, Fp, Ep];
+  if (proj(E1) < 0.05 || proj(E2) > eLen - 0.05) return { ok: false, message: 'Слишком близко к углу — отведите стену от угла' };
+
+  const notch: [Vec2, Vec2][] = [
+    [E1, F1],
+    [F1, F2],
+    [F2, E2],
+  ];
+  const others = polygonEdges(ring).filter((_, i) => i !== h.edge);
+  const crosses = (edges: [Vec2, Vec2][]) => notch.some(([x, y]) => edges.some(([c, dd]) => segmentIntersection(x, y, c, dd)));
+  if (crosses(others)) return { ok: false, message: 'Стена пересекает другую стену' };
+  if ((unit.holes ?? []).some((hole) => crosses(polygonEdges(hole)))) return { ok: false, message: 'Стена проходит через вырез' };
+  const children = doc.units.filter((x) => x.parent === unit.id);
+  if (children.some((c) => crosses(polygonEdges(c.polygon)) || pointInPolygon(free, c.polygon))) return { ok: false, message: 'Стена проходит через комнату внутри' };
+  const body = [E1, F1, F2, E2];
+  const covers = (p: Vec2) => pointInPolygon(p, body);
+  if (doc.places.some((p) => p.level === unit.level && covers(p.pos)) || doc.panoramas.some((p) => p.level === unit.level && covers(p.pos))) {
+    return { ok: false, message: 'На месте стены стоит место или панорама — сначала перенесите их' };
+  }
+  // Дверь на этом участке стены пропала бы.
+  const lo = proj(E1) - 0.05;
+  const hi = proj(E2) + 0.05;
+  const blocksDoor = doc.openings.some((o) => {
+    if (!(o.units as readonly string[]).includes(unit.id)) return false;
+    if (pointSegmentDistance(o.segment[0], P, Q) > 0.05 || pointSegmentDistance(o.segment[1], P, Q) > 0.05) return false;
+    const [s0, s1] = [proj(o.segment[0]), proj(o.segment[1])].sort((x, y) => x - y) as [number, number];
+    return s1 > lo && s0 < hi;
+  });
+  if (blocksDoor) return { ok: false, message: 'Стена упирается в дверь — сдвиньте стену или дверь' };
+
+  const polygon = [...ring.slice(0, h.edge + 1), E1, F1, F2, E2, ...ring.slice(h.edge + 1)].map(round2v);
+  const next = reconcileOpenings({ ...doc, units: doc.units.map((x) => (x.id === unit.id ? { ...unit, polygon } : x)) });
+  return { ok: true, doc: rebuildGraph(next, unit.level), unitId: unit.id, kind: 'notch', line: [round2v(H), round2v(free)] };
 }
 
 // ── Вспомогательное ──

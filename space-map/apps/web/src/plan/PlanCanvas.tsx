@@ -4,6 +4,7 @@ import { pointInPolygon, polygonArea, type MapDocument, type Vec2 } from '@space
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
 import { Circle, Layer, Stage } from 'react-konva';
 import { Icon } from '../ui/icons.tsx';
+import { useTheme } from '../ui/theme.tsx';
 import { BasePlan, gridStyle, pinchView, PlaceArea, PlacePin, RouteLine, UnitLabels, useElementSize } from './draw.tsx';
 import { FROM, SELECTED } from './style.ts';
 import { fitBoundsInset, levelBounds, screenToWorld, worldToScreen, zoomAt, type Insets, type Viewport } from './viewport.ts';
@@ -38,6 +39,7 @@ const ZOOM_ROOM = 230;
 const FIT_ROOM = 110;
 
 export function PlanCanvas(props: PlanCanvasProps) {
+  useTheme(); // палитра плана — из темы: перерисовка при её смене
   const { doc, level, route, selectedPlace, fromPoint, toPoint, category, insets, fitKey = 0, focus } = props;
   const wrapRef = useRef<HTMLDivElement>(null);
   const size = useElementSize(wrapRef);

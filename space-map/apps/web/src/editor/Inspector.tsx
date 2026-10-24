@@ -4,6 +4,7 @@ import {
   captureMinutes,
   pendingCapturePoints,
   removeCapturePoint,
+  renameCapturePoint,
   restoreRemovedCapturePoints,
   unitAt,
   type CapturePoint,
@@ -26,6 +27,7 @@ import {
   type DoorStyle,
   type DoorType,
   deletePanorama,
+  distance,
   deletePlace,
   deleteUnit,
   duplicateUnit,
@@ -50,6 +52,8 @@ import { panoramaUrls } from '../api.ts';
 import { APP_APK_URL, isAndroid } from '../capture/native.ts';
 import { UNIT_FILL } from '../plan/style.ts';
 import { ConfirmDialog } from '../ui/ConfirmDialog.tsx';
+import { CategoryDialog } from './CategoryDialog.tsx';
+import { useTheme } from '../ui/theme.tsx';
 import { CategoryBadge, Icon } from '../ui/icons.tsx';
 import { holeRef, type Selection, type Tool } from './EditorCanvas.tsx';
 
@@ -84,6 +88,7 @@ export interface InspectorProps {
 }
 
 export function Inspector(props: InspectorProps) {
+  useTheme(); // образцы цвета помещений — из палитры темы
   const { doc, selection } = props;
   if (props.tool === 'zone') return <ZoneToolPanel {...props} />;
   if (!selection && props.tool === 'door') return <DoorPresetPanel {...props} />;
@@ -113,6 +118,29 @@ export function Inspector(props: InspectorProps) {
 }
 
 // ── Сводка ──
+
+const NEW_CATEGORY = '__new';
+
+/** Список категорий с пунктом «+ Новая категория…»: выбрали его — открывается окно, новая категория встаёт сюда же. */
+function CategorySelect({ doc, value, label, onChange, onCreated }: { doc: MapDocument; value: string; label: string; onChange: (id: string) => void; onCreated: (doc: MapDocument, id: string) => void }) {
+  const [creating, setCreating] = useState(false);
+  return (
+    <>
+      <label className="field">
+        <span>{label}</span>
+        <select value={value} onChange={(e) => (e.target.value === NEW_CATEGORY ? setCreating(true) : onChange(e.target.value))}>
+          {doc.categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+          <option value={NEW_CATEGORY}>+ Новая категория…</option>
+        </select>
+      </label>
+      {creating && <CategoryDialog doc={doc} onCommit={(next, id) => id && onCreated(next, id)} onClose={() => setCreating(false)} />}
+    </>
+  );
+}
 
 function Overview(props: InspectorProps) {
   const { doc, level, onSelect, onCommit } = props;
@@ -145,7 +173,32 @@ function Overview(props: InspectorProps) {
           ))}
         </ul>
       </Section>
+      <CategoriesSection {...props} />
     </div>
+  );
+}
+
+/** Категории мест и зон площадки: нажать — изменить, «Добавить» — своя. */
+function CategoriesSection({ doc, onCommit }: InspectorProps) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const editingCategory = editing && editing !== NEW_CATEGORY ? doc.categories.find((c) => c.id === editing) : undefined;
+  return (
+    <Section title="Категории мест">
+      <div className="category-chips">
+        {doc.categories.map((c) => (
+          <button key={c.id} type="button" className="chip category-chip" onClick={() => setEditing(c.id)}>
+            <CategoryBadge icon={c.icon} color={c.color} size={22} />
+            {c.name}
+          </button>
+        ))}
+        <button type="button" className="chip category-chip" onClick={() => setEditing(NEW_CATEGORY)}>
+          <Icon name="plus" size={16} /> Добавить
+        </button>
+      </div>
+      {editing && (
+        <CategoryDialog doc={doc} category={editingCategory} onCommit={(next) => onCommit(next)} onClose={() => setEditing(null)} />
+      )}
+    </Section>
   );
 }
 
@@ -186,20 +239,22 @@ function CapturePlan(props: InspectorProps) {
   );
 }
 
-function ZoneToolPanel({ doc, areaCategory, onAreaCategory, onExitTool }: InspectorProps) {
+function ZoneToolPanel({ doc, areaCategory, onAreaCategory, onExitTool, onCommit }: InspectorProps) {
   const category = doc.categories.find((c) => c.id === areaCategory) ?? doc.categories[0];
   return (
     <div className="insp">
       <PanelHead icon={<CategoryBadge icon={category?.icon ?? 'zone'} color={category?.color ?? '#4A5568'} size={36} />} kicker="Инструмент «Зона»" title="Новая зона" onClose={onExitTool} />
       <Section title="Категория">
-        {doc.categories.length > 0 ? (
-          <label className="field">
-            <span>Тип зоны</span>
-            <select value={category?.id ?? ''} onChange={(e) => onAreaCategory(e.target.value)}>
-              {doc.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </label>
-        ) : <p className="insp-note">Добавьте категорию места, прежде чем рисовать зоны.</p>}
+        <CategorySelect
+          doc={doc}
+          label="Тип зоны"
+          value={category?.id ?? ''}
+          onChange={onAreaCategory}
+          onCreated={(next, id) => {
+            onCommit(next);
+            onAreaCategory(id);
+          }}
+        />
       </Section>
     </div>
   );
@@ -248,9 +303,18 @@ function ShotPanel({ doc, point, shotLabels, onSelect, onCommit, onToast, onOpen
       <PanelHead
         icon={<span className="swatch lg shot"><Icon name="camera" size={18} /></span>}
         kicker={point.origin === 'auto' ? 'Точка съёмки · рассчитана' : 'Точка съёмки · своя'}
-        title={label ? `№ ${label} · ${room}` : room}
+        title={point.name ?? (label ? `№ ${label} · ${room}` : room)}
         onClose={() => onSelect(null)}
       />
+      <Section>
+        {/* Название видно в списке переходов и на стрелках в панорамах — по нему не перепутать соседние снимки. */}
+        <TextField
+          label="Название точки"
+          value={point.name ?? ''}
+          placeholder={label ? `№ ${label} · ${room}` : room}
+          onCommit={(name) => onCommit(renameCapturePoint(doc, point.id, name), { kind: 'shot', id: point.id })}
+        />
+      </Section>
       {pano && (
         <button type="button" className="pano-preview" onClick={() => onOpenPanorama(pano.id)} aria-label="Открыть панораму">
           <img src={panoramaUrls(pano).preview} alt="" loading="lazy" decoding="async" />
@@ -531,16 +595,13 @@ function PlacePanel({ doc, place, onSelect, onCommit, onToast, onOpenPanorama, o
       <PanelHead icon={<CategoryBadge icon={cat?.icon ?? ''} color={cat?.color ?? '#4A5568'} size={36} />} kicker="Место" title={place.name} onClose={() => onSelect(null)} />
       <Section>
         <TextField label="Название" value={place.name} onCommit={(name) => patch({ name })} />
-        <label className="field">
-          <span>Категория</span>
-          <select value={place.category} onChange={(e) => patch({ category: e.target.value })}>
-            {doc.categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <CategorySelect
+          doc={doc}
+          label="Категория"
+          value={place.category}
+          onChange={(category) => patch({ category })}
+          onCreated={(next, id) => onCommit(updatePlace(next, place.id, { category: id }), { kind: 'place', id: place.id })}
+        />
         <div className="field-row">
           <TextField label="Номер" value={place.number ?? ''} placeholder="—" onCommit={(v) => patch({ number: v.trim() || null })} />
           <TextField label="Часы работы" value={place.hours ?? ''} placeholder="10:00–18:00" onCommit={(v) => patch({ hours: v.trim() || null })} />
@@ -612,6 +673,9 @@ function HolePanel({ doc, unit, index, onSelect, onCommit, onToast }: InspectorP
   const hole = unit.holes![index]!;
   const b = polygonBounds(hole);
   const select = { kind: 'hole' as const, id: `${unit.id}#${index}` };
+  // Узкий вырез — это стена, проведённая инструментом «Стена» (или перегородка): так её и называем.
+  const sides = hole.length === 4 ? [distance(hole[0]!, hole[1]!), distance(hole[1]!, hole[2]!)] : [];
+  const wall = sides.length === 2 && Math.min(...sides) <= 0.2;
   const resize = (w: number, h: number) => {
     const r = setHolePolygon(doc, unit.id, index, rectPolygon([b.minX, b.minY], [b.minX + w, b.minY + h]));
     if (r.ok) onCommit(r.doc, select);
@@ -619,9 +683,15 @@ function HolePanel({ doc, unit, index, onSelect, onCommit, onToast }: InspectorP
   };
   return (
     <div className="insp">
-      <PanelHead icon={<span className="swatch lg hole-swatch"><Icon name="hole" size={18} /></span>} kicker="Вырез" title={`в «${unit.name}»`} onClose={() => onSelect({ kind: 'unit', id: unit.id })} />
+      <PanelHead
+        icon={<span className="swatch lg hole-swatch"><Icon name={wall ? 'wall' : 'hole'} size={18} /></span>}
+        kicker={wall ? 'Стена' : 'Вырез'}
+        title={`в «${unit.name}»`}
+        onClose={() => onSelect({ kind: 'unit', id: unit.id })}
+      />
       <Section title="Размер">
-        {isAxisRect(hole) && (
+        {wall && <p className="insp-meta">Длина {fmt(Math.max(...sides))} м</p>}
+        {!wall && isAxisRect(hole) && (
           <div className="field-row">
             <NumberField label="Ширина, м" value={b.maxX - b.minX} step={0.1} onCommit={(w) => resize(w, b.maxY - b.minY)} />
             <NumberField label="Глубина, м" value={b.maxY - b.minY} step={0.1} onCommit={(h) => resize(b.maxX - b.minX, h)} />
@@ -630,7 +700,7 @@ function HolePanel({ doc, unit, index, onSelect, onCommit, onToast }: InspectorP
       </Section>
       <div className="insp-actions">
         <button type="button" className="btn btn-danger" onClick={() => onCommit(deleteHole(doc, unit.id, index), { kind: 'unit', id: unit.id })}>
-          <Icon name="trash" size={18} /> Убрать вырез
+          <Icon name="trash" size={18} /> {wall ? 'Убрать стену' : 'Убрать вырез'}
         </button>
       </div>
     </div>

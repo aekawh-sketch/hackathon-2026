@@ -10,6 +10,7 @@ import {
   addLink,
   distance,
   normalize180,
+  panoramaPointName,
   pinPanoramaPoint,
   removeLink,
   removePanoramaPin,
@@ -45,6 +46,8 @@ export function PanoramaPreview({ doc, panoId, initialYaw = 0, onCommit, onClose
   const [arrows, setArrows] = useState<Arrows>(null);
   /** Нажали на точку, поставленную вручную, — её номер в pins: можно убрать. */
   const [pinMenu, setPinMenu] = useState<number | null>(null);
+  /** Список поставленных точек — убрать ошибочную, не разыскивая её в панораме. */
+  const [pinsOpen, setPinsOpen] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const pano = doc.panoramas.find((p) => p.id === current.id);
   const pins = pano?.pins ?? [];
@@ -54,11 +57,12 @@ export function PanoramaPreview({ doc, panoId, initialYaw = 0, onCommit, onClose
     const t = setTimeout(() => setNote(null), 2600);
     return () => clearTimeout(t);
   }, [note]);
-  const room = pano ? unitAt(doc, pano.level, pano.pos)?.name : undefined;
+  // Название точки съёмки (если организатор его дал) понятнее помещения: в одной комнате бывает несколько панорам.
+  const room = pano ? (panoramaPointName(doc, pano.id) ?? unitAt(doc, pano.level, pano.pos)?.name) : undefined;
   const landmarks = useMemo(() => (pano ? visibleLandmarks(doc, pano.level, pano.pos).slice(0, 8) : []), [doc, pano]);
   /** Как назвать соседнюю панораму: помещение и расстояние — в одной комнате их бывает несколько. */
   const panoName = (target: PanoramaPlacement) => {
-    const name = unitAt(doc, target.level, target.pos)?.name ?? 'Панорама';
+    const name = panoramaPointName(doc, target.id) ?? unitAt(doc, target.level, target.pos)?.name ?? 'Панорама';
     return pano ? `${name} · ${Math.round(distance(pano.pos, target.pos))} м` : name;
   };
   // Панорамы этажа, куда из этой ещё нет перехода, — ближние первыми.
@@ -106,7 +110,7 @@ export function PanoramaPreview({ doc, panoId, initialYaw = 0, onCommit, onClose
         .map((l) => {
           const target = doc.panoramas.find((p) => p.id === l.to)!;
           if (arrows) return { id: `link:${l.to}`, kind: 'link' as const, yaw: l.yaw, pitch: -22, label: `Стрелка: ${panoName(target)}${l.manual ? ' · поставлена вручную' : ''}` };
-          const name = unitAt(doc, target.level, target.pos)?.name;
+          const name = panoramaPointName(doc, target.id) ?? unitAt(doc, target.level, target.pos)?.name;
           return { id: `link:${l.to}`, kind: 'link' as const, yaw: l.yaw, pitch: -22, label: name ? `Перейти: ${name}` : 'Перейти сюда' };
         }),
     ];
@@ -146,8 +150,23 @@ export function PanoramaPreview({ doc, panoId, initialYaw = 0, onCommit, onClose
     if (!pano) return;
     onCommit(removePanoramaPin(doc, pano.id, index));
     setPinMenu(null);
+    if (pins.length <= 1) setPinsOpen(false);
     setNote('Точка убрана');
   };
+  // Поставленные точки списком, у каждой — «Убрать»: ошибочный выбор исправляется сразу.
+  const pinList = pins.length > 0 && (
+    <ul className="pin-list">
+      {pins.map((pin, i) => (
+        <li key={`${pin.yaw}:${pin.pitch}`}>
+          <Icon name={pin.kind === 'door' ? 'door' : 'pin'} size={17} />
+          <span>{(pin.place ? doc.places.find((p) => p.id === pin.place)?.name : undefined) ?? pin.name}</span>
+          <button type="button" className="btn btn-ghost btn-danger-text" onClick={() => unpin(i)}>
+            <Icon name="trash" size={16} /> Убрать
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
   const menuPin = pinMenu !== null ? pins[pinMenu] : undefined;
 
   if (!pano) return null;
@@ -172,9 +191,14 @@ export function PanoramaPreview({ doc, panoId, initialYaw = 0, onCommit, onClose
         {room && <span className="glass-title">{room}</span>}
         {!orient && !arrows && pano.heading !== null && (
           <>
-            <button type="button" className="glass-btn" onClick={() => { setPinMenu(null); setOrient({ step: 'tap' }); }}>
+            <button type="button" className="glass-btn" onClick={() => { setPinMenu(null); setPinsOpen(false); setOrient({ step: 'tap' }); }}>
               <Icon name="pin" size={18} />Установить точку
             </button>
+            {pins.length > 0 && (
+              <button type="button" className="glass-btn" aria-expanded={pinsOpen} onClick={() => { setPinMenu(null); setPinsOpen((o) => !o); }}>
+                <Icon name="check" size={18} />Точки · {pins.length}
+              </button>
+            )}
             <button type="button" className="glass-btn" onClick={() => { setPinMenu(null); setArrows({ step: 'list' }); }}>
               <Icon name="route" size={18} />Стрелки
             </button>
@@ -195,6 +219,7 @@ export function PanoramaPreview({ doc, panoId, initialYaw = 0, onCommit, onClose
             <b>Нажмите в панораме на середину двери</b> или на место, которое есть на плане (стойка, стенд). Чем больше точек, тем точнее
             повернётся панорама.
           </p>
+          {pinList}
           <button type="button" className="btn btn-ghost btn-block" onClick={() => setOrient(null)}>
             Отмена
           </button>
@@ -272,6 +297,17 @@ export function PanoramaPreview({ doc, panoId, initialYaw = 0, onCommit, onClose
           )}
           <button type="button" className="btn btn-ghost btn-block" onClick={() => setArrows({ step: 'list' })}>
             Отмена
+          </button>
+        </div>
+      )}
+      {pinsOpen && !orient && !arrows && !menuPin && (
+        <div className="pano-card">
+          <p>
+            <b>Поставленные точки.</b> По ним считается направление панорамы — ошибочную уберите.
+          </p>
+          {pinList}
+          <button type="button" className="btn btn-primary btn-block" onClick={() => setPinsOpen(false)}>
+            Готово
           </button>
         </div>
       )}

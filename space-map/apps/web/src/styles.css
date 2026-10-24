@@ -6,7 +6,8 @@
   --surface-3: #eceff5;
   --text: #0e1726;
   --text-2: #3c4657;
-  --muted: #6b7686;
+  /* Второстепенный текст держит 4,5:1 и на сером фоне (#e9edf3). */
+  --muted: #5f6a7a;
   --border: #e1e6ee;
   --border-strong: #cfd6e1;
   --primary: #2f5bea;
@@ -18,6 +19,22 @@
   --ok: #12a150;
   --danger: #e5484d;
   --danger-soft: #fdecec;
+  /* Цвет текста-ссылки и акцентов текстом: в тёмной теме светлее кнопочного синего. */
+  --primary-ink: #2f5bea;
+  --primary-border: #c8d5ff;
+  --accent-text: #b54708;
+  --warn-text: #9a3d07;
+  --ok-soft: #e7f7ee;
+  --ok-text: #0b7a3c;
+  --danger-hover: #fbd9d9;
+  --danger-text: #b42318;
+  --wall: #1f2a3d;
+  --stat-text: #4c5f99;
+  --capture: #7c3aed;
+  --capture-soft: #f1ebff;
+  --capture-border: #c4b0f7;
+  --grid-dot: rgb(14 23 38 / 0.12);
+  color-scheme: light;
 
   --radius-sm: 10px;
   --radius: 14px;
@@ -36,6 +53,46 @@
   -webkit-text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Тёмная тема (ui/theme.tsx ставит data-theme). Текст держит контраст 4,5:1 на своих фонах. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0d131d;
+  --surface: #151d2b;
+  --surface-2: #1b2433;
+  --surface-3: #232d3f;
+  --text: #e8edf5;
+  --text-2: #c3cbd9;
+  --muted: #929db0;
+  --border: #263143;
+  --border-strong: #35425b;
+  --primary: #4468ec;
+  --primary-strong: #3558db;
+  --primary-soft: #1c2a4f;
+  --primary-text: #ffffff;
+  --primary-ink: #8ea8ff;
+  --primary-border: #3a4f8f;
+  --accent: #ff8a3d;
+  --accent-soft: #3a2615;
+  --accent-text: #ffb27a;
+  --warn-text: #ffb27a;
+  --ok: #2fbf6a;
+  --ok-soft: #15301f;
+  --ok-text: #6fd99b;
+  --danger: #ff5f66;
+  --danger-soft: #3b1c20;
+  --danger-hover: #4c2328;
+  --danger-text: #ff8f94;
+  --wall: #c3cedf;
+  --stat-text: #a3b3e8;
+  --capture: #a98bff;
+  --capture-soft: #2a2246;
+  --capture-border: #55449c;
+  --grid-dot: rgb(200 215 235 / 0.14);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 1px rgb(0 0 0 / 0.2);
+  --shadow: 0 2px 6px rgb(0 0 0 / 0.3), 0 10px 28px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 -2px 10px rgb(0 0 0 / 0.3), 0 -14px 40px rgb(0 0 0 / 0.45);
 }
 
 * {
@@ -67,7 +124,7 @@ button {
 }
 
 a {
-  color: var(--primary);
+  color: var(--primary-ink);
 }
 
 :focus-visible {
@@ -109,7 +166,7 @@ p {
 }
 
 .access-card svg {
-  color: var(--primary);
+  color: var(--primary-ink);
 }
 
 .access-card h2 {
@@ -134,7 +191,7 @@ p {
   height: 34px;
   border-radius: 50%;
   border: 3px solid var(--primary-soft);
-  border-top-color: var(--primary);
+  border-top-color: var(--primary-ink);
   animation: spin 0.8s linear infinite;
 }
 
@@ -217,11 +274,11 @@ p {
 
 .btn-danger {
   background: var(--danger-soft);
-  color: #b42318;
+  color: var(--danger-text);
 }
 
 .btn-danger:hover {
-  background: #fbd9d9;
+  background: var(--danger-hover);
 }
 
 .icon-btn {
@@ -249,8 +306,8 @@ p {
 
 .icon-btn[aria-pressed='true'] {
   background: var(--primary-soft);
-  border-color: #c8d5ff;
-  color: var(--primary);
+  border-color: var(--primary-border);
+  color: var(--primary-ink);
 }
 
 .icon-btn.ghost {
@@ -269,7 +326,7 @@ p {
 }
 
 .icon-btn.danger {
-  color: #c4320a;
+  color: var(--danger-text);
 }
 
 .segmented {
@@ -314,7 +371,7 @@ p {
   padding: 1px 8px;
   border-radius: 999px;
   background: var(--accent-soft);
-  color: #b54708;
+  color: var(--accent-text);
   font-size: 11.5px;
   font-weight: 600;
 }
@@ -349,7 +406,7 @@ p {
   padding: 10px 12px;
   border-radius: var(--radius-sm);
   background: var(--danger-soft);
-  color: #a3221d;
+  color: var(--danger-text);
   font-size: 14px;
 }
 
@@ -367,7 +424,7 @@ p {
   user-select: none;
   -webkit-user-select: none;
   background-color: var(--bg);
-  background-image: radial-gradient(circle, rgb(14 23 38 / 0.12) 1px, transparent 1.2px);
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.2px);
 }
 
 .map-controls {
@@ -399,7 +456,7 @@ p {
 
 .map-ctl[aria-pressed='true'] {
   background: var(--primary-soft);
-  color: var(--primary);
+  color: var(--primary-ink);
 }
 
 .map-banner {
@@ -470,7 +527,7 @@ p {
   margin-top: max(10px, env(safe-area-inset-top));
   padding: 8px 8px 8px 10px;
   border-radius: 18px;
-  background: rgb(255 255 255 / 0.92);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(14px) saturate(1.4);
   -webkit-backdrop-filter: blur(14px) saturate(1.4);
   box-shadow: var(--shadow);
@@ -655,7 +712,7 @@ p {
 }
 
 .search-field:focus-within {
-  border-color: var(--primary);
+  border-color: var(--primary-ink);
   background: var(--surface);
   box-shadow: 0 0 0 4px var(--primary-soft);
 }
@@ -738,7 +795,7 @@ p {
 
 .chip[aria-pressed='true'] {
   border-color: var(--chip);
-  background: color-mix(in srgb, var(--chip) 10%, white);
+  background: color-mix(in srgb, var(--chip) 14%, var(--surface));
   color: var(--text);
   font-weight: 600;
 }
@@ -963,12 +1020,12 @@ button.route-end:hover {
   font-size: 24px;
   font-weight: 750;
   letter-spacing: -0.02em;
-  color: var(--primary-strong);
+  color: var(--primary-ink);
   line-height: 1.1;
 }
 
 .stat span {
-  color: #4c5f99;
+  color: var(--stat-text);
   font-size: 13px;
 }
 
@@ -1245,7 +1302,7 @@ button.route-end:hover {
   gap: 10px;
   padding: 10px 12px;
   padding-top: max(10px, env(safe-area-inset-top));
-  background: rgb(255 255 255 / 0.94);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--border);
@@ -1485,7 +1542,7 @@ button.route-end:hover {
   padding: 8px 10px;
   border-radius: 10px;
   background: var(--accent-soft);
-  color: #9a3d07;
+  color: var(--warn-text);
 }
 
 .insp-list {
@@ -1568,7 +1625,7 @@ button.insp-row:hover {
   height: 22px;
   flex-shrink: 0;
   border-radius: 7px;
-  border: 1.5px solid #1f2a3d;
+  border: 1.5px solid var(--wall);
 }
 
 .swatch.lg {
@@ -1586,9 +1643,9 @@ button.insp-row:hover {
 }
 
 .swatch.shot {
-  background: #f1ebff;
-  border-color: #c4b0f7;
-  color: #7c3aed;
+  background: var(--capture-soft);
+  border-color: var(--capture-border);
+  color: var(--capture);
 }
 
 /* Сводка одной строкой: «6 помещений · 12 мест · 553 м²». */
@@ -1634,7 +1691,7 @@ button.insp-row:hover {
 .field input:focus,
 .field select:focus,
 .field textarea:focus {
-  border-color: var(--primary);
+  border-color: var(--primary-ink);
   box-shadow: 0 0 0 4px var(--primary-soft);
 }
 
@@ -1754,7 +1811,7 @@ button.insp-row:hover {
 }
 
 .menu-item.danger {
-  color: #b42318;
+  color: var(--danger-text);
 }
 
 .menu-check {
@@ -1763,7 +1820,7 @@ button.insp-row:hover {
 }
 
 .menu-check.on {
-  color: var(--primary);
+  color: var(--primary-ink);
 }
 
 .toast {
@@ -1954,8 +2011,8 @@ button.insp-row:hover {
 }
 
 .pill.pill-ok {
-  background: #e7f7ee;
-  color: #0b7a3c;
+  background: var(--ok-soft);
+  color: var(--ok-text);
 }
 
 .publish-modal {
@@ -2025,26 +2082,26 @@ button.insp-row:hover {
 }
 
 .dg-wall {
-  stroke: #1f2a3d;
+  stroke: var(--wall);
   stroke-width: 5;
   stroke-linecap: butt;
 }
 
 .dg-jamb {
-  stroke: #1f2a3d;
+  stroke: var(--wall);
   stroke-width: 2;
   stroke-linecap: round;
 }
 
 .dg-leaf {
-  stroke: #1f2a3d;
+  stroke: var(--wall);
   stroke-width: 3;
   stroke-linecap: round;
 }
 
 .dg-arc {
   fill: none;
-  stroke: #1f2a3d;
+  stroke: var(--wall);
   stroke-width: 1.2;
   stroke-dasharray: 4 4;
   opacity: 0.6;
@@ -2095,7 +2152,7 @@ button.insp-row:hover {
   padding: 12px;
   border-radius: var(--radius-sm);
   background: var(--primary-soft);
-  color: var(--primary-strong);
+  color: var(--primary-ink);
   font-size: 14px;
 }
 
@@ -2107,8 +2164,8 @@ button.insp-row:hover {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: #e7f6ee;
-  color: #0b6b35;
+  background: var(--ok-soft);
+  color: var(--ok-text);
 }
 
 .guest-claim {
@@ -2121,8 +2178,8 @@ button.insp-row:hover {
   display: grid;
   place-items: center;
   background: var(--bg);
-  color: #1f2a3d;
-  border: 2px solid #1f2a3d;
+  color: var(--wall);
+  border: 2px solid var(--wall);
 }
 
 /* ── Маршрут съёмки на камере ── */
@@ -2375,7 +2432,7 @@ button.insp-row:hover {
   margin: 0 auto;
   padding: 16px;
   border-radius: var(--radius-lg);
-  background: rgb(255 255 255 / 0.94);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   color: var(--text);
@@ -2750,7 +2807,7 @@ button.insp-row:hover {
   width: 64px;
   height: 46px;
   border-radius: 8px;
-  background: rgb(255 255 255 / 0.9);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
   box-shadow: var(--shadow-sm);
 }
 
@@ -3017,4 +3074,179 @@ li,
 .insp-note,
 .notice {
   text-wrap: pretty;
+}
+
+/* Переключатель темы внизу списка мест (телефон) и в углу карточки входа. */
+.sheet-foot {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 4px;
+}
+
+.auth-card .brand {
+  align-items: flex-start;
+}
+
+.auth-card .brand-text {
+  flex: 1;
+}
+
+.catalog-search {
+  margin-top: 4px;
+}
+
+/* Поставленные в панораме точки: название и «Убрать». */
+.pin-list {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.pin-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 10px;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.pin-list li span {
+  flex: 1;
+  min-width: 0;
+}
+
+.pin-list .btn {
+  min-height: 40px;
+  padding: 0 10px;
+}
+
+/* Категории мест: список-чипы в сводке и окно новой категории. */
+.category-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.category-chip {
+  gap: 6px;
+  padding-left: 4px;
+}
+
+.category-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.category-modal-head h2 {
+  margin: 0;
+}
+
+.category-icons {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+}
+
+.category-pick {
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background: none;
+}
+
+.category-pick[aria-checked='true'] {
+  border-color: var(--primary);
+}
+
+.category-colors {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+
+.category-color {
+  height: 40px;
+  border: 3px solid transparent;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12);
+}
+
+.category-color[aria-checked='true'] {
+  border-color: var(--text);
+}
+
+@media (max-width: 380px) {
+  .category-icons {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}
+
+/* Обучение: затемнение с «окном» на кнопку и подсказка рядом. */
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+}
+
+.tour-spot {
+  position: fixed;
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 3px var(--primary),
+    0 0 0 9999px rgb(8 12 20 / 0.55);
+  pointer-events: none;
+  transition:
+    left 0.3s var(--ease),
+    top 0.3s var(--ease),
+    width 0.3s var(--ease),
+    height 0.3s var(--ease);
+}
+
+.tour-tip {
+  position: fixed;
+  width: min(320px, calc(100vw - 24px));
+  padding: 16px 16px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  animation: tour-in 0.28s var(--ease);
+}
+
+.tour-tip h3 {
+  margin: 2px 0 6px;
+  font-size: 17px;
+}
+
+.tour-tip p {
+  margin: 0 0 12px;
+  color: var(--text-2);
+}
+
+.tour-tip .tour-count {
+  margin: 0;
+  color: var(--primary-ink);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+@keyframes tour-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }

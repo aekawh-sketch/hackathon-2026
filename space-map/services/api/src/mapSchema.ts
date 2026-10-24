@@ -137,6 +137,7 @@ export const MapDocumentSchema = Type.Object(
           pos: Vec2,
           origin: Type.Union([Type.Literal('auto'), Type.Literal('manual'), Type.Literal('removed')]),
           panorama: Type.Union([Id, Type.Null()]),
+          name: Type.Optional(Type.String({ maxLength: 80 })),
         }),
         { maxItems: 2000 },
       ),

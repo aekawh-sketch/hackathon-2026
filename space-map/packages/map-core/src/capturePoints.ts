@@ -213,6 +213,27 @@ export function capturePointForPlace(doc: MapDocument, placeId: string): { doc: 
   return null;
 }
 
+/**
+ * Назвать точку съёмки. Рассчитанная становится своей: пересчёт плана создаёт рассчитанные точки заново
+ * и название бы потерял. Пустое название — убрать.
+ */
+export function renameCapturePoint(doc: MapDocument, id: string, name: string): MapDocument {
+  const trimmed = name.trim().slice(0, 80);
+  return {
+    ...doc,
+    capturePoints: (doc.capturePoints ?? []).map((p) => {
+      if (p.id !== id) return p;
+      const { name: _old, ...rest } = p;
+      return { ...rest, ...(trimmed ? { name: trimmed } : {}), origin: p.origin === 'auto' && trimmed ? 'manual' : p.origin };
+    }),
+  };
+}
+
+/** Название точки, в которой снята панорама, — если организатор его дал. */
+export function panoramaPointName(doc: MapDocument, panoramaId: string): string | null {
+  return doc.capturePoints?.find((p) => p.panorama === panoramaId && p.name)?.name ?? null;
+}
+
 /** Сдвинуть точку. Рассчитанная становится ручной: расчёт её больше не двигает. */
 export function moveCapturePoint(doc: MapDocument, id: string, pos: Vec2): CaptureEditResult {
   const point = doc.capturePoints?.find((p) => p.id === id);

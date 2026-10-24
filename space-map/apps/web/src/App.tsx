@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
+import { BrowserRouter, Route, Routes } from 'react-router';
+import { CatalogPage } from './visitor/CatalogPage.tsx';
 import { VisitorPage } from './visitor/VisitorPage.tsx';
 
 // Кабинет организатора — отдельный чанк: посетитель его код не скачивает (ТЗ п. 44).
@@ -9,7 +10,8 @@ export function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to="/m/demo" replace />} />
+        {/* Главная для посетителя — все опубликованные карты; с каждой карты сюда кнопка «Все карты». */}
+        <Route path="/" element={<CatalogPage />} />
         <Route path="/m/:slug" element={<VisitorPage />} />
         <Route
           path="/app/*"

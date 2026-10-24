@@ -31,6 +31,8 @@ import { useSession } from '../organizer/session.tsx';
 import { ErrorBoundary } from '../ui/ErrorBoundary.tsx';
 import { Icon, type IconName } from '../ui/icons.tsx';
 import { Sheet, useMediaQuery, type SheetMode } from '../ui/Sheet.tsx';
+import { setTheme, ThemeToggle, useTheme } from '../ui/theme.tsx';
+import { Tour, type TourStep } from '../ui/Tour.tsx';
 import { EditorCanvas, holeRef, type Selection, type Tool } from './EditorCanvas.tsx';
 import { Inspector } from './Inspector.tsx';
 import { useHistory } from './useHistory.ts';
@@ -50,7 +52,7 @@ const TOOLS: { id: Tool; icon: IconName; label: string; short?: string; key: str
   { id: 'zone', icon: 'zone', label: 'Зона', key: 'A' },
   { id: 'place', icon: 'pin', label: 'Место', key: 'P' },
   { id: 'door', icon: 'doorAdd', label: 'Дверь', key: 'D' },
-  { id: 'split', icon: 'split', label: 'Разделить', short: 'Делить', key: 'S' },
+  { id: 'wall', icon: 'wall', label: 'Стена', key: 'W' },
   { id: 'hole', icon: 'hole', label: 'Вырез', key: 'H' },
   { id: 'shot', icon: 'camera', label: 'Съёмка', key: 'C' },
 ];
@@ -61,10 +63,36 @@ const TOOL_HINT: Record<Tool, string> = {
   zone: 'Выберите категорию и протяните прямоугольник внутри помещения',
   place: 'Нажмите внутри помещения, чтобы поставить место',
   door: 'Нажмите на стену: общая стена — дверь между помещениями, наружная — вход с улицы',
-  split: 'Проведите линию поперёк комнаты — она станет двумя. Дверь между ними поставьте сами',
+  wall: 'Проведите линию — получится стена. От стены до стены — делит комнату на две',
   hole: 'Протяните прямоугольник внутри комнаты: колонна, шахта или перегородка',
   shot: 'Точки панорам рассчитаны по плану. Нажмите в помещении — своя точка; тяните точку, чтобы сдвинуть',
 };
+
+/** Обучение по кнопке «?»: по очереди каждая кнопка редактора и что она делает. Кнопок не на этом экране — пропуск. */
+const TOUR: TourStep[] = [
+  { target: '[data-tour="tool-select"]', title: 'Выбор', text: 'Нажмите на комнату, место или дверь — откроются её свойства. Тяните, чтобы сдвинуть.' },
+  { target: '[data-tour="tool-room"]', title: 'Комната', text: 'Протяните прямоугольник — получится комната или коридор. Можно и внутри зала.' },
+  { target: '[data-tour="tool-zone"]', title: 'Зона', text: 'Участок помещения со своей категорией: фудкорт, зона партнёров. Категорию выберите в панели.' },
+  { target: '[data-tour="tool-place"]', title: 'Место', text: 'Нажмите внутри помещения — встанет место: стенд, стойка, вход, Wi-Fi. Название и описание — в свойствах.' },
+  { target: '[data-tour="tool-door"]', title: 'Дверь', text: 'Нажмите на общую стену двух помещений — встанет дверь. На наружной стене — вход с улицы.' },
+  { target: '[data-tour="tool-wall"]', title: 'Стена', text: 'Проведите линию — получится стена. От стены до стены — комната делится на две.' },
+  { target: '[data-tour="tool-hole"]', title: 'Вырез', text: 'Колонна, шахта или атриум: протяните прямоугольник внутри комнаты — маршрут его обойдёт.' },
+  { target: '[data-tour="tool-shot"]', title: 'Съёмка', text: 'Точки панорам считаются сами. Нажмите в помещении — своя точка. В точке снимите фотосферу с телефона.' },
+  { target: '[data-tour="undo"]', title: 'Отменить и повторить', text: 'Последняя правка — назад и вперёд. Всё сохраняется само.' },
+  { target: '[data-tour="theme"]', title: 'Тема', text: 'Светлая или тёмная — как удобнее глазам.' },
+  { target: '[data-tour="qr"]', title: 'На телефон', text: 'QR-код проекта: наведите камеру телефона — проект откроется там, удобно снимать панорамы.' },
+  { target: '[data-tour="view"]', title: 'План и 3D', text: 'Посмотрите площадку объёмно — так её увидит посетитель.' },
+  { target: '[data-tour="menu-layers"]', title: 'Сетка маршрутов', text: 'Показать линии, по которым строятся маршруты посетителей.' },
+  { target: '[data-tour="menu-camera"]', title: 'Точки съёмки', text: 'Показать или скрыть точки панорам на плане.' },
+  { target: '[data-tour="menu-download"]', title: 'Скачать карту', text: 'Вся карта одним файлом — для копии или переноса.' },
+  { target: '[data-tour="menu-upload"]', title: 'Загрузить карту', text: 'Открыть карту из такого файла.' },
+  { target: '[data-tour="visitor"]', title: 'Карта посетителя', text: 'Как карту увидят по ссылке.' },
+  { target: '[data-tour="publish"]', title: 'Публикация', text: 'Ссылка на карту и код для сайта. Правки обновляют карту по той же ссылке.' },
+  { target: '[data-tour="more"]', title: 'Ещё', text: '3D, сетка маршрутов, точки съёмки, тема, сканер QR, загрузка и выгрузка карты, публикация.' },
+  { target: '[data-tour="inspector"]', title: 'Свойства', text: 'Свойства выбранного. Без выбора — сводка площадки: название, помещения, категории.' },
+  { target: '.sheet', title: 'Шторка', text: 'Свойства выбранного. Тяните вверх и вниз; без выбора — сводка площадки.' },
+  { target: '[data-tour="help"]', title: 'Обучение', text: 'Пройти ещё раз — эта кнопка.' },
+];
 
 /** Есть ли выбранный объект в документе. */
 function selectionExists(doc: MapDocument, s: NonNullable<Selection>): boolean {
@@ -229,6 +257,8 @@ function Editor({ initial, server }: EditorProps) {
   const [menu, setMenu] = useState(false);
   const [sheetMode, setSheetMode] = useState<SheetMode>('peek');
   const [sheetHeight, setSheetHeight] = useState(0);
+  const [tourOpen, setTourOpen] = useState(false);
+  const theme = useTheme();
   // Высота шапки на телефоне: длинное название площадки встаёт в две строки — план и подсказка сдвигаются под неё.
   const topRef = useRef<HTMLElement>(null);
   const [topHeight, setTopHeight] = useState(64);
@@ -372,10 +402,18 @@ function Editor({ initial, server }: EditorProps) {
 
   const toolbar = (
     <div className={`tool-bar ${desktop ? 'vertical' : ''}`} role="toolbar" aria-label="Инструменты">
+      {/* На телефоне «?» — первым в панели: в шапке место занято названием площадки. */}
+      {!desktop && (
+        <button type="button" className="tool-btn" data-tour="help" onClick={() => setTourOpen(true)}>
+          <Icon name="help" size={21} />
+          <span>Помощь</span>
+        </button>
+      )}
       {TOOLS.map((t) => (
         <button
           key={t.id}
           type="button"
+          data-tour={`tool-${t.id}`}
           className="tool-btn"
           aria-pressed={tool === t.id}
           title={`${t.label} (${t.key})`}
@@ -465,8 +503,13 @@ function Editor({ initial, server }: EditorProps) {
 
   // phoneOnly — только в меню «Ещё» на телефоне: на компьютере для этого есть своя кнопка в шапке.
   const menuItems: { icon: IconName; label: string; onClick: () => void; pressed?: boolean; danger?: boolean; phoneOnly?: boolean }[] = [
-    // На телефоне сканер — в «Ещё»: в шапке место нужно названию площадки.
-    ...(desktop ? [] : [{ icon: 'qr' as IconName, label: 'Сканировать QR-код проекта', onClick: () => setScanOpen(true) }]),
+    // На телефоне сканер и тема — в «Ещё»: в шапке место нужно названию площадки.
+    ...(desktop
+      ? []
+      : [
+          { icon: 'qr' as IconName, label: 'Сканировать QR-код проекта', onClick: () => setScanOpen(true) },
+          { icon: (theme === 'dark' ? 'sun' : 'moon') as IconName, label: theme === 'dark' ? 'Светлая тема' : 'Тёмная тема', onClick: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
+        ]),
     ...(desktop ? [] : [{ icon: (view === 'plan' ? 'cube' : 'map') as IconName, label: view === 'plan' ? 'Показать в 3D' : 'Вернуться к плану', onClick: () => setView(view === 'plan' ? '3d' : 'plan') }]),
     { icon: 'layers', label: 'Сетка маршрутов', onClick: () => setShowGraph((g) => !g), pressed: showGraph },
     { icon: 'camera', label: 'Точки съёмки', onClick: () => setShowShots((v) => !v), pressed: showShots },
@@ -559,22 +602,28 @@ function Editor({ initial, server }: EditorProps) {
           </small>
         </div>
         <div className="editor-top-actions">
-          <button type="button" className="icon-btn" aria-label="Отменить" title="Отменить (⌘Z)" disabled={!history.canUndo} onClick={history.undo}>
+          {desktop && (
+            <button type="button" className="icon-btn" data-tour="help" aria-label="Обучение" title="Обучение — что за что отвечает" onClick={() => setTourOpen(true)}>
+              <Icon name="help" />
+            </button>
+          )}
+          <button type="button" className="icon-btn" data-tour="undo" aria-label="Отменить" title="Отменить (⌘Z)" disabled={!history.canUndo} onClick={history.undo}>
             <Icon name="undo" />
           </button>
           <button type="button" className="icon-btn" aria-label="Повторить" title="Повторить (⇧⌘Z)" disabled={!history.canRedo} onClick={history.redo}>
             <Icon name="redo" />
           </button>
+          {desktop && <ThemeToggle tour="theme" />}
           {/* Компьютер показывает QR-код проекта, телефон его сканирует. */}
           {desktop ? (
             server && (
-              <button type="button" className="icon-btn" aria-label="Открыть на телефоне" title="Открыть на телефоне — QR-код" onClick={() => setQrOpen(true)}>
+              <button type="button" className="icon-btn" data-tour="qr" aria-label="Открыть на телефоне" title="Открыть на телефоне — QR-код" onClick={() => setQrOpen(true)}>
                 <Icon name="qr" />
               </button>
             )
           ) : null}
           {desktop && (
-          <div className="segmented compact" role="group" aria-label="Вид">
+          <div className="segmented compact" role="group" aria-label="Вид" data-tour="view">
             <button type="button" aria-pressed={view === 'plan'} onClick={() => setView('plan')}>
               <Icon name="map" size={17} />
               {desktop && <span>План</span>}
@@ -587,18 +636,18 @@ function Editor({ initial, server }: EditorProps) {
           )}
           {desktop &&
             menuItems.filter((m) => !m.danger && !m.phoneOnly).map((m) => (
-              <button key={m.label} type="button" className="icon-btn" title={m.label} aria-label={m.label} aria-pressed={m.pressed} onClick={m.onClick}>
+              <button key={m.label} type="button" className="icon-btn" data-tour={`menu-${m.icon}`} title={m.label} aria-label={m.label} aria-pressed={m.pressed} onClick={m.onClick}>
                 <Icon name={m.icon} />
               </button>
             ))}
           {desktop && server ? (
             <>
               {venue?.publishedVersion !== null && (
-                <a href={visitorUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">
+                <a href={visitorUrl} target="_blank" rel="noreferrer" className="btn btn-ghost" data-tour="visitor">
                   <Icon name="eye" size={18} /> Карта посетителя
                 </a>
               )}
-              <button type="button" className="btn btn-primary" onClick={() => setPublishOpen(true)}>
+              <button type="button" className="btn btn-primary" data-tour="publish" onClick={() => setPublishOpen(true)}>
                 <Icon name="external" size={18} /> {venue?.publishedVersion !== null ? 'Ссылка и код' : 'Опубликовать'}
               </button>
             </>
@@ -613,7 +662,7 @@ function Editor({ initial, server }: EditorProps) {
             </>
           ) : (
             <div className="menu-wrap">
-              <button type="button" className="icon-btn" aria-label="Ещё" aria-expanded={menu} onClick={() => setMenu((m) => !m)}>
+              <button type="button" className="icon-btn" data-tour="more" aria-label="Ещё" aria-expanded={menu} onClick={() => setMenu((m) => !m)}>
                 <Icon name="more" />
               </button>
               {menu && (
@@ -648,7 +697,7 @@ function Editor({ initial, server }: EditorProps) {
       {desktop ? (
         <>
           <div className="tool-rail">{toolbar}</div>
-          <aside className="inspector" aria-label="Свойства">
+          <aside className="inspector" aria-label="Свойства" data-tour="inspector">
             <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onShootForPlace={server && hasNativeCapture() ? shootForPlace : undefined} onUploadForPlace={server ? uploadForPlace : undefined} onOpenPanorama={openPreview} />
           </aside>
         </>
@@ -680,6 +729,8 @@ function Editor({ initial, server }: EditorProps) {
           e.target.value = '';
         }}
       />
+
+      {tourOpen && <Tour steps={TOUR} onClose={() => setTourOpen(false)} />}
 
       {toast && (
         <div key={toast.id} className="toast" role="status" style={!desktop ? { bottom: sheetHeight + 16 } : undefined}>
@@ -788,5 +839,5 @@ function Modal({ children, onClose }: { children: ReactNode; onClose: () => void
 
 /** Горячие клавиши работают и в русской раскладке: м → V, к → R, з → P, в → D, ы → S, р → H, с → C. */
 function layoutKey(key: string): string | undefined {
-  return ({ м: 'V', к: 'R', з: 'P', в: 'D', ы: 'S', р: 'H', с: 'C' } as Record<string, string>)[key.toLowerCase()];
+  return ({ м: 'V', к: 'R', з: 'P', в: 'D', ц: 'W', р: 'H', с: 'C' } as Record<string, string>)[key.toLowerCase()];
 }

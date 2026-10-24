@@ -1,13 +1,14 @@
 // Мои площадки (ТЗ 8.1): создать, найти, открыть редактор, опубликовать, ссылка и код для сайта,
 // а в меню карточки — переименовать, дублировать, снять с публикации, скачать план, удалить.
-import type { PanoramaPlacement, PlanOutline } from '@space-map/map-core';
+import type { PanoramaPlacement } from '@space-map/map-core';
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router';
 import { ApiError, auth, panoramaUrls, venuesApi, type User, type VenueListItem, type VenueSummary } from '../api.ts';
 import { APP_APK_URL, hasNativeCapture } from '../capture/native.ts';
-import { UNIT_FILL, WALL } from '../plan/style.ts';
 import { ErrorBoundary } from '../ui/ErrorBoundary.tsx';
+import { PlanThumb } from '../ui/PlanThumb.tsx';
+import { ThemeToggle } from '../ui/theme.tsx';
 import { Icon, type IconName } from '../ui/icons.tsx';
 import { useMediaQuery } from '../ui/Sheet.tsx';
 import { PublishDialog } from './PublishDialog.tsx';
@@ -147,6 +148,7 @@ export default function VenuesPage() {
               <Icon name="qr" size={18} /> <span className="btn-label">Сканировать</span>
             </button>
           )}
+          <ThemeToggle />
           <button type="button" className="btn btn-ghost" onClick={() => void logout().then(() => navigate('/app/login'))}>
             Выйти
           </button>
@@ -342,23 +344,6 @@ export default function VenuesPage() {
         </div>
       )}
     </div>
-  );
-}
-
-/** Миниатюра плана: контуры помещений с заливкой по типу, как на карте. */
-function PlanThumb({ outline }: { outline: PlanOutline }) {
-  const { minX, minY, maxX, maxY } = outline.bounds;
-  const pad = Math.max(maxX - minX, maxY - minY) * 0.06 + 0.2;
-  const vb = `${minX - pad} ${-(maxY + pad)} ${maxX - minX + 2 * pad} ${maxY - minY + 2 * pad}`;
-  return (
-    <svg className="plan-thumb" viewBox={vb} preserveAspectRatio="xMidYMid meet" role="img" aria-label="План площадки">
-      {/* План: y вверх, SVG: y вниз — отражаем по вертикали. */}
-      <g transform="scale(1,-1)">
-        {outline.units.map((u, i) => (
-          <polygon key={i} points={u.polygon.map((p) => p.join(',')).join(' ')} fill={UNIT_FILL[u.kind]} stroke={WALL} strokeWidth={0.12} vectorEffect="non-scaling-stroke" />
-        ))}
-      </g>
-    </svg>
   );
 }
 

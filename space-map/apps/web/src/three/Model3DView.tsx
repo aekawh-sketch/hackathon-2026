@@ -6,7 +6,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { drawFloorPlan, type FloorPlan } from '../plan/floorTexture.ts';
-import { ENTRANCE, PANORAMA, ROUTE, UNIT_FLOOR_3D } from '../plan/style.ts';
+import { ENTRANCE, PANORAMA, ROUTE, SCENE_3D, UNIT_FLOOR_3D } from '../plan/style.ts';
+import { useTheme } from '../ui/theme.tsx';
 import { polygonCentroid, type Insets } from '../plan/viewport.ts';
 import { categoryIconPath, Icon } from '../ui/icons.tsx';
 
@@ -67,8 +68,8 @@ export function buildScene(doc: MapDocument, level: string): THREE.Group {
   // Стены: светлые грани и тёмный «срез» сверху, как на архитектурном макете.
   const walls = new THREE.Group();
   walls.name = 'walls';
-  const side = new THREE.MeshStandardMaterial({ color: '#F8FAFD', roughness: 0.85 });
-  const cap = new THREE.MeshStandardMaterial({ color: '#253047', roughness: 0.6 });
+  const side = new THREE.MeshStandardMaterial({ color: SCENE_3D.wallSide, roughness: 0.85 });
+  const cap = new THREE.MeshStandardMaterial({ color: SCENE_3D.wallCap, roughness: 0.6 });
   const wallMaterials = [side, side, cap, side, side, side];
   for (const [i, w] of model.walls.entries()) {
     const len = Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]);
@@ -140,7 +141,7 @@ export function buildScene(doc: MapDocument, level: string): THREE.Group {
     root.add(mesh);
   }
 
-  const blockMaterial = new THREE.MeshStandardMaterial({ color: '#C7D0DD', roughness: 0.7 });
+  const blockMaterial = new THREE.MeshStandardMaterial({ color: SCENE_3D.block, roughness: 0.7 });
   for (const b of model.blocks) {
     const shape = new THREE.Shape(b.polygon.map((p) => new THREE.Vector2(p[0], p[1])));
     const mesh = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: b.height, bevelEnabled: true, bevelSize: 0.04, bevelThickness: 0.04, bevelSegments: 2 }), blockMaterial);
@@ -277,6 +278,8 @@ interface Stage3D {
 }
 
 export function Model3DView({ doc, level, route, selectedPlace, onPlaceClick, insets, showPanoramas = false }: Model3DViewProps) {
+  // Смена темы пересобирает сцену: цвета стен, пола и фона берутся из палитры при сборке.
+  const theme = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage3D | null>(null);
   const clickRef = useRef(onPlaceClick);
@@ -297,7 +300,7 @@ export function Model3DView({ doc, level, route, selectedPlace, onPlaceClick, in
     container.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#E9EDF3');
+    scene.background = new THREE.Color(SCENE_3D.bg);
 
     const building = buildScene(doc, level);
     scene.add(building);
@@ -305,7 +308,7 @@ export function Model3DView({ doc, level, route, selectedPlace, onPlaceClick, in
     const center = box.getCenter(new THREE.Vector3());
     const sizeV = box.getSize(new THREE.Vector3());
     const radius = Math.max(sizeV.length() / 2, 4);
-    scene.fog = new THREE.Fog('#E9EDF3', radius * 3, radius * 7);
+    scene.fog = new THREE.Fog(SCENE_3D.bg, radius * 3, radius * 7);
 
     scene.add(new THREE.HemisphereLight('#FFFFFF', '#B8C2D1', 1.6));
     const sun = new THREE.DirectionalLight('#FFF7EC', 2.2);
@@ -329,12 +332,12 @@ export function Model3DView({ doc, level, route, selectedPlace, onPlaceClick, in
     scene.add(fill);
 
     // «Стол» под макетом
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(radius * 6, 64), new THREE.MeshStandardMaterial({ color: '#DDE3EB', roughness: 1 }));
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(radius * 6, 64), new THREE.MeshStandardMaterial({ color: SCENE_3D.ground, roughness: 1 }));
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(center.x, -0.02, center.z);
     ground.receiveShadow = true;
     scene.add(ground);
-    const grid = new THREE.GridHelper(radius * 6, Math.round(radius * 6), '#C9D1DC', '#D3DAE3');
+    const grid = new THREE.GridHelper(radius * 6, Math.round(radius * 6), SCENE_3D.grid, SCENE_3D.gridMinor);
     grid.position.set(center.x, -0.01, center.z);
     (grid.material as THREE.Material).transparent = true;
     (grid.material as THREE.Material).opacity = 0.55;
@@ -481,7 +484,7 @@ export function Model3DView({ doc, level, route, selectedPlace, onPlaceClick, in
       renderer.domElement.remove();
       stageRef.current = null;
     };
-  }, [doc, level, showPanoramas]);
+  }, [doc, level, showPanoramas, theme]);
 
   // Маршрут: трубка, светящийся «пешеход» и кольцо у цели.
   useEffect(() => {

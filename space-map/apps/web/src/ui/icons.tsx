@@ -38,6 +38,7 @@ export const ICON_PATHS = {
   cursor: 'M5 3.5l13 7.5-5.5 1.5L10 18z',
   square: 'M4.5 4.5h15v15h-15zM4.5 4.5h0',
   split: 'M4.5 4.5h15v15h-15zM12 2.5v19',
+  wall: 'M3 5h18v14H3zM3 12h18M9 5v7M15 12v7',
   hole: 'M4.5 4.5h15v15h-15zM9.5 9.5h5v5h-5z',
   zone: 'M4.5 4.5h15v15h-15zM8 8h8v8H8z',
   doorAdd: 'M4 4h6v16H4zM14 12h7M17.5 8.5v7',
@@ -59,6 +60,9 @@ export const ICON_PATHS = {
   external: 'M14 4h6v6M20 4l-9 9M18 14v5H5V6h5',
   building: 'M4 21V5l8-2v18M12 7h8v14M7.5 8h1M7.5 12h1M7.5 16h1M15.5 11h1M15.5 15h1M2.5 21h19',
   qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2.5v2.5H14zM17.5 17.5H20V20h-2.5zM20 14v.01M14 20v.01',
+  help: 'M12 21a9 9 0 1 0 0-18a9 9 0 0 0 0 18zM9.6 9.3a2.5 2.5 0 0 1 4.9.7c0 1.7-2.5 2.1-2.5 3.8M12 17h.01',
+  sun: 'M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4',
+  moon: 'M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z',
 } as const;
 
 export type IconName = keyof typeof ICON_PATHS;

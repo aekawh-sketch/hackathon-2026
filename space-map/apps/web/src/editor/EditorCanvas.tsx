@@ -11,7 +11,7 @@ import {
   moveHole,
   placeEntrance,
   pointInUnit,
-  splitUnit,
+  addWall,
   dragOpeningEdge,
   GRID,
   openingSpan,
@@ -41,11 +41,12 @@ import {
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
 import { Circle, Layer, Line, Rect, Stage, Text } from 'react-konva';
 import { BasePlan, CapturePointMark, CaptureRouteLine, flatPoints, gridStyle, PanoDot, pinchView, PlaceArea, PlacePin, UnitLabels, useElementSize } from '../plan/draw.tsx';
+import { useTheme } from '../ui/theme.tsx';
 import { ROUTE } from '../plan/style.ts';
 import { fitBoundsInset, levelBounds, screenToWorld, worldToScreen, zoomAt, type Insets, type Viewport } from '../plan/viewport.ts';
 import { Icon } from '../ui/icons.tsx';
 
-export type Tool = 'select' | 'room' | 'zone' | 'place' | 'door' | 'split' | 'hole' | 'shot';
+export type Tool = 'select' | 'room' | 'zone' | 'place' | 'door' | 'wall' | 'hole' | 'shot';
 /** Вырез выбирается как `{ kind: 'hole', id: '<unitId>#<номер>' }`; `shot` — точка съёмки панорамы. */
 export type Selection = { kind: 'unit' | 'place' | 'opening' | 'hole' | 'shot'; id: string } | null;
 
@@ -99,7 +100,7 @@ interface Preview {
   invalidUnit?: string | null;
   draft?: { polygon: Vec2[]; invalid: boolean; color?: string } | null;
   /** Разрез: проведённая линия, продлённая до стен (chord), и почему нельзя. */
-  cut?: { line: [Vec2, Vec2]; chord: [Vec2, Vec2] | null; message: string | null; unitId: string | null } | null;
+  cut?: { line: [Vec2, Vec2]; chord: [Vec2, Vec2] | null; message: string | null; unitId: string | null; kind?: 'split' | 'partition' | 'notch' } | null;
 }
 
 /** Шаг привязки для разрезов и вырезов: мельче сетки комнат — колонна бывает 0,4 м. */
@@ -122,6 +123,7 @@ const ZOOM_ROOM = 230;
 const FIT_ROOM = 110;
 
 export function EditorCanvas(props: EditorCanvasProps) {
+  useTheme(); // палитра плана — из темы: перерисовка при её смене
   const { doc, level, tool, selection, showGraph, insets } = props;
   const wrapRef = useRef<HTMLDivElement>(null);
   const size = useElementSize(wrapRef);
@@ -296,12 +298,10 @@ export function EditorCanvas(props: EditorCanvasProps) {
       const end = axisSnap(d.start, snapPoint(w, FINE));
       updatePreview(`c:${end}`, () => {
         const line: [Vec2, Vec2] = [d.start, end];
-        const mid: Vec2 = [(d.start[0] + end[0]) / 2, (d.start[1] + end[1]) / 2];
-        const unit = unitAt(doc, level, mid) ?? unitAt(doc, level, d.start);
-        if (!unit) return { cut: { line, chord: null, message: 'Начните внутри комнаты', unitId: null } };
-        const r = splitUnit(doc, unit.id, d.start, end);
-        if (!r.ok) return { cut: { line, chord: null, message: r.message, unitId: unit.id } };
-        return { doc: r.doc, cut: { line, chord: r.chord ?? null, message: null, unitId: unit.id } };
+        // Стена — как провели: от стены до стены делит комнату, иначе встаёт перегородкой (addWall).
+        const r = addWall(doc, level, d.start, end);
+        if (!r.ok) return { cut: { line, chord: null, message: r.message, unitId: null } };
+        return { doc: r.doc, cut: { line, chord: r.line, message: null, unitId: r.unitId, kind: r.kind } };
       });
     } else if (d.kind === 'holeDraw') {
       const p = snapPoint(w, FINE);
@@ -355,11 +355,17 @@ export function EditorCanvas(props: EditorCanvasProps) {
     if (!moved) return tapAt(d, s, w);
     if (d.kind === 'cut') {
       const cut = p?.cut;
-      if (!cut || !p?.doc) return props.onToast(cut?.message ?? 'Проведите линию поперёк комнаты — от стены до стены');
+      if (!cut || !p?.doc) return props.onToast(cut?.message ?? 'Проведите линию внутри помещения');
       const added = p.doc.units.find((u) => !doc.units.some((x) => x.id === u.id));
-      props.onCommit(p.doc, cut.unitId ? { kind: 'unit', id: cut.unitId } : null);
-      props.onToast(`Комната разделена${added ? `: «${added.name}»` : ''}. Дверь между частями поставьте инструментом «Дверь»`);
-      return props.onToolDone();
+      // Инструмент не сбрасываем: стены обычно ставят подряд.
+      props.onCommit(p.doc, null);
+      return props.onToast(
+        cut.kind === 'split'
+          ? `Стена разделила комнату${added ? `: «${added.name}»` : ''}. Дверь в ней поставьте инструментом «Дверь»`
+          : cut.kind === 'partition'
+            ? 'Стена поставлена. Убрать — выберите её и «Убрать стену»'
+            : 'Стена поставлена. Передумали — «Отменить» вверху',
+      );
     }
     if (d.kind === 'holeDraw') {
       const draft = p?.draft;
@@ -431,7 +437,7 @@ export function EditorCanvas(props: EditorCanvasProps) {
   const tapAt = (d: Drag, s: Vec2, w: Vec2) => {
     if (tool === 'room') return props.onToast('Проведите пальцем или мышью, чтобы нарисовать комнату');
     if (tool === 'zone') return props.onToast('Протяните прямоугольник внутри помещения, чтобы нарисовать зону');
-    if (tool === 'split') return props.onToast('Проведите линию поперёк комнаты — от стены до стены');
+    if (tool === 'wall') return props.onToast('Проведите линию — получится стена');
     if (tool === 'hole') return props.onToast('Протяните прямоугольник внутри комнаты');
     if (tool === 'shot') {
       if (d.kind === 'shot') return props.onSelect({ kind: 'shot', id: d.id });
@@ -509,7 +515,7 @@ export function EditorCanvas(props: EditorCanvasProps) {
       const shot = hitShot(s);
       if (shot) mode = { kind: 'shot', id: shot.id, start: w, origin: shot.pos };
     }
-    else if (tool === 'split') mode = { kind: 'cut', start: snapPoint(w, FINE) };
+    else if (tool === 'wall') mode = { kind: 'cut', start: snapPoint(w, FINE) };
     else if (tool === 'hole') {
       const unit = doc.units.find((u) => u.level === level && pointInUnit(w, u));
       if (unit) mode = { kind: 'holeDraw', start: snapPoint(w, FINE), unitId: unit.id };

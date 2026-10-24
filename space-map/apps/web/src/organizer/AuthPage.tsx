@@ -3,6 +3,7 @@ import { useRef, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router';
 import { ApiError, auth } from '../api.ts';
 import { Icon } from '../ui/icons.tsx';
+import { ThemeToggle } from '../ui/theme.tsx';
 import { useSession } from './session.tsx';
 
 export default function AuthPage() {
@@ -63,13 +64,14 @@ export default function AuthPage() {
             <h1 className="brand-title">Карта пространства</h1>
             <p className="brand-sub">Кабинет организатора</p>
           </div>
+          <ThemeToggle className="icon-btn auth-theme" />
         </div>
 
         <div className="auth-quick">
           <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void tryAsGuest()}>
             <Icon name="edit" size={18} /> Открыть редактор без регистрации
           </button>
-          <Link className="btn btn-secondary" to="/m/demo">
+          <Link className="btn btn-secondary" to="/">
             <Icon name="eye" size={18} /> Посмотреть как посетитель
           </Link>
         </div>

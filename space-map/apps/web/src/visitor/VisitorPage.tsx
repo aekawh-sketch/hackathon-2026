@@ -4,9 +4,9 @@ import {
   NavGraph,
   nearestVisibleNode,
   panoramaForPlace,
+  panoramaPointName,
   normalize180,
   routeDirectionInPanorama,
-  routeInPanorama,
   routePolyline,
   searchPlaces,
   unitAt,
@@ -25,6 +25,7 @@ import { PlanCanvas } from '../plan/PlanCanvas.tsx';
 import { ErrorBoundary } from '../ui/ErrorBoundary.tsx';
 import { CategoryBadge, Icon } from '../ui/icons.tsx';
 import { Sheet, useMediaQuery, type SheetMode } from '../ui/Sheet.tsx';
+import { ThemeToggle } from '../ui/theme.tsx';
 
 const PanoramaViewer = lazy(() => import('../panorama/PanoramaViewer.tsx'));
 const Model3DView = lazy(() => import('../three/Model3DView.tsx'));
@@ -122,7 +123,8 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
   const [to, setTo] = useState<Endpoint | null>(null);
   /** Какой конец маршрута ставится следующим касанием карты. */
   const [picking, setPicking] = useState<'from' | 'to' | null>(null);
-  const [mode, setMode] = useState<'plan' | '3d'>('plan');
+  // Посетитель сразу видит площадку в 3D — так понятнее, как она устроена; план — одним касанием.
+  const [mode, setMode] = useState<'plan' | '3d'>('3d');
   const [pano, setPano] = useState<PanoState | null>(null);
   const [panoPlace, setPanoPlace] = useState<string | null>(null);
   const [fitKey, setFitKey] = useState(0);
@@ -219,8 +221,6 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
     return { next: ids[i + 1] ?? null, prev: ids[i - 1] ?? null };
   }, [current, routeLine, pano, walk]);
 
-  const panoRoute = useMemo(() => (current && routeLine ? routeInPanorama(doc, current, routeLine) : []), [current, routeLine]);
-
   const panoMarkers: PanoMarker[] = useMemo(() => {
     if (!current) return [];
     const places: PanoMarker[] = current.markers
@@ -236,7 +236,7 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
       .filter((l) => l.status === 'accepted' && panoById.has(l.to))
       .map((l) => {
         const target = panoById.get(l.to)!;
-        const room = unitAt(doc, target.level, target.pos)?.name;
+        const room = panoramaPointName(doc, target.id) ?? unitAt(doc, target.level, target.pos)?.name;
         if (routeNeighbours && l.to === next) {
           return { id: `link:${l.to}`, kind: 'link', yaw: l.yaw, pitch: -22, label: `Дальше по маршруту · ${Math.round(dist(current.pos, target.pos))} м`, route: 'next' };
         }
@@ -375,14 +375,12 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
     </div>
   );
 
-  // «Редактировать план» — редактор именно этой площадки: без входа сначала вход (гость при общем доступе
-  // попадает сюда же, а не в свою копию), чужую площадку без общего доступа редактор честно не откроет.
-  // Карта, встроенная в чужой сайт, кнопку не показывает.
+  // Посетитель карту не правит — редактор только из кабинета. Отсюда — ко всем картам; встроенная в чужой сайт карта
+  // кнопку не показывает: уводить с чужой страницы незачем.
   const embedded = window.self !== window.top;
-  const edit = offlineDemo ? { to: '/app/editor', label: 'Редактировать план' } : { to: `/app/venues/${doc.venue.id}`, label: 'Редактировать план' };
-  const editLink = embedded ? null : (
-    <Link to={edit.to} className="icon-btn" aria-label={edit.label} title={edit.label}>
-      <Icon name="edit" size={19} />
+  const homeLink = embedded ? null : (
+    <Link to="/" className="icon-btn" aria-label="Все карты" title="Все карты">
+      <Icon name="grid" size={19} />
     </Link>
   );
 
@@ -549,6 +547,12 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
           })}
           {results.length === 0 && <li className="hint empty-row">Ничего не нашлось. Попробуйте другое слово.</li>}
         </ul>
+        {/* На телефоне в шапке место нужно названию — переключатель темы внизу списка. */}
+        {!desktop && (
+          <div className="sheet-foot">
+            <ThemeToggle labeled className="btn btn-ghost" />
+          </div>
+        )}
       </div>
     );
   }
@@ -594,7 +598,7 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
           {brand}
           <div className="topbar-actions">
             {viewSwitch}
-            {editLink}
+            {homeLink}
           </div>
         </header>
       )}
@@ -611,7 +615,8 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
               {brand}
               <div className="topbar-actions">
                 {viewSwitch}
-                {editLink}
+                <ThemeToggle />
+                {homeLink}
               </div>
             </div>
           ) : null
@@ -630,7 +635,6 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
               previewUrl={panoramaUrls(current).preview}
               initialYaw={pano.yaw}
               markers={panoMarkers}
-              routeLines={panoRoute}
               onMarkerClick={onPanoMarker}
             />
           </Suspense>

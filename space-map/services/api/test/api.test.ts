@@ -295,6 +295,29 @@ describe('публикация', () => {
     expect((await new Client().req('GET', `/p/${v.slug}/latest.json`)).statusCode).toBe(404);
     expect((await c.req('GET', `/p/${v.slug}/latest.json`)).statusCode).toBe(200);
   });
+
+  it('каталог «Все карты» — только опубликованные открытые, данные из опубликованной версии', async () => {
+    const c = await newUser();
+    const open = await newVenue(c, 'Открытая карта');
+    const closed = await newVenue(c, 'Закрытая карта');
+    const draftOnly = await newVenue(c, 'Черновик');
+    for (const v of [open, closed]) {
+      const { revision } = (await c.req('GET', `/api/venues/${v.id}/draft`)).json();
+      await c.req('PUT', `/api/venues/${v.id}/draft`, { revision, doc: demoVenue() });
+      await c.req('POST', `/api/venues/${v.id}/publish`);
+    }
+    await c.req('PATCH', `/api/venues/${closed.id}`, { visibility: 'private' });
+    const res = await new Client().req('GET', '/p/index.json');
+    expect(res.statusCode).toBe(200);
+    const slugs = res.json().venues.map((x: { slug: string }) => x.slug);
+    expect(slugs).toContain(open.slug);
+    expect(slugs).not.toContain(closed.slug);
+    expect(slugs).not.toContain(draftOnly.slug);
+    const item = res.json().venues.find((x: { slug: string }) => x.slug === open.slug);
+    expect(item.stats.panoramas).toBe(demoVenue().panoramas.length);
+    expect(item.thumb.units.length).toBeGreaterThan(0);
+    expect(item.coverPano).toBe(demoVenue().panoramas[0]!.pano);
+  });
 });
 
 describe('панорамы', () => {

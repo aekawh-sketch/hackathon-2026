@@ -27,8 +27,6 @@ export interface PanoramaViewerProps {
   imageUrl: string;
   previewUrl?: string;
   markers: PanoMarker[];
-  /** Линия маршрута на полу: куски из точек [yaw, pitch] в градусах. */
-  routeLines?: [number, number][][];
   /** Куда смотреть после загрузки, градусы. */
   initialYaw?: number;
   onMarkerClick?: (marker: PanoMarker) => void;
@@ -37,7 +35,7 @@ export interface PanoramaViewerProps {
   onError?: () => void;
 }
 
-export default function PanoramaViewer({ imageUrl, previewUrl, markers, routeLines = [], initialYaw = 0, onMarkerClick, onPanoClick, onError }: PanoramaViewerProps) {
+export default function PanoramaViewer({ imageUrl, previewUrl, markers, initialYaw = 0, onMarkerClick, onPanoClick, onError }: PanoramaViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
   const callbacks = useRef({ onMarkerClick, onPanoClick, onError });
@@ -102,18 +100,9 @@ export default function PanoramaViewer({ imageUrl, previewUrl, markers, routeLin
     const viewer = viewerRef.current;
     if (!viewer) return;
     const plugin = viewer.getPlugin<MarkersPlugin>(MarkersPlugin);
-    const rad = (deg: number) => (deg * Math.PI) / 180;
-    // Линия маршрута лежит на полу: белая подложка и синяя линия поверх — видна и на светлом полу.
-    const route = routeLines.flatMap((line, i) => {
-      const polyline = line.map(([yaw, pitch]) => [rad(yaw), rad(pitch)] as [number, number]);
-      return [
-        { id: `route-casing:${i}`, polyline, svgStyle: { stroke: 'rgba(255,255,255,0.85)', strokeWidth: '14px', strokeLinecap: 'round', strokeLinejoin: 'round', fill: 'none' } },
-        { id: `route:${i}`, polyline, svgStyle: { stroke: '#2F5BEA', strokeWidth: '8px', strokeLinecap: 'round', strokeLinejoin: 'round', fill: 'none' } },
-      ];
-    });
-    plugin.setMarkers([
-      ...route,
-      ...markers.map((m) => ({
+    // Путь в панораме показывают только стрелки переходов: линия на полу «плыла» и закрывала пол.
+    plugin.setMarkers(
+      markers.map((m) => ({
         id: m.id,
         position: { yaw: `${m.yaw}deg`, pitch: `${m.pitch}deg` },
         element: markerElement(m),
@@ -121,8 +110,8 @@ export default function PanoramaViewer({ imageUrl, previewUrl, markers, routeLin
         // У мест и у стрелки «Дальше» подпись уже под значком, подсказка нужна остальным стрелкам.
         ...(m.kind === 'link' && m.route !== 'next' ? { tooltip: { content: escapeHtml(m.label), position: 'top center' } } : {}),
       })),
-    ]);
-  }, [markers, routeLines]);
+    );
+  }, [markers]);
 
   return <div ref={containerRef} className="pano-viewer" />;
 }
