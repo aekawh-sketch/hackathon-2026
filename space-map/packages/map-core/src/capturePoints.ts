@@ -2,9 +2,11 @@
 // закрыли пол каждого помещения, а соседние точки видели друг друга, в том числе через двери:
 // тогда между ними есть переход и прогулка по любому маршруту идёт без разрывов (ТЗ 5.10).
 // Расчёт — по плану: мебели и стёкол план не знает, поэтому точки — предложение, последнее слово за организатором.
-import { distance, hasLineOfSight, pointInUnit, pointSegmentDistance, polygonArea, polygonEdges, segmentIntersection, signedArea, unitRings } from './geometry.ts';
+import { rebuildGraph } from './edit.ts';
+import { distance, hasLineOfSight, normalize360, pointInUnit, pointSegmentDistance, polygonArea, polygonEdges, segmentIntersection, signedArea, unitRings } from './geometry.ts';
 import { NavGraph, nearestVisibleNode, routePolyline } from './graph.ts';
-import type { CapturePoint, MapDocument, Opening, Unit, Vec2 } from './types.ts';
+import { acceptSuggestions, suggestLinks } from './panorama.ts';
+import type { CapturePoint, MapDocument, Opening, PanoramaPlacement, Unit, Vec2 } from './types.ts';
 
 export interface CapturePlanOptions {
   /**
@@ -208,6 +210,53 @@ export function attachPanoramaToPoint(doc: MapDocument, pointId: string, panoram
       p.id === pointId ? { ...p, panorama: panoramaId, origin: p.origin === 'removed' ? 'manual' : p.origin } : p,
     ),
   };
+}
+
+export interface ShotPanorama {
+  /** Точка съёмки, в которой сняли; null — панорама без точки. */
+  pointId: string | null;
+  /** ID обработанной панорамы на сервере. */
+  pano: string;
+  level: string;
+  /** Где стояла камера на плане. */
+  pos: Vec2;
+  /** Азимут плана, куда смотрит центр панорамы; null — направление зададут потом по двери. */
+  heading: number | null;
+  cameraHeight: number;
+}
+
+/**
+ * Снятая панорама — на план: встаёт на место съёмки, точка отмечается снятой, граф строится заново.
+ * Метки мест в ней и переходы между ней и соседними панорамами (в обе стороны) принимаются сразу:
+ * их посчитали по плану, а после съёмки организатор проверит их, листая панорамы.
+ */
+export function addPanoramaAtPoint(doc: MapDocument, shot: ShotPanorama): { doc: MapDocument; id: string } {
+  const id = freeId(new Set(doc.panoramas.map((p) => p.id)), 'pa');
+  const placement: PanoramaPlacement = {
+    id,
+    pano: shot.pano,
+    level: shot.level,
+    pos: round2v(shot.pos),
+    node: null,
+    heading: shot.heading === null ? null : Math.round(normalize360(shot.heading) * 10) / 10,
+    cameraHeight: Math.round(shot.cameraHeight * 100) / 100,
+    markers: [],
+    customMarkers: [],
+    links: [],
+  };
+  let next = rebuildGraph({ ...doc, panoramas: [...doc.panoramas, placement] }, shot.level);
+  if (shot.pointId) next = attachPanoramaToPoint(next, shot.pointId, id);
+  next = acceptSuggestions(next, id);
+  // Соседи получают переход сюда; их остальные подсказки не трогаем.
+  next = {
+    ...next,
+    panoramas: next.panoramas.map((pa) => {
+      if (pa.id === id || pa.level !== shot.level) return pa;
+      const back = suggestLinks(next, pa).filter((l) => l.to === id);
+      return back.length ? { ...pa, links: [...pa.links, ...back.map((l) => ({ ...l, status: 'accepted' as const }))] } : pa;
+    }),
+  };
+  return { doc: next, id };
 }
 
 // ── Маршрут съёмки ──

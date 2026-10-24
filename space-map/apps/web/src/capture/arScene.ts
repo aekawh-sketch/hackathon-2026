@@ -1,8 +1,10 @@
 // AR-сцена маршрута съёмки на WebXR (Chrome на Android с ARCore). Браузер сам показывает камеру и
 // отслеживает, где телефон, — разметка стоит на полу, пока человек идёт. Мы рисуем ленту маршрута
 // с бегущими шевронами и кольцо следующей точки. Связь мира WebXR с планом — `ArFrame` в map-core.
-import type { XrPoint } from '@space-map/map-core';
+// В точке — съёмка фотосферы: кадры камеры (`camera-access`) раскладываются на сферу по повороту из ARCore (`PanoBuilder`).
+import { SphereCoverage, type CameraFrustum, type XrPoint } from '@space-map/map-core';
 import * as THREE from 'three';
+import { PanoBuilder } from './panoBuilder.ts';
 
 export interface XrPose {
   position: XrPoint;
@@ -28,6 +30,35 @@ export async function arSupported(): Promise<boolean> {
     return false;
   }
 }
+
+/** Как идёт съёмка фотосферы — для подсказок на экране. */
+export interface SphereProgress {
+  /** Доля снятой сферы, 0…1. */
+  fraction: number;
+  frames: number;
+  /** Человек отошёл от места съёмки — кадры не снимаются. */
+  moved: boolean;
+  steady: boolean;
+  /** Куда повернуть телефон к неснятому; null — держите как есть. */
+  hint: 'left' | 'right' | 'up' | 'down' | null;
+  /** Кадров камеры нет: браузер не дал `camera-access`. */
+  noCamera: boolean;
+}
+
+// В @types/webxr нет модуля доступа к камере (WebXR Raw Camera Access) — описываем то, чем пользуемся.
+interface XrViewWithCamera {
+  camera?: unknown;
+}
+interface XrCameraBinding {
+  getCameraImage(camera: unknown): WebGLTexture | null;
+}
+
+/** Снимать, если в кадре столько ещё не снятого, телефон неподвижен и человек на месте. */
+const SHOT_GAIN = 0.2;
+const STEADY_DEG = 1.5;
+const STEADY_MS = 250;
+const SHOT_EVERY = 350;
+const MAX_MOVE = 0.35;
 
 const COLOR = new THREE.Color('#7C3AED');
 const ARRIVED = new THREE.Color('#12A150');
@@ -59,10 +90,28 @@ export class ArScene {
   private session: XRSession | null = null;
   private lastPose = 0;
   private labelText = '1';
+  /** Браузер дал кадры камеры — можно снимать фотосферу. */
+  cameraAccess = false;
+  private sphere: {
+    builder: PanoBuilder;
+    coverage: SphereCoverage;
+    center: THREE.Vector3;
+    history: { t: number; f: THREE.Vector3 }[];
+    lastShot: number;
+    lastReport: number;
+    lastDots: number;
+    dots: THREE.Points;
+    camera: THREE.ExternalTexture;
+  } | null = null;
 
   constructor(
     private readonly overlay: HTMLElement,
-    private readonly callbacks: { onPose: (pose: XrPose) => void; onEnd: () => void },
+    private readonly callbacks: {
+      onPose: (pose: XrPose) => void;
+      onEnd: () => void;
+      onSphere?: (progress: SphereProgress) => void;
+      onShot?: () => void;
+    },
   ) {
     this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
@@ -106,7 +155,10 @@ export class ArScene {
     try {
       // Один запрос, всё необязательное: повторный запрос после отказа браузер может не пустить —
       // нажатие кнопки уже «израсходовано», а обязательная возможность, которой нет, роняет весь запуск.
-      session = await xr.requestSession('immersive-ar', { optionalFeatures: ['local-floor', 'dom-overlay'], domOverlay: { root: this.overlay } });
+      session = await xr.requestSession('immersive-ar', {
+        optionalFeatures: ['local-floor', 'dom-overlay', 'camera-access'],
+        domOverlay: { root: this.overlay },
+      });
     } catch (err) {
       throw new ArStartError(err instanceof DOMException ? err.name : 'Error', err instanceof Error ? err.message : String(err));
     }
@@ -121,6 +173,8 @@ export class ArScene {
     } catch {
       this.space = 'local';
     }
+    // Старый Chrome не сообщает включённые возможности — тогда узнаем по первому кадру съёмки.
+    this.cameraAccess = session.enabledFeatures?.includes('camera-access') ?? true;
     this.session = session;
     session.addEventListener('end', () => {
       this.renderer.setAnimationLoop(null);
@@ -167,14 +221,131 @@ export class ArScene {
     sprite.needsUpdate = true;
   }
 
+  // ── Фотосфера ──
+
+  /** Начать съёмку фотосферы с места, где сейчас камера. Лента и кольцо прячутся, вокруг — точки «сюда навести». */
+  startSphere(): void {
+    if (!this.pose) throw new Error('Нет положения камеры');
+    this.cancelSphere();
+    const dots = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ map: dotTexture(), color: COLOR, size: 0.11, transparent: true, depthTest: false, alphaTest: 0.2 }));
+    dots.renderOrder = 10;
+    this.scene.add(dots);
+    this.sphere = {
+      builder: new PanoBuilder(this.renderer),
+      coverage: new SphereCoverage(),
+      center: new THREE.Vector3(...this.pose.position),
+      history: [],
+      lastShot: 0,
+      lastReport: 0,
+      lastDots: 0,
+      dots,
+      camera: new THREE.ExternalTexture(null),
+    };
+    this.route.visible = false;
+    this.target.visible = false;
+    this.updateDots();
+  }
+
+  /** Начать сферу заново на том же месте. */
+  restartSphere(): void {
+    if (!this.sphere) return;
+    this.sphere.builder.clear();
+    this.sphere.coverage.reset();
+    this.updateDots();
+  }
+
+  /** Закончить съёмку: панорама JPEG 2:1 и сколько кадров в ней. */
+  async finishSphere(): Promise<{ blob: Blob; frames: number; fraction: number }> {
+    const s = this.sphere;
+    if (!s) throw new Error('Съёмка не начата');
+    const result = { blob: await s.builder.toBlob(), frames: s.builder.frames, fraction: s.coverage.fraction };
+    this.cancelSphere();
+    return result;
+  }
+
+  cancelSphere(): void {
+    const s = this.sphere;
+    if (!s) return;
+    this.sphere = null;
+    this.scene.remove(s.dots);
+    s.dots.geometry.dispose();
+    s.builder.dispose();
+    this.route.visible = true;
+    this.target.visible = this.route.children.length > 0;
+  }
+
   end(): void {
     void this.session?.end().catch(() => undefined);
   }
 
   dispose(): void {
+    this.cancelSphere();
     this.end();
     clear(this.route);
     this.renderer.dispose();
+  }
+
+  /** Точки на сфере радиусом 1,6 м вокруг места съёмки — там, где ещё не снято. */
+  private updateDots(): void {
+    const s = this.sphere;
+    if (!s) return;
+    const pts: number[] = [];
+    for (const lat of [-60, -35, -10, 15, 40, 65, 85]) {
+      const n = Math.max(1, Math.round(14 * Math.cos((lat * Math.PI) / 180)));
+      for (let i = 0; i < n; i++) {
+        const lon = (i / n) * Math.PI * 2;
+        const r = (lat * Math.PI) / 180;
+        const dir: XrPoint = [Math.sin(lon) * Math.cos(r), Math.sin(r), -Math.cos(lon) * Math.cos(r)];
+        if (s.coverage.coveredAt(dir)) continue;
+        pts.push(s.center.x + dir[0] * 1.6, s.center.y + dir[1] * 1.6, s.center.z + dir[2] * 1.6);
+      }
+    }
+    s.dots.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    s.dots.geometry.computeBoundingSphere();
+  }
+
+  private sphereTick(time: number, view: XRView): void {
+    const s = this.sphere!;
+    const o = view.transform.orientation;
+    const q = new THREE.Quaternion(o.x, o.y, o.z, o.w);
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(q);
+    const p = view.transform.position;
+    const moved = s.center.distanceTo(new THREE.Vector3(p.x, p.y, p.z)) > MAX_MOVE;
+
+    // Телефон неподвижен, если за последние 250 мс взгляд почти не сдвинулся.
+    s.history.push({ t: time, f: forward.clone() });
+    while (s.history.length && time - s.history[0]!.t > STEADY_MS) s.history.shift();
+    const steady = s.history.length > 3 && s.history.every((h) => h.f.angleTo(forward) < (STEADY_DEG * Math.PI) / 180);
+
+    const P = view.projectionMatrix;
+    const frustum: CameraFrustum = { q: [q.x, q.y, q.z, q.w], tanX: 1 / P[0]!, tanY: 1 / P[5]! };
+    const cameraCam = (view as XRView & XrViewWithCamera).camera;
+    const noCamera = !cameraCam;
+    if (cameraCam && steady && !moved && time - s.lastShot > SHOT_EVERY && s.coverage.gain(frustum) >= SHOT_GAIN) {
+      const binding = this.renderer.xr.getBinding() as unknown as XrCameraBinding | null;
+      const image = binding?.getCameraImage(cameraCam) ?? null;
+      if (image) {
+        s.camera.sourceTexture = image;
+        s.builder.stamp(s.camera, q, new THREE.Matrix4().fromArray(P));
+        s.coverage.mark(frustum);
+        s.lastShot = time;
+        this.callbacks.onShot?.();
+        this.updateDots();
+      }
+    }
+
+    if (time - s.lastReport >= 120) {
+      s.lastReport = time;
+      // Куда повернуть: ближайшее неснятое в системе камеры.
+      let hint: SphereProgress['hint'] = null;
+      const missing = s.coverage.nearestMissing([forward.x, forward.y, forward.z]);
+      if (missing) {
+        const c = new THREE.Vector3(...missing).applyQuaternion(q.clone().invert());
+        const off = Math.atan2(Math.hypot(c.x, c.y), -c.z);
+        if (off > (20 * Math.PI) / 180) hint = Math.abs(c.x) >= Math.abs(c.y) ? (c.x > 0 ? 'right' : 'left') : c.y > 0 ? 'up' : 'down';
+      }
+      this.callbacks.onSphere?.({ fraction: s.coverage.fraction, frames: s.builder.frames, moved, steady, hint, noCamera });
+    }
   }
 
   private tick(time: number, frame?: XRFrame): void {
@@ -186,6 +357,7 @@ export class ArScene {
 
     const space = this.renderer.xr.getReferenceSpace();
     const viewer = frame && space ? frame.getViewerPose(space) : undefined;
+    if (viewer && this.sphere && viewer.views[0]) this.sphereTick(time, viewer.views[0]);
     if (viewer) {
       const { position: p, orientation: o } = viewer.transform;
       const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(o.x, o.y, o.z, o.w));
@@ -262,6 +434,21 @@ function labelTexture(text: string, color: THREE.Color): THREE.CanvasTexture {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
+}
+
+function dotTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 64;
+  const ctx = c.getContext('2d')!;
+  ctx.beginPath();
+  ctx.arc(32, 32, 26, 0, Math.PI * 2);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fill();
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+  ctx.stroke();
+  return new THREE.CanvasTexture(c);
 }
 
 function clear(group: THREE.Group): void {

@@ -12,3 +12,4 @@ export * from './doors.ts';
 export * from './rooms.ts';
 export * from './capturePoints.ts';
 export * from './routeView.ts';
+export * from './sphereCapture.ts';

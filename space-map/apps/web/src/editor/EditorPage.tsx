@@ -2,6 +2,7 @@
 // Площадка организатора хранится на сервере (автосохранение с ревизией, ТЗ 7.2);
 // демо без сервера (`/app/editor`) — в браузере, и `/m/demo` в этом же браузере видит изменения, если API недоступен.
 import {
+  addPanoramaAtPoint,
   captureRoute,
   DEFAULT_DOOR_PRESET,
   deleteHole,
@@ -17,6 +18,7 @@ import {
   validateReferences,
   type DoorPreset,
   type MapDocument,
+  type ShotPanorama,
 } from '@space-map/map-core';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -361,6 +363,31 @@ function Editor({ initial, server }: EditorProps) {
   }, [doc, level]);
   const openGuide = (from: string | null) => setGuide({ from });
 
+  // Снятая или загруженная панорама — на план. Загрузка идёт долго, поэтому берём свежий документ, а не тот, что был при нажатии.
+  const docRef = useRef(doc);
+  docRef.current = doc;
+  const placePanorama = (shot: ShotPanorama) => {
+    commit(addPanoramaAtPoint(docRef.current, shot).doc);
+    showToast(shot.heading === null ? 'Панорама встала в точку. Метки и переходы в ней появятся, когда будет задано её направление' : 'Фотосфера сохранена и встала в точку');
+  };
+  const panoFileRef = useRef<HTMLInputElement>(null);
+  const uploadFor = useRef<string | null>(null);
+  const uploadPanoramaFor = (pointId: string) => {
+    uploadFor.current = pointId;
+    panoFileRef.current?.click();
+  };
+  const uploadPanorama = async (file: File) => {
+    const point = docRef.current.capturePoints?.find((p) => p.id === uploadFor.current);
+    if (!server || !point) return;
+    showToast('Загружаем панораму…');
+    try {
+      const asset = await venuesApi.uploadPanorama(server.venue.id, file);
+      placePanorama({ pointId: point.id, pano: asset.id, level: point.level, pos: point.pos, heading: null, cameraHeight: 1.5 });
+    } catch (err) {
+      showToast(err instanceof ApiError ? err.message : 'Не удалось загрузить панораму');
+    }
+  };
+
   const menuItems: { icon: IconName; label: string; onClick: () => void; pressed?: boolean; danger?: boolean }[] = [
     ...(desktop ? [] : [{ icon: (view === 'plan' ? 'cube' : 'map') as IconName, label: view === 'plan' ? 'Показать в 3D' : 'Вернуться к плану', onClick: () => setView(view === 'plan' ? '3d' : 'plan') }]),
     { icon: 'layers', label: 'Сетка маршрутов', onClick: () => setShowGraph((g) => !g), pressed: showGraph },
@@ -530,15 +557,26 @@ function Editor({ initial, server }: EditorProps) {
         <>
           <div className="tool-rail">{toolbar}</div>
           <aside className="inspector" aria-label="Свойства">
-            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} />
+            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} />
           </aside>
         </>
       ) : (
         <Sheet mode={sheetMode} onModeChange={setSheetMode} desktop={false} peekHeight={118} topGap={64} onHeight={setSheetHeight} label="Инструменты и свойства" header={toolbar}>
-          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} />
+          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} />
         </Sheet>
       )}
 
+      <input
+        ref={panoFileRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void uploadPanorama(f);
+          e.target.value = '';
+        }}
+      />
       <input
         ref={fileRef}
         type="file"
@@ -560,7 +598,7 @@ function Editor({ initial, server }: EditorProps) {
       {guide && (
         <ErrorBoundary fallback={<div className="screen-message">Не удалось открыть камеру.</div>}>
           <Suspense fallback={<div className="screen-message"><div className="loader" /></div>}>
-            <CaptureGuide doc={doc} level={level} startId={guide.from} onClose={() => setGuide(null)} />
+            <CaptureGuide doc={doc} level={level} startId={guide.from} venueId={server?.venue.id ?? null} onPanorama={placePanorama} onClose={() => setGuide(null)} />
           </Suspense>
         </ErrorBoundary>
       )}

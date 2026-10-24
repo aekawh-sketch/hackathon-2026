@@ -29,11 +29,13 @@ import {
   type CameraPose,
   type MapDocument,
   type Quat,
+  type ShotPanorama,
   type Vec2,
 } from '@space-map/map-core';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ApiError, venuesApi } from '../api.ts';
 import { Icon } from '../ui/icons.tsx';
-import { arSupported, ArScene, ArStartError, type XrPose } from './arScene.ts';
+import { arSupported, ArScene, ArStartError, type SphereProgress, type XrPose } from './arScene.ts';
 
 /** Телефон держат на уровне глаз. */
 const CAMERA_HEIGHT = 1.5;
@@ -47,19 +49,28 @@ export interface CaptureGuideProps {
   level: string;
   /** Человек уже стоит в этой точке; null — начинает от входа. */
   startId: string | null;
+  /** Площадка на сервере — туда уходят снятые фотосферы; null — демо без сервера, фотосфера скачивается файлом. */
+  venueId: string | null;
+  /** Фотосфера сохранена на сервере — поставить её на план. */
+  onPanorama: (shot: ShotPanorama) => void;
   onClose: () => void;
 }
 
 type Mode = 'ar' | 'steps';
-type Phase = 'intro' | 'aim' | 'guide' | 'done';
+type Phase = 'intro' | 'aim' | 'guide' | 'sphere' | 'done';
+
+/** Готово, если снято столько сферы; раньше можно, но дыры будут заметны. */
+const SPHERE_DONE = 0.97;
+const SPHERE_MIN = 0.85;
 
 interface Landmark {
   pos: Vec2;
   label: string;
 }
 
-export default function CaptureGuide({ doc, level, startId, onClose }: CaptureGuideProps) {
-  const route = useMemo(() => captureRoute(doc, level), [doc, level]);
+export default function CaptureGuide({ doc, level, startId, venueId, onPanorama, onClose }: CaptureGuideProps) {
+  // Маршрут считается один раз: снятые точки выпадают из плана съёмки, но порядок обхода не должен прыгать.
+  const [route] = useState(() => captureRoute(doc, level));
   const pointById = useMemo(() => new Map((doc.capturePoints ?? []).map((p) => [p.id, p])), [doc]);
   const firstStep = useMemo(() => {
     if (!startId) return 0;
@@ -74,6 +85,12 @@ export default function CaptureGuide({ doc, level, startId, onClose }: CaptureGu
   /** Почему не запустился AR — имя ошибки браузера; показываем, что с ней делать, и даём выбор. */
   const [arFailure, setArFailure] = useState<string | null>(null);
   const [arrived, setArrived] = useState(false);
+  const [sphere, setSphere] = useState<SphereProgress | null>(null);
+  const [flash, setFlash] = useState(0);
+  const [saving, setSaving] = useState(false);
+  /** Фотосфера в этой точке уже сохранена. */
+  const [savedHere, setSavedHere] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -186,6 +203,11 @@ export default function CaptureGuide({ doc, level, startId, onClose }: CaptureGu
       try {
         const scene = new ArScene(rootRef.current!, {
           onPose: setPose,
+          onSphere: setSphere,
+          onShot: () => {
+            setFlash((f) => f + 1);
+            navigator.vibrate?.(15);
+          },
           onEnd: () => {
             ar.current = null;
             setFrame(null);
@@ -247,6 +269,7 @@ export default function CaptureGuide({ doc, level, startId, onClose }: CaptureGu
     if (mode === 'ar' && frame && p && target) setFrame(reanchorArFrame(frame, p.position, target.pos));
     legStartSteps.current = detector.current.steps;
     shownAlong.current = 0;
+    setSavedHere(false);
     if (step + 1 >= route.legs.length) {
       setPhase('done');
       ar.current?.end();
@@ -258,6 +281,63 @@ export default function CaptureGuide({ doc, level, startId, onClose }: CaptureGu
   const close = () => {
     ar.current?.end();
     onClose();
+  };
+
+  // ── Фотосфера ──
+  const startSphere = () => {
+    const scene = ar.current;
+    if (!scene?.pose) return;
+    if (!scene.cameraAccess) return setError('Браузер не дал кадры камеры для съёмки — загрузите готовую панораму.');
+    setError(null);
+    setSphere(null);
+    scene.startSphere();
+    setPhase('sphere');
+  };
+
+  const cancelSphere = () => {
+    ar.current?.cancelSphere();
+    setPhase('guide');
+  };
+
+  /** Фотосфера готова: на сервер и на план; в демо без сервера — файлом на телефон. */
+  const saveShot = async (blob: Blob, heading: number | null, cameraHeight: number) => {
+    if (!target || !here) return;
+    if (!venueId) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `фотосфера-${targetNo}.jpg`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      return setError('Это демо без сервера: фотосфера скачана файлом. Чтобы она встала на план, снимайте в площадке из кабинета.');
+    }
+    setSaving(true);
+    try {
+      const asset = await venuesApi.uploadPanorama(venueId, new File([blob], `sphere-${targetNo}.jpg`, { type: blob.type || 'image/jpeg' }));
+      onPanorama({ pointId: target.id, pano: asset.id, level, pos: here, heading, cameraHeight });
+      setSavedHere(true);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не удалось сохранить фотосферу — проверьте связь и попробуйте ещё раз.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const finishSphere = async () => {
+    const scene = ar.current;
+    const p = scene?.pose;
+    if (!scene || !frame || !p) return;
+    setSaving(true);
+    try {
+      const { blob } = await scene.finishSphere();
+      setPhase('guide');
+      // Центр панорамы — ось «вперёд» мира AR, а её азимут на плане даёт привязка: поворачивать по двери не нужно.
+      await saveShot(blob, frame.delta, Math.min(2.2, Math.max(0.8, p.position[1] - frame.floorY)));
+    } catch {
+      setError('Не удалось собрать фотосферу — попробуйте снять ещё раз.');
+      setSaving(false);
+    }
   };
 
   // ── Разметка в режиме шагов ──
@@ -289,6 +369,20 @@ export default function CaptureGuide({ doc, level, startId, onClose }: CaptureGu
   }
 
   const inAr = mode === 'ar' && phase !== 'intro' && phase !== 'done';
+  const spherePct = Math.round((sphere?.fraction ?? 0) * 100);
+  const sphereText = !sphere
+    ? 'Медленно поворачивайтесь на месте — кадры снимаются сами'
+    : sphere.noCamera
+      ? 'Браузер не даёт кадры камеры — загрузите готовую панораму'
+      : sphere.moved
+        ? 'Вернитесь на место: поворачивайтесь вокруг телефона, не шагайте'
+        : sphere.fraction >= SPHERE_DONE
+          ? 'Готово — можно сохранять'
+          : !sphere.steady
+            ? 'Медленнее — кадр снимется, когда телефон замрёт'
+            : sphere.hint
+              ? { left: 'Поверните левее, на фиолетовые точки', right: 'Поверните правее, на фиолетовые точки', up: 'Наклоните вверх — снимите потолок', down: 'Наклоните вниз — снимите пол' }[sphere.hint]
+              : 'Держите — снимаем';
 
   return (
     <div ref={rootRef} className={`guide ${inAr ? 'is-ar' : ''}`} role="dialog" aria-label="Маршрут съёмки">
@@ -324,13 +418,30 @@ export default function CaptureGuide({ doc, level, startId, onClose }: CaptureGu
         </svg>
       )}
 
-      {(phase === 'aim' || phase === 'guide') && <div className={`guide-cross ${phase === 'guide' ? 'is-faint' : ''}`} aria-hidden />}
+      {(phase === 'aim' || phase === 'guide' || phase === 'sphere') && <div className={`guide-cross ${phase === 'guide' ? 'is-faint' : ''}`} aria-hidden />}
+      {phase === 'sphere' && flash > 0 && <div key={flash} className="guide-flash" aria-hidden />}
+      {phase === 'sphere' && sphere?.hint && sphere.fraction < SPHERE_DONE && !sphere.moved && (
+        <div className={`guide-tilt is-${sphere.hint}`} aria-hidden>
+          <Icon name="back" size={30} />
+        </div>
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void saveShot(f, null, CAMERA_HEIGHT);
+          e.target.value = '';
+        }}
+      />
 
       <div className="guide-top">
         <button type="button" className="glass-btn" onClick={close}>
           <Icon name="back" size={18} />К плану
         </button>
-        {phase === 'guide' && route.legs.length > 0 && (
+        {(phase === 'guide' || phase === 'sphere') && route.legs.length > 0 && (
           <span className="glass-title">
             Точка {targetNo} из {route.legs.length}
           </span>
@@ -338,12 +449,24 @@ export default function CaptureGuide({ doc, level, startId, onClose }: CaptureGu
         {mode && phase !== 'intro' && phase !== 'done' && <span className="guide-mode">{mode === 'ar' ? 'AR' : 'По шагам'}</span>}
       </div>
 
+      {phase === 'sphere' && (
+        <div className={`guide-hud ${(sphere?.fraction ?? 0) >= SPHERE_DONE ? 'is-arrived' : ''}`} aria-live="polite">
+          <strong>{spherePct} %</strong>
+          <span>{sphereText}</span>
+        </div>
+      )}
+
       {phase === 'guide' && target && (
-        <div className={`guide-hud ${isArrived ? 'is-arrived' : ''}`} aria-live="polite">
-          {isArrived ? (
+        <div className={`guide-hud ${isArrived || savedHere ? 'is-arrived' : ''}`} aria-live="polite">
+          {savedHere ? (
+            <>
+              <strong>Фотосфера сохранена</strong>
+              <span>Она уже стоит в точке {targetNo} на плане</span>
+            </>
+          ) : isArrived ? (
             <>
               <strong>Вы на точке {targetNo}</strong>
-              <span>Встаньте в центр кольца и снимите панораму</span>
+              <span>Встаньте в центр кольца и снимите фотосферу</span>
             </>
           ) : (
             <>
@@ -437,18 +560,34 @@ export default function CaptureGuide({ doc, level, startId, onClose }: CaptureGu
         {phase === 'guide' && leg && (
           <>
             <p className="guide-step">
-              {isArrived
-                ? 'Снимите панораму, затем нажмите «Снято — дальше».'
-                : mode === 'ar'
-                  ? 'Идите по фиолетовой линии к кольцу.'
-                  : `Идите по линии ровным шагом — разметка движется по шагам (${detector.current.steps - legStartSteps.current}).`}
+              {savedHere
+                ? 'Идём к следующей точке.'
+                : isArrived
+                  ? mode === 'ar'
+                    ? 'Встаньте в кольцо и снимите фотосферу: телефон на уровне глаз, поворачивайтесь на месте.'
+                    : 'Снимите фотосферу приложением или 360-камерой и загрузите её сюда.'
+                  : mode === 'ar'
+                    ? 'Идите по фиолетовой линии к кольцу.'
+                    : `Идите по линии ровным шагом — разметка движется по шагам (${detector.current.steps - legStartSteps.current}).`}
             </p>
+            {isArrived && !savedHere && (
+              <div className="row guide-shoot">
+                {mode === 'ar' && (
+                  <button type="button" className="btn btn-success" disabled={saving} onClick={startSphere}>
+                    <Icon name="camera" size={18} /> Снять фотосферу
+                  </button>
+                )}
+                <button type="button" className={`btn ${mode === 'ar' ? 'btn-secondary' : 'btn-success'}`} disabled={saving} onClick={() => fileRef.current?.click()}>
+                  {saving ? 'Сохраняем…' : 'Загрузить готовую'}
+                </button>
+              </div>
+            )}
             <div className="row">
               <button type="button" className="btn btn-secondary" onClick={() => setPhase('aim')}>
                 Сбилось
               </button>
-              <button type="button" className={`btn ${isArrived ? 'btn-success' : 'btn-primary'}`} onClick={next}>
-                {step + 1 >= route.legs.length ? 'Снято — готово' : 'Снято — дальше'}
+              <button type="button" className={`btn ${savedHere ? 'btn-primary' : 'btn-ghost'}`} disabled={saving} onClick={next}>
+                {step + 1 >= route.legs.length ? (savedHere ? 'Готово' : 'Закончить') : savedHere ? 'К следующей точке' : 'Без съёмки — дальше'}
               </button>
             </div>
             {mode === 'steps' && (
@@ -466,10 +605,37 @@ export default function CaptureGuide({ doc, level, startId, onClose }: CaptureGu
             )}
           </>
         )}
+        {phase === 'sphere' && (
+          <>
+            <div className="guide-progress" aria-hidden>
+              <span style={{ width: `${spherePct}%` }} />
+            </div>
+            <p className="guide-step">
+              Наводите крестик на фиолетовые точки вокруг — кадр снимается сам, когда телефон замрёт. Кадров: {sphere?.frames ?? 0}.
+            </p>
+            <div className="row">
+              <button type="button" className="btn btn-ghost" disabled={saving} onClick={cancelSphere}>
+                Отмена
+              </button>
+              <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => ar.current?.restartSphere()}>
+                Заново
+              </button>
+              <button
+                type="button"
+                className={`btn ${(sphere?.fraction ?? 0) >= SPHERE_DONE ? 'btn-success' : 'btn-primary'}`}
+                disabled={saving || (sphere?.fraction ?? 0) < SPHERE_MIN}
+                onClick={() => void finishSphere()}
+              >
+                {saving ? 'Сохраняем…' : 'Готово'}
+              </button>
+            </div>
+            {(sphere?.fraction ?? 0) >= SPHERE_MIN && (sphere?.fraction ?? 0) < SPHERE_DONE && <p className="hint">Можно сохранить и так, но неснятые места будут тёмными.</p>}
+          </>
+        )}
         {phase === 'done' && (
           <>
             <h2>Маршрут пройден</h2>
-            <p>Все точки по плану обойдены. Загрузите снятые панорамы — они встанут в свои точки.</p>
+            <p>Все точки обойдены. Снятые фотосферы уже стоят в своих точках на плане.</p>
             <button type="button" className="btn btn-primary btn-block" onClick={close}>
               К плану
             </button>
