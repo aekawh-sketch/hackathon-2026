@@ -57,6 +57,7 @@ export const ICON_PATHS = {
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   external: 'M14 4h6v6M20 4l-9 9M18 14v5H5V6h5',
   building: 'M4 21V5l8-2v18M12 7h8v14M7.5 8h1M7.5 12h1M7.5 16h1M15.5 11h1M15.5 15h1M2.5 21h19',
+  qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2.5v2.5H14zM17.5 17.5H20V20h-2.5zM20 14v.01M14 20v.01',
 } as const;
 
 export type IconName = keyof typeof ICON_PATHS;

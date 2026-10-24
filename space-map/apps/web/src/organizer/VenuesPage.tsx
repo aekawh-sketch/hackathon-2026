@@ -1,15 +1,20 @@
 // Мои площадки (ТЗ 8.1): создать, найти, открыть редактор, опубликовать, ссылка и код для сайта,
 // а в меню карточки — переименовать, дублировать, снять с публикации, скачать план, удалить.
 import type { PanoramaPlacement, PlanOutline } from '@space-map/map-core';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router';
 import { ApiError, auth, panoramaUrls, venuesApi, type User, type VenueListItem, type VenueSummary } from '../api.ts';
 import { APP_APK_URL, hasNativeCapture } from '../capture/native.ts';
 import { UNIT_FILL, WALL } from '../plan/style.ts';
+import { ErrorBoundary } from '../ui/ErrorBoundary.tsx';
 import { Icon, type IconName } from '../ui/icons.tsx';
+import { useMediaQuery } from '../ui/Sheet.tsx';
 import { PublishDialog } from './PublishDialog.tsx';
 import { useSession } from './session.tsx';
+
+// Телефон сканирует QR-код проекта с экрана компьютера и сразу открывает его.
+const QrScanner = lazy(() => import('../ui/QrScanner.tsx'));
 
 type Filter = 'all' | 'published' | 'draft';
 type Sort = 'edited' | 'name';
@@ -18,6 +23,8 @@ export default function VenuesPage() {
   const { user, setUser, logout } = useSession();
   const [claimed, setClaimed] = useState(false);
   const [openAccess, setOpenAccess] = useState(false);
+  const phone = !useMediaQuery('(min-width: 900px)');
+  const [scanOpen, setScanOpen] = useState(false);
   const navigate = useNavigate();
   const [venues, setVenues] = useState<VenueListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -134,10 +141,24 @@ export default function VenuesPage() {
             <p className="brand-sub">{user?.name}</p>
           </div>
         </div>
-        <button type="button" className="btn btn-ghost" onClick={() => void logout().then(() => navigate('/app/login'))}>
-          Выйти
-        </button>
+        <div className="org-top-actions">
+          {phone && (
+            <button type="button" className="btn btn-secondary" onClick={() => setScanOpen(true)}>
+              <Icon name="qr" size={18} /> Сканировать
+            </button>
+          )}
+          <button type="button" className="btn btn-ghost" onClick={() => void logout().then(() => navigate('/app/login'))}>
+            Выйти
+          </button>
+        </div>
       </header>
+      {scanOpen && (
+        <ErrorBoundary fallback={null}>
+          <Suspense fallback={null}>
+            <QrScanner onClose={() => setScanOpen(false)} />
+          </Suspense>
+        </ErrorBoundary>
+      )}
 
       <main className="org-main">
         <form className="org-create" onSubmit={create}>

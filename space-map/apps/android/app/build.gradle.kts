@@ -33,11 +33,13 @@ android {
         minSdk = 26
         targetSdk = 37
         // Каждая выкладка на стенд — versionCode на 1 больше: по нему телефоны понимают, что вышла новая сборка.
-        versionCode = 5
-        versionName = "0.2.0"
+        versionCode = 6
+        versionName = "0.2.1"
         buildConfigField("String", "START_URL", "\"$startUrl\"")
         buildConfigField("String", "UPDATE_URL", "\"$updateUrl\"")
         manifestPlaceholders["usesCleartextTraffic"] = "false"
+        // Чьи ссылки открывает приложение (QR-код проекта) — домен стенда.
+        manifestPlaceholders["linkHost"] = URI(startUrl).host
     }
 
     buildTypes {

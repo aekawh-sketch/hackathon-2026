@@ -29,6 +29,14 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Ссылки на кабинет (QR-код проекта из редактора) открываются здесь, а не в браузере: там нет съёмки фотосферы.
+                 Android проверяет право на домен по /.well-known/assetlinks.json сайта — в нём отпечаток ключа команды. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="${linkHost}" android:pathPrefix="/app/" />
+            </intent-filter>
         </activity>
 
         <!-- Съёмка фотосферы: экран модуля :photosphere, только вертикально — под него настроен интерфейс съёмки. -->

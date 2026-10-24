@@ -2838,3 +2838,74 @@ button.insp-row:hover {
 .nudge small {
   color: var(--muted);
 }
+
+/* Редактор → QR-код проекта для телефона. Код всегда чёрный на белом: так его читает любая камера. */
+.phone-qr-modal {
+  width: min(400px, 100%);
+}
+
+.phone-qr {
+  display: block;
+  width: min(240px, 70vw);
+  height: auto;
+  margin: 14px auto 4px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+/* Сканер QR-кода проекта на телефоне: камера на весь экран, рамка-прицел, подсказка снизу. */
+.qr-scan {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: #000;
+  color: #fff;
+}
+
+.qr-scan-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.qr-scan-frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(68vw, 300px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border: 3px solid #fff;
+  border-radius: 20px;
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.45);
+}
+
+.qr-scan-close {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: 12px;
+}
+
+.qr-scan-text {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.qr-scan-text p {
+  margin: 0 auto;
+  max-width: 420px;
+}
+
+.org-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}

@@ -40,6 +40,8 @@ import { useServerSave, type SaveStatus } from './useServerSave.ts';
 
 const Model3DView = lazy(() => import('../three/Model3DView.tsx'));
 const CaptureGuide = lazy(() => import('../capture/CaptureGuide.tsx'));
+const PhoneQrDialog = lazy(() => import('./PhoneQrDialog.tsx'));
+const QrScanner = lazy(() => import('../ui/QrScanner.tsx'));
 
 // `short` — короткая подпись для узких экранов; панель инструментов прокручивается при нехватке места.
 const TOOLS: { id: Tool; icon: IconName; label: string; short?: string; key: string }[] = [
@@ -222,6 +224,8 @@ function Editor({ initial, server }: EditorProps) {
   const [toast, setToast] = useState<{ text: string; id: number } | null>(null);
   const [saved, setSaved] = useState<'saved' | 'error' | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
   const [menu, setMenu] = useState(false);
   const [sheetMode, setSheetMode] = useState<SheetMode>('peek');
   const [sheetHeight, setSheetHeight] = useState(0);
@@ -546,6 +550,18 @@ function Editor({ initial, server }: EditorProps) {
           <button type="button" className="icon-btn" aria-label="Повторить" title="Повторить (⇧⌘Z)" disabled={!history.canRedo} onClick={history.redo}>
             <Icon name="redo" />
           </button>
+          {/* Компьютер показывает QR-код проекта, телефон его сканирует. */}
+          {desktop ? (
+            server && (
+              <button type="button" className="icon-btn" aria-label="Открыть на телефоне" title="Открыть на телефоне — QR-код" onClick={() => setQrOpen(true)}>
+                <Icon name="qr" />
+              </button>
+            )
+          ) : (
+            <button type="button" className="icon-btn" aria-label="Сканировать QR-код проекта" title="Сканировать QR-код проекта" onClick={() => setScanOpen(true)}>
+              <Icon name="qr" />
+            </button>
+          )}
           {desktop && (
           <div className="segmented compact" role="group" aria-label="Вид">
             <button type="button" aria-pressed={view === 'plan'} onClick={() => setView('plan')}>
@@ -676,6 +692,36 @@ function Editor({ initial, server }: EditorProps) {
           onClose={() => setPublishOpen(false)}
           onPublished={setVenue}
         />
+      )}
+
+      {qrOpen && server && (
+        <ErrorBoundary
+          fallback={
+            <Modal onClose={() => setQrOpen(false)}>
+              <h2>Не удалось открыть QR-код</h2>
+              <p>Похоже, пропала связь. Обновите страницу и попробуйте ещё раз.</p>
+            </Modal>
+          }
+        >
+          <Suspense fallback={null}>
+            <PhoneQrDialog venueId={server.venue.id} onClose={() => setQrOpen(false)} />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+
+      {scanOpen && (
+        <ErrorBoundary
+          fallback={
+            <Modal onClose={() => setScanOpen(false)}>
+              <h2>Не удалось открыть сканер</h2>
+              <p>Похоже, пропала связь. Обновите страницу и попробуйте ещё раз.</p>
+            </Modal>
+          }
+        >
+          <Suspense fallback={null}>
+            <QrScanner onClose={() => setScanOpen(false)} />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       {remote.status.kind === 'conflict' && (

@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "ru.spacemap.android",
+      "sha256_cert_fingerprints": ["BB:C1:3E:89:9B:25:80:E4:1E:9A:7D:8A:E9:30:83:26:3E:14:4F:20:30:6F:67:32:54:AA:53:35:2A:EA:18:00"]
+    }
+  }
+]

@@ -46,6 +46,7 @@ import java.util.concurrent.ConcurrentHashMap
  *   со своей сессией и CSRF, как любой другой файл.
  *
  * При заходе проверяет, нет ли на стенде сборки новее, и предлагает обновиться ([AppUpdater]).
+ * Ссылки на кабинет — QR-код проекта из редактора — открываются сразу здесь, на этой же странице.
  */
 class MainActivity : ComponentActivity() {
 
@@ -91,7 +92,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val localNetworkPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) web.loadUrl(BuildConfig.START_URL)
+        if (granted) web.loadUrl(entryUrl(intent))
         else AlertDialog.Builder(this)
             .setTitle("Нет доступа к локальному стенду")
             .setMessage("Для подключения к компьютеру по Wi-Fi разрешите доступ к устройствам поблизости. Телефон и компьютер должны быть в одной сети.")
@@ -149,8 +150,22 @@ class MainActivity : ComponentActivity() {
         val needsLocalPermission = BuildConfig.DEBUG && start.scheme == "http" && Build.VERSION.SDK_INT >= 37 &&
             ContextCompat.checkSelfPermission(this, "android.permission.ACCESS_LOCAL_NETWORK") != PackageManager.PERMISSION_GRANTED
         if (needsLocalPermission) requestLocalNetwork()
-        else if (savedInstanceState == null || web.restoreState(savedInstanceState) == null) web.loadUrl(BuildConfig.START_URL)
+        else if (savedInstanceState == null || web.restoreState(savedInstanceState) == null) web.loadUrl(entryUrl(intent))
     }
+
+    /** Приложение уже открыто, а камера прислала ссылку из QR-кода проекта — переходим на неё. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        linkOf(intent)?.let { web.loadUrl(it.toString()) }
+    }
+
+    /** С чего начать: ссылка, с которой открыли приложение, иначе — стартовая страница. */
+    private fun entryUrl(intent: Intent?): String = linkOf(intent)?.toString() ?: BuildConfig.START_URL
+
+    /** Ссылка на наш сайт из intent; чужие адреса приложение не открывает. */
+    private fun linkOf(intent: Intent?): Uri? =
+        intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data?.takeIf(::isOurs)
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
