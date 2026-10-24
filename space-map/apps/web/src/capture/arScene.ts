@@ -36,8 +36,12 @@ export interface SphereProgress {
   /** Доля снятой сферы, 0…1. */
   fraction: number;
   frames: number;
-  /** Человек отошёл от места съёмки — кадры не снимаются. */
+  /** Человек ушёл с места съёмки дальше вытянутой руки — кадры не снимаются. */
   moved: boolean;
+  /** Телефон отходит от места: ещё снимаем, но просим держать ближе. */
+  far: boolean;
+  /** ARCore потерял опору (белая стена, потолок, темнота) — положение не настоящее, не снимаем. */
+  lost: boolean;
   steady: boolean;
   /** Куда повернуть телефон к неснятому; null — держите как есть. */
   hint: 'left' | 'right' | 'up' | 'down' | null;
@@ -58,7 +62,14 @@ const SHOT_GAIN = 0.2;
 const STEADY_DEG = 1.5;
 const STEADY_MS = 250;
 const SHOT_EVERY = 350;
-const MAX_MOVE = 0.35;
+/**
+ * Телефон в руке ходит по кругу радиусом до полуметра, пока человек поворачивается, — это нормально.
+ * Дальше — просим держать ближе; ещё дальше — человек ушёл с места, кадры снимать нельзя.
+ */
+const FAR_MOVE = 0.6;
+const MAX_MOVE = 1.2;
+/** За один кадр (~16 мс) так далеко не уйти — это ARCore заново нашёл опору и сдвинул мир. */
+const JUMP = 0.25;
 
 const COLOR = new THREE.Color('#7C3AED');
 const ARRIVED = new THREE.Color('#12A150');
@@ -97,6 +108,7 @@ export class ArScene {
     coverage: SphereCoverage;
     center: THREE.Vector3;
     history: { t: number; f: THREE.Vector3 }[];
+    last: THREE.Vector3 | null;
     lastShot: number;
     lastReport: number;
     lastDots: number;
@@ -235,6 +247,7 @@ export class ArScene {
       coverage: new SphereCoverage(),
       center: new THREE.Vector3(...this.pose.position),
       history: [],
+      last: null,
       lastShot: 0,
       lastReport: 0,
       lastDots: 0,
@@ -285,7 +298,7 @@ export class ArScene {
     this.renderer.dispose();
   }
 
-  /** Точки на сфере радиусом 1,6 м вокруг места съёмки — там, где ещё не снято. */
+  /** Точки на сфере радиусом 1,6 м вокруг телефона — там, где ещё не снято. Важны направления, а не место. */
   private updateDots(): void {
     const s = this.sphere;
     if (!s) return;
@@ -297,20 +310,35 @@ export class ArScene {
         const r = (lat * Math.PI) / 180;
         const dir: XrPoint = [Math.sin(lon) * Math.cos(r), Math.sin(r), -Math.cos(lon) * Math.cos(r)];
         if (s.coverage.coveredAt(dir)) continue;
-        pts.push(s.center.x + dir[0] * 1.6, s.center.y + dir[1] * 1.6, s.center.z + dir[2] * 1.6);
+        pts.push(dir[0] * 1.6, dir[1] * 1.6, dir[2] * 1.6);
       }
     }
     s.dots.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
     s.dots.geometry.computeBoundingSphere();
   }
 
-  private sphereTick(time: number, view: XRView): void {
+  private sphereTick(time: number, view: XRView, emulated: boolean): void {
     const s = this.sphere!;
     const o = view.transform.orientation;
     const q = new THREE.Quaternion(o.x, o.y, o.z, o.w);
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(q);
     const p = view.transform.position;
-    const moved = s.center.distanceTo(new THREE.Vector3(p.x, p.y, p.z)) > MAX_MOVE;
+    const here = new THREE.Vector3(p.x, p.y, p.z);
+    // Точки всегда вокруг телефона: человек поворачивается, телефон в руке ходит по кругу — точки не должны «уплывать».
+    s.dots.position.copy(here);
+
+    // ARCore заново нашёл опору и сдвинул мир — место съёмки переезжает вместе с ним, ждём, пока телефон замрёт.
+    if (s.last && s.last.distanceTo(here) > JUMP) {
+      s.center.add(here.clone().sub(s.last));
+      s.history.length = 0;
+    }
+    s.last = here;
+    const dx = here.x - s.center.x;
+    const dz = here.z - s.center.z;
+    const away = Math.hypot(dx, dz);
+    const moved = away > MAX_MOVE;
+    const far = away > FAR_MOVE;
+    const lost = emulated;
 
     // Телефон неподвижен, если за последние 250 мс взгляд почти не сдвинулся.
     s.history.push({ t: time, f: forward.clone() });
@@ -321,7 +349,7 @@ export class ArScene {
     const frustum: CameraFrustum = { q: [q.x, q.y, q.z, q.w], tanX: 1 / P[0]!, tanY: 1 / P[5]! };
     const cameraCam = (view as XRView & XrViewWithCamera).camera;
     const noCamera = !cameraCam;
-    if (cameraCam && steady && !moved && time - s.lastShot > SHOT_EVERY && s.coverage.gain(frustum) >= SHOT_GAIN) {
+    if (cameraCam && steady && !moved && !lost && time - s.lastShot > SHOT_EVERY && s.coverage.gain(frustum) >= SHOT_GAIN) {
       const binding = this.renderer.xr.getBinding() as unknown as XrCameraBinding | null;
       const image = binding?.getCameraImage(cameraCam) ?? null;
       if (image) {
@@ -344,7 +372,7 @@ export class ArScene {
         const off = Math.atan2(Math.hypot(c.x, c.y), -c.z);
         if (off > (20 * Math.PI) / 180) hint = Math.abs(c.x) >= Math.abs(c.y) ? (c.x > 0 ? 'right' : 'left') : c.y > 0 ? 'up' : 'down';
       }
-      this.callbacks.onSphere?.({ fraction: s.coverage.fraction, frames: s.builder.frames, moved, steady, hint, noCamera });
+      this.callbacks.onSphere?.({ fraction: s.coverage.fraction, frames: s.builder.frames, moved, far, lost, steady, hint, noCamera });
     }
   }
 
@@ -357,7 +385,7 @@ export class ArScene {
 
     const space = this.renderer.xr.getReferenceSpace();
     const viewer = frame && space ? frame.getViewerPose(space) : undefined;
-    if (viewer && this.sphere && viewer.views[0]) this.sphereTick(time, viewer.views[0]);
+    if (viewer && this.sphere && viewer.views[0]) this.sphereTick(time, viewer.views[0], viewer.emulatedPosition);
     if (viewer) {
       const { position: p, orientation: o } = viewer.transform;
       const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(o.x, o.y, o.z, o.w));

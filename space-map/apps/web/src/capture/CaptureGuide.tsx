@@ -374,15 +374,19 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
     ? 'Медленно поворачивайтесь на месте — кадры снимаются сами'
     : sphere.noCamera
       ? 'Браузер не даёт кадры камеры — загрузите готовую панораму'
-      : sphere.moved
-        ? 'Вернитесь на место: поворачивайтесь вокруг телефона, не шагайте'
-        : sphere.fraction >= SPHERE_DONE
+      : sphere.lost
+        ? 'Телефон потерял опору — наведите на место с деталями (мебель, дверь), а не на белую стену или потолок'
+        : sphere.moved
+          ? 'Вернитесь на место: поворачивайтесь вокруг телефона, не шагайте'
+          : sphere.fraction >= SPHERE_DONE
           ? 'Готово — можно сохранять'
-          : !sphere.steady
-            ? 'Медленнее — кадр снимется, когда телефон замрёт'
-            : sphere.hint
-              ? { left: 'Поверните левее, на фиолетовые точки', right: 'Поверните правее, на фиолетовые точки', up: 'Наклоните вверх — снимите потолок', down: 'Наклоните вниз — снимите пол' }[sphere.hint]
-              : 'Держите — снимаем';
+            : !sphere.steady
+              ? 'Медленнее — кадр снимется, когда телефон замрёт'
+              : sphere.far
+                ? 'Держите телефон ближе к себе — поворачивайтесь на месте'
+                : sphere.hint
+                  ? { left: 'Поверните левее, на фиолетовые точки', right: 'Поверните правее, на фиолетовые точки', up: 'Наклоните вверх — снимите потолок', down: 'Наклоните вниз — снимите пол' }[sphere.hint]
+                  : 'Держите — снимаем';
 
   return (
     <div ref={rootRef} className={`guide ${inAr ? 'is-ar' : ''}`} role="dialog" aria-label="Маршрут съёмки">
@@ -420,7 +424,7 @@ export default function CaptureGuide({ doc, level, startId, venueId, onPanorama,
 
       {(phase === 'aim' || phase === 'guide' || phase === 'sphere') && <div className={`guide-cross ${phase === 'guide' ? 'is-faint' : ''}`} aria-hidden />}
       {phase === 'sphere' && flash > 0 && <div key={flash} className="guide-flash" aria-hidden />}
-      {phase === 'sphere' && sphere?.hint && sphere.fraction < SPHERE_DONE && !sphere.moved && (
+      {phase === 'sphere' && sphere?.hint && sphere.fraction < SPHERE_DONE && !sphere.moved && !sphere.lost && (
         <div className={`guide-tilt is-${sphere.hint}`} aria-hidden>
           <Icon name="back" size={30} />
         </div>
