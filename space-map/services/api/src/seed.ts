@@ -1,19 +1,14 @@
-// Демо-данные (ТЗ 11.3): организатор из DEMO_EMAIL / DEMO_PASSWORD и опубликованная площадка «demo»
-// с панорамами из apps/web/public/demo/panoramas. Ничего не удаляет: что уже есть — пропускает.
-import { acceptSuggestions, demoVenue } from '@space-map/map-core';
+// Демо-данные: организатор из DEMO_EMAIL / DEMO_PASSWORD и опубликованная площадка «demo».
+// Панорамы появятся после съёмки в манеже. Ничего не удаляет: что уже есть — пропускает.
+import { demoVenue } from '@space-map/map-core';
 import { eq } from 'drizzle-orm';
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
 import { hashPassword } from './auth.ts';
 import { loadConfig } from './config.ts';
 import { createDb } from './db/client.ts';
 import { migrate } from './db/migrate.ts';
-import { mapDrafts, panoramas, users, venues } from './db/schema.ts';
-import { processPanorama } from './images.ts';
+import { mapDrafts, users, venues } from './db/schema.ts';
 import { LocalStorage } from './storage.ts';
 import { publish } from './venues.ts';
-
-const DEMO_PANORAMAS = fileURLToPath(new URL('../../../apps/web/public/demo/panoramas/', import.meta.url));
 
 const config = loadConfig();
 const email = process.env.DEMO_EMAIL?.trim().toLowerCase();
@@ -35,29 +30,35 @@ if (!user) {
 }
 
 const [existing] = await db.select().from(venues).where(eq(venues.slug, 'demo')).limit(1);
-if (existing) {
-  console.log('площадка demo уже есть — пропускаю');
-} else {
-  const [venue] = await db.insert(venues).values({ ownerId: user!.id, name: 'Демо-площадка «Бизнес-центр»', slug: 'demo' }).returning();
-  let doc = demoVenue();
+const STOCK_DEMO_NAME = 'Демо-площадка «Бизнес-центр»';
+const HACKATHON_NAME = 'Хакатон «Осень 2026» — Манеж ДГТУ';
+
+if (!existing) {
+  const [venue] = await db.insert(venues).values({ ownerId: user!.id, name: HACKATHON_NAME, slug: 'demo' }).returning();
+  const doc = demoVenue();
   doc.venue.id = venue!.id;
-
-  // Демо-панорамы проходят тот же путь, что и загрузка организатором.
-  for (const placement of doc.panoramas) {
-    const out = await processPanorama(await readFile(`${DEMO_PANORAMAS}${placement.pano}.jpg`));
-    const [row] = await db
-      .insert(panoramas)
-      .values({ venueId: venue!.id, source: 'upload', status: 'ready', width: out.width, height: out.height, createdBy: user!.id })
-      .returning();
-    await storage.put(`panoramas/${row!.id}/pano.jpg`, out.pano);
-    await storage.put(`panoramas/${row!.id}/preview.jpg`, out.preview);
-    placement.pano = row!.id;
-  }
-  for (const pa of doc.panoramas) doc = acceptSuggestions(doc, pa.id);
-
   await db.insert(mapDrafts).values({ venueId: venue!.id, doc, updatedBy: user!.id });
   const version = await publish(db, storage, venue!.id, user!.id);
   console.log(`площадка demo опубликована, версия ${version}: /m/demo`);
+} else {
+  const [draft] = await db.select().from(mapDrafts).where(eq(mapDrafts.venueId, existing.id)).limit(1);
+  const isStockDemo = existing.name === STOCK_DEMO_NAME || draft?.doc.venue.name === STOCK_DEMO_NAME;
+  if (!isStockDemo) {
+    console.log('площадка demo уже изменена — пропускаю, чтобы сохранить её план');
+  } else {
+    const doc = demoVenue();
+    doc.venue.id = existing.id;
+    await db.transaction(async (tx) => {
+      await tx.update(venues).set({ name: HACKATHON_NAME, updatedAt: new Date() }).where(eq(venues.id, existing.id));
+      if (draft) {
+        await tx.update(mapDrafts).set({ doc, revision: draft.revision + 1, updatedBy: user!.id, updatedAt: new Date() }).where(eq(mapDrafts.venueId, existing.id));
+      } else {
+        await tx.insert(mapDrafts).values({ venueId: existing.id, doc, updatedBy: user!.id });
+      }
+    });
+    const version = await publish(db, storage, existing.id, user!.id);
+    console.log(`стандартная демо-площадка обновлена и опубликована, версия ${version}: /m/demo`);
+  }
 }
 
 await pool.end();
