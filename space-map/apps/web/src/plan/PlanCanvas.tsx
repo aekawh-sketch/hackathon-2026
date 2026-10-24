@@ -1,9 +1,9 @@
 // План для посетителя: жесты (сдвиг, щипок, колесо), касания по местам и панорамам, кнопки масштаба.
-import type { MapDocument, Vec2 } from '@space-map/map-core';
+import { pointInPolygon, polygonArea, type MapDocument, type Vec2 } from '@space-map/map-core';
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
 import { Circle, Layer, Stage } from 'react-konva';
 import { Icon } from '../ui/icons.tsx';
-import { BasePlan, gridStyle, PanoDot, pinchView, PlacePin, RouteLine, UnitLabels, useElementSize } from './draw.tsx';
+import { BasePlan, gridStyle, PanoDot, pinchView, PlaceArea, PlacePin, RouteLine, UnitLabels, useElementSize } from './draw.tsx';
 import { FROM, SELECTED } from './style.ts';
 import { fitBoundsInset, levelBounds, screenToWorld, worldToScreen, zoomAt, type Insets, type Viewport } from './viewport.ts';
 
@@ -87,12 +87,17 @@ export function PlanCanvas(props: PlanCanvasProps) {
   const categories = useMemo(() => new Map(doc.categories.map((c) => [c.id, c])), [doc]);
 
   const hitTest = (screen: Vec2) => {
+    const world = screenToWorld(view, screen);
     const near = (p: Vec2, r: number) => {
       const s = worldToScreen(view, p);
       return Math.hypot(s[0] - screen[0], s[1] - screen[1]) <= r;
     };
+    const area = [...places]
+      .filter((p) => p.polygon && pointInPolygon(world, p.polygon))
+      .sort((a, b) => polygonArea(a.polygon!) - polygonArea(b.polygon!))[0];
+    if (area) return { kind: 'place' as const, id: area.id };
     // Сверху — выбранное, потом остальные места, потом панорамы.
-    const ordered = [...places].sort((a, b) => Number(b.id === selectedPlace) - Number(a.id === selectedPlace));
+    const ordered = places.filter((p) => !p.polygon).sort((a, b) => Number(b.id === selectedPlace) - Number(a.id === selectedPlace));
     const place = ordered.find((p) => near(p.pos, PLACE_HIT));
     if (place) return { kind: 'place' as const, id: place.id };
     const pano = panoramas.find((p) => near(p.pos, PANO_HIT));
@@ -171,6 +176,9 @@ export function PlanCanvas(props: PlanCanvasProps) {
           <Stage width={size.w} height={size.h} listening={false}>
             <Layer listening={false}>
               <BasePlan doc={doc} level={level} view={view} />
+              {places.filter((p) => p.polygon).map((p) => (
+                <PlaceArea key={p.id} place={p} view={view} color={categories.get(p.category)?.color ?? '#4A5568'} selected={p.id === selectedPlace} />
+              ))}
               <UnitLabels doc={doc} level={level} view={view} />
               {route && <RouteLine view={view} route={route} />}
             </Layer>
@@ -199,7 +207,7 @@ export function PlanCanvas(props: PlanCanvasProps) {
                     </>
                   );
                 })()}
-              {[...places]
+              {places.filter((p) => !p.polygon)
                 .sort((a, b) => Number(a.id === selectedPlace) - Number(b.id === selectedPlace))
                 .map((p) => {
                   const [x, y] = s(p.pos);

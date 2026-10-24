@@ -1,6 +1,6 @@
 // Общая отрисовка плана для карты посетителя и редактора (один код — ТЗ 4.1).
 // Фигуры рисуются в экранных координатах: толщина линий и размер значков не зависят от зума.
-import { doorLeaves, doorStyleOf, type DoorLeaf, type MapDocument, type Vec2 } from '@space-map/map-core';
+import { doorLeaves, doorStyleOf, type DoorLeaf, type MapDocument, type Place, type Vec2 } from '@space-map/map-core';
 import { useEffect, useState, type CSSProperties, type RefObject } from 'react';
 import { Circle, Group, Line, Path, Text } from 'react-konva';
 import { categoryIconPath, ICON_PATHS } from '../ui/icons.tsx';
@@ -80,7 +80,7 @@ export function BasePlan({ doc, level, view, selectedUnit, hoverUnit, selectedOp
   const doorWidth = WALL_WIDTH + 3;
   return (
     <>
-      {units.map((u) => (
+      {units.flatMap((u) => [
         <Line
           key={u.id}
           points={flat(u.polygon)}
@@ -90,11 +90,9 @@ export function BasePlan({ doc, level, view, selectedUnit, hoverUnit, selectedOp
           strokeWidth={WALL_WIDTH}
           lineJoin="miter"
           perfectDrawEnabled={false}
-        />
-      ))}
-      {/* Вырезы: внутри — не помещение (колонна, шахта, перегородка), вокруг — стены */}
-      {units.flatMap((u) =>
-        (u.holes ?? []).map((h, i) => {
+        />,
+        // Рисуем вырез сразу поверх его родителя; последующее вложенное помещение снова закрасит свой пол.
+        ...(u.holes ?? []).map((h, i) => {
           const key = `${u.id}#${i}`;
           const selected = key === selectedHole;
           return (
@@ -110,7 +108,7 @@ export function BasePlan({ doc, level, view, selectedUnit, hoverUnit, selectedOp
             />
           );
         }),
-      )}
+      ])}
       {doc.obstacles
         .filter((o) => o.level === level)
         .map((o) => (
@@ -260,6 +258,53 @@ export function PlacePin(props: { x: number; y: number; color: string; icon: str
         />
       )}
     </Group>
+  );
+}
+
+/** Цветная зона события на плане; её контур выбирается как обычное место. */
+export function PlaceArea({ place, view, color, selected = false }: { place: Place; view: Viewport; color: string; selected?: boolean }) {
+  if (!place.polygon) return null;
+  const [x, y] = worldToScreen(view, place.pos);
+  const bounds = place.polygon.map((point) => worldToScreen(view, point));
+  const minX = Math.min(...bounds.map(([px]) => px));
+  const maxX = Math.max(...bounds.map(([px]) => px));
+  const minY = Math.min(...bounds.map(([, py]) => py));
+  const maxY = Math.max(...bounds.map(([, py]) => py));
+  const labelWidth = maxX - minX - 6;
+  const showLabel = labelWidth >= 48 && maxY - minY >= 17;
+  return (
+    <>
+      <Line
+        points={flatPoints(view, place.polygon)}
+        closed
+        fill={place.category === 'track' ? undefined : color}
+        opacity={place.category === 'track' ? 0.75 : 0.18}
+        stroke={place.category === 'track' ? '#8993A1' : color}
+        strokeWidth={selected ? 3 : 1.5}
+        dash={selected ? undefined : [5, 4]}
+        lineJoin="round"
+        perfectDrawEnabled={false}
+      />
+      {showLabel && (
+        <Text
+          x={x - Math.min(172, labelWidth) / 2}
+          y={y - 6}
+          width={Math.min(172, labelWidth)}
+          align="center"
+          text={place.name}
+          fontSize={9.5}
+          fontStyle="700"
+          fill="#273247"
+          stroke="#FFFFFF"
+          strokeWidth={3.5}
+          fillAfterStrokeEnabled
+          ellipsis
+          wrap="none"
+          fontFamily={FONT}
+          listening={false}
+        />
+      )}
+    </>
   );
 }
 

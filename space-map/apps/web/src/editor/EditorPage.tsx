@@ -39,10 +39,11 @@ import { useServerSave, type SaveStatus } from './useServerSave.ts';
 const Model3DView = lazy(() => import('../three/Model3DView.tsx'));
 const CaptureGuide = lazy(() => import('../capture/CaptureGuide.tsx'));
 
-// `short` — подпись на телефоне: семь инструментов должны влезть в 360 px без прокрутки.
+// `short` — короткая подпись для узких экранов; панель инструментов прокручивается при нехватке места.
 const TOOLS: { id: Tool; icon: IconName; label: string; short?: string; key: string }[] = [
   { id: 'select', icon: 'cursor', label: 'Выбор', key: 'V' },
   { id: 'room', icon: 'square', label: 'Комната', key: 'R' },
+  { id: 'zone', icon: 'zone', label: 'Зона', key: 'A' },
   { id: 'place', icon: 'pin', label: 'Место', key: 'P' },
   { id: 'door', icon: 'doorAdd', label: 'Дверь', key: 'D' },
   { id: 'split', icon: 'split', label: 'Разделить', short: 'Делить', key: 'S' },
@@ -52,7 +53,8 @@ const TOOLS: { id: Tool; icon: IconName; label: string; short?: string; key: str
 
 const TOOL_HINT: Record<Tool, string> = {
   select: 'Нажмите на помещение, место или дверь. Тяните, чтобы сдвинуть.',
-  room: 'Протяните прямоугольник на свободном месте плана',
+  room: 'Протяните прямоугольник на свободном месте или внутри зала',
+  zone: 'Выберите категорию и протяните прямоугольник внутри помещения',
   place: 'Нажмите внутри помещения, чтобы поставить место',
   door: 'Нажмите на стену: общая стена — дверь между помещениями, наружная — вход с улицы',
   split: 'Проведите линию поперёк комнаты — она станет двумя. Дверь между ними поставьте сами',
@@ -177,6 +179,8 @@ function Editor({ initial, server }: EditorProps) {
   const remote = useServerSave(server?.venue.id ?? null, server?.revision ?? 0, doc);
   const level = doc.levels[0]?.id ?? 'L1';
   const [tool, setTool] = useState<Tool>('select');
+  const [areaCategory, setAreaCategory] = useState(() => doc.categories.find((c) => c.id === 'food')?.id ?? doc.categories[0]?.id ?? '');
+  const activeAreaCategory = doc.categories.some((c) => c.id === areaCategory) ? areaCategory : doc.categories[0]?.id ?? '';
   // Настройки новой двери: тип и насколько открыта — применяются в момент постановки.
   const [doorPreset, setDoorPreset] = useState<DoorPreset>(DEFAULT_DOOR_PRESET);
   const [selection, setSelection] = useState<Selection>(null);
@@ -440,6 +444,7 @@ function Editor({ initial, server }: EditorProps) {
             selection={selection}
             showGraph={showGraph}
             placeCategory={doc.categories.find((c) => c.id === 'room')?.id ?? doc.categories[0]?.id ?? ''}
+            areaCategory={activeAreaCategory}
             doorPreset={doorPreset}
             insets={insets}
             fitKey={fitKey}
@@ -572,12 +577,12 @@ function Editor({ initial, server }: EditorProps) {
         <>
           <div className="tool-rail">{toolbar}</div>
           <aside className="inspector" aria-label="Свойства">
-            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onOpenPanorama={setPreview} />
+            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onOpenPanorama={setPreview} />
           </aside>
         </>
       ) : (
         <Sheet mode={sheetMode} onModeChange={setSheetMode} desktop={false} peekHeight={118} topGap={64} onHeight={setSheetHeight} label="Инструменты и свойства" header={toolbar}>
-          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onOpenPanorama={setPreview} />
+          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onOpenPanorama={setPreview} />
         </Sheet>
       )}
 

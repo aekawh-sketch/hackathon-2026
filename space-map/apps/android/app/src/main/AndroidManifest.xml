@@ -14,7 +14,7 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.SpaceMap"
-        android:usesCleartextTraffic="false">
+        android:usesCleartextTraffic="${usesCleartextTraffic}">
 
         <!-- Сайт. Поворот экрана не перезагружает страницу. -->
         <activity

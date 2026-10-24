@@ -1,0 +1,2238 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "an-d-entrance-a",
+        "level": "L1",
+        "pos": [
+          20.5,
+          0.6
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-d-services-a",
+        "level": "L1",
+        "pos": [
+          20.5,
+          6.6
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-d-services-b",
+        "level": "L1",
+        "pos": [
+          20.5,
+          5.4
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-d3-a",
+        "level": "L1",
+        "pos": [
+          17.4,
+          4.5
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-d3-b",
+        "level": "L1",
+        "pos": [
+          18.6,
+          4.5
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-d4-a",
+        "level": "L1",
+        "pos": [
+          23.6,
+          4.75
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-d4-b",
+        "level": "L1",
+        "pos": [
+          22.4,
+          4.75
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-d5-a",
+        "level": "L1",
+        "pos": [
+          14.6,
+          3
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-d5-b",
+        "level": "L1",
+        "pos": [
+          13.4,
+          3
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-place-p-track",
+        "level": "L1",
+        "pos": [
+          36.5,
+          11.5
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-place-p-participants",
+        "level": "L1",
+        "pos": [
+          21.5,
+          11.25
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-place-p-partners",
+        "level": "L1",
+        "pos": [
+          8.5,
+          11
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-place-p-stage",
+        "level": "L1",
+        "pos": [
+          21,
+          16.1
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-place-p-rest",
+        "level": "L1",
+        "pos": [
+          38.4,
+          16
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-place-p-registration",
+        "level": "L1",
+        "pos": [
+          25.25,
+          1.5
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-place-p-food-west",
+        "level": "L1",
+        "pos": [
+          16.9,
+          1.45
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-place-p-entrance",
+        "level": "L1",
+        "pos": [
+          20.5,
+          0.25
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-place-p-1",
+        "level": "L1",
+        "pos": [
+          12.75,
+          3
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-place-p-2",
+        "level": "L1",
+        "pos": [
+          17,
+          4.75
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-place-p-3",
+        "level": "L1",
+        "pos": [
+          24,
+          4.5
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-pano-pa-1",
+        "level": "L1",
+        "pos": [
+          21,
+          15.25
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-pano-pa-2",
+        "level": "L1",
+        "pos": [
+          10.5,
+          11
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-pano-pa-3",
+        "level": "L1",
+        "pos": [
+          38,
+          11.5
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-pano-pa-4",
+        "level": "L1",
+        "pos": [
+          21.25,
+          11.25
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-pano-pa-5",
+        "level": "L1",
+        "pos": [
+          36.75,
+          15.25
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-pano-pa-6",
+        "level": "L1",
+        "pos": [
+          20.5,
+          3
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-corner-u-services-0",
+        "level": "L1",
+        "pos": [
+          15.72,
+          3.22
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-corner-u-services-1",
+        "level": "L1",
+        "pos": [
+          18.28,
+          3.22
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-corner-u-services-2",
+        "level": "L1",
+        "pos": [
+          22.72,
+          3.22
+        ],
+        "origin": "auto"
+      },
+      {
+        "id": "an-corner-u-services-3",
+        "level": "L1",
+        "pos": [
+          25.28,
+          3.22
+        ],
+        "origin": "auto"
+      }
+    ],
+    "edges": [
+      {
+        "id": "ae-L1-1",
+        "from": "an-d-services-a",
+        "to": "an-d-services-b",
+        "weight": 1.2,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-2",
+        "from": "an-d3-a",
+        "to": "an-d3-b",
+        "weight": 1.2,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-3",
+        "from": "an-d4-a",
+        "to": "an-d4-b",
+        "weight": 1.2,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-4",
+        "from": "an-d5-a",
+        "to": "an-d5-b",
+        "weight": 1.2,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-5",
+        "from": "an-d-services-a",
+        "to": "an-place-p-track",
+        "weight": 16.73,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-6",
+        "from": "an-d-services-a",
+        "to": "an-place-p-participants",
+        "weight": 4.76,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-7",
+        "from": "an-d-services-a",
+        "to": "an-place-p-partners",
+        "weight": 12.78,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-8",
+        "from": "an-d-services-a",
+        "to": "an-place-p-stage",
+        "weight": 9.51,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-9",
+        "from": "an-d-services-a",
+        "to": "an-place-p-rest",
+        "weight": 20.22,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-10",
+        "from": "an-d-services-a",
+        "to": "an-pano-pa-1",
+        "weight": 8.66,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-11",
+        "from": "an-d-services-a",
+        "to": "an-pano-pa-2",
+        "weight": 10.93,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-12",
+        "from": "an-d-services-a",
+        "to": "an-pano-pa-3",
+        "weight": 18.17,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-13",
+        "from": "an-d-services-a",
+        "to": "an-pano-pa-4",
+        "weight": 4.71,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-14",
+        "from": "an-d-services-a",
+        "to": "an-pano-pa-5",
+        "weight": 18.41,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-15",
+        "from": "an-place-p-track",
+        "to": "an-place-p-participants",
+        "weight": 15,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-16",
+        "from": "an-place-p-track",
+        "to": "an-place-p-partners",
+        "weight": 28,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-17",
+        "from": "an-place-p-track",
+        "to": "an-place-p-stage",
+        "weight": 16.17,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-18",
+        "from": "an-place-p-track",
+        "to": "an-place-p-rest",
+        "weight": 4.88,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-19",
+        "from": "an-place-p-track",
+        "to": "an-pano-pa-1",
+        "weight": 15.95,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-20",
+        "from": "an-place-p-track",
+        "to": "an-pano-pa-2",
+        "weight": 26,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-21",
+        "from": "an-place-p-track",
+        "to": "an-pano-pa-3",
+        "weight": 1.5,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-22",
+        "from": "an-place-p-track",
+        "to": "an-pano-pa-4",
+        "weight": 15.25,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-23",
+        "from": "an-place-p-track",
+        "to": "an-pano-pa-5",
+        "weight": 3.76,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-24",
+        "from": "an-place-p-participants",
+        "to": "an-place-p-partners",
+        "weight": 13,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-25",
+        "from": "an-place-p-participants",
+        "to": "an-place-p-stage",
+        "weight": 4.88,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-26",
+        "from": "an-place-p-participants",
+        "to": "an-place-p-rest",
+        "weight": 17.55,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-27",
+        "from": "an-place-p-participants",
+        "to": "an-pano-pa-1",
+        "weight": 4.03,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-28",
+        "from": "an-place-p-participants",
+        "to": "an-pano-pa-2",
+        "weight": 11,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-29",
+        "from": "an-place-p-participants",
+        "to": "an-pano-pa-3",
+        "weight": 16.5,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-30",
+        "from": "an-place-p-participants",
+        "to": "an-pano-pa-4",
+        "weight": 0.25,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-31",
+        "from": "an-place-p-participants",
+        "to": "an-pano-pa-5",
+        "weight": 15.77,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-32",
+        "from": "an-place-p-partners",
+        "to": "an-place-p-stage",
+        "weight": 13.5,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-33",
+        "from": "an-place-p-partners",
+        "to": "an-place-p-rest",
+        "weight": 30.32,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-34",
+        "from": "an-place-p-partners",
+        "to": "an-pano-pa-1",
+        "weight": 13.2,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-35",
+        "from": "an-place-p-partners",
+        "to": "an-pano-pa-2",
+        "weight": 2,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-36",
+        "from": "an-place-p-partners",
+        "to": "an-pano-pa-3",
+        "weight": 29.5,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-37",
+        "from": "an-place-p-partners",
+        "to": "an-pano-pa-4",
+        "weight": 12.75,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-38",
+        "from": "an-place-p-partners",
+        "to": "an-pano-pa-5",
+        "weight": 28.57,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-39",
+        "from": "an-place-p-stage",
+        "to": "an-place-p-rest",
+        "weight": 17.4,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-40",
+        "from": "an-place-p-stage",
+        "to": "an-pano-pa-1",
+        "weight": 0.85,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-41",
+        "from": "an-place-p-stage",
+        "to": "an-pano-pa-2",
+        "weight": 11.67,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-42",
+        "from": "an-place-p-stage",
+        "to": "an-pano-pa-3",
+        "weight": 17.61,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-43",
+        "from": "an-place-p-stage",
+        "to": "an-pano-pa-4",
+        "weight": 4.86,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-44",
+        "from": "an-place-p-stage",
+        "to": "an-pano-pa-5",
+        "weight": 15.77,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-45",
+        "from": "an-place-p-rest",
+        "to": "an-pano-pa-1",
+        "weight": 17.42,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-46",
+        "from": "an-place-p-rest",
+        "to": "an-pano-pa-2",
+        "weight": 28.34,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-47",
+        "from": "an-place-p-rest",
+        "to": "an-pano-pa-3",
+        "weight": 4.52,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-48",
+        "from": "an-place-p-rest",
+        "to": "an-pano-pa-4",
+        "weight": 17.8,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-49",
+        "from": "an-place-p-rest",
+        "to": "an-pano-pa-5",
+        "weight": 1.81,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-50",
+        "from": "an-pano-pa-1",
+        "to": "an-pano-pa-2",
+        "weight": 11.33,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-51",
+        "from": "an-pano-pa-1",
+        "to": "an-pano-pa-3",
+        "weight": 17.41,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-52",
+        "from": "an-pano-pa-1",
+        "to": "an-pano-pa-4",
+        "weight": 4.01,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-53",
+        "from": "an-pano-pa-1",
+        "to": "an-pano-pa-5",
+        "weight": 15.75,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-54",
+        "from": "an-pano-pa-2",
+        "to": "an-pano-pa-3",
+        "weight": 27.5,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-55",
+        "from": "an-pano-pa-2",
+        "to": "an-pano-pa-4",
+        "weight": 10.75,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-56",
+        "from": "an-pano-pa-2",
+        "to": "an-pano-pa-5",
+        "weight": 26.59,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-57",
+        "from": "an-pano-pa-3",
+        "to": "an-pano-pa-4",
+        "weight": 16.75,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-58",
+        "from": "an-pano-pa-3",
+        "to": "an-pano-pa-5",
+        "weight": 3.95,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-59",
+        "from": "an-pano-pa-4",
+        "to": "an-pano-pa-5",
+        "weight": 16.01,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-60",
+        "from": "an-d-entrance-a",
+        "to": "an-d-services-b",
+        "weight": 4.8,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-61",
+        "from": "an-d-entrance-a",
+        "to": "an-d3-b",
+        "weight": 4.34,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-62",
+        "from": "an-d-entrance-a",
+        "to": "an-d4-b",
+        "weight": 4.56,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-63",
+        "from": "an-d-entrance-a",
+        "to": "an-d5-a",
+        "weight": 6.37,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-64",
+        "from": "an-d-entrance-a",
+        "to": "an-place-p-registration",
+        "weight": 4.83,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-65",
+        "from": "an-d-entrance-a",
+        "to": "an-place-p-food-west",
+        "weight": 3.7,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-66",
+        "from": "an-d-entrance-a",
+        "to": "an-place-p-entrance",
+        "weight": 0.35,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-67",
+        "from": "an-d-entrance-a",
+        "to": "an-pano-pa-6",
+        "weight": 2.4,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-68",
+        "from": "an-d-entrance-a",
+        "to": "an-corner-u-services-0",
+        "weight": 5.45,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-69",
+        "from": "an-d-entrance-a",
+        "to": "an-corner-u-services-1",
+        "weight": 3.43,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-70",
+        "from": "an-d-entrance-a",
+        "to": "an-corner-u-services-2",
+        "weight": 3.43,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-71",
+        "from": "an-d-entrance-a",
+        "to": "an-corner-u-services-3",
+        "weight": 5.45,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-72",
+        "from": "an-d-services-b",
+        "to": "an-d3-b",
+        "weight": 2.1,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-73",
+        "from": "an-d-services-b",
+        "to": "an-d4-b",
+        "weight": 2.01,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-74",
+        "from": "an-d-services-b",
+        "to": "an-place-p-registration",
+        "weight": 6.15,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-75",
+        "from": "an-d-services-b",
+        "to": "an-place-p-food-west",
+        "weight": 5.34,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-76",
+        "from": "an-d-services-b",
+        "to": "an-place-p-entrance",
+        "weight": 5.15,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-77",
+        "from": "an-d-services-b",
+        "to": "an-pano-pa-6",
+        "weight": 2.4,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-78",
+        "from": "an-d-services-b",
+        "to": "an-corner-u-services-1",
+        "weight": 3.11,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-79",
+        "from": "an-d-services-b",
+        "to": "an-corner-u-services-2",
+        "weight": 3.11,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-80",
+        "from": "an-d3-b",
+        "to": "an-d4-b",
+        "weight": 3.81,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-81",
+        "from": "an-d3-b",
+        "to": "an-place-p-registration",
+        "weight": 7.3,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-82",
+        "from": "an-d3-b",
+        "to": "an-place-p-food-west",
+        "weight": 3.49,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-83",
+        "from": "an-d3-b",
+        "to": "an-place-p-entrance",
+        "weight": 4.66,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-84",
+        "from": "an-d3-b",
+        "to": "an-pano-pa-6",
+        "weight": 2.42,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-85",
+        "from": "an-d3-b",
+        "to": "an-corner-u-services-1",
+        "weight": 1.32,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-86",
+        "from": "an-d3-b",
+        "to": "an-corner-u-services-2",
+        "weight": 4.31,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-87",
+        "from": "an-d4-b",
+        "to": "an-place-p-food-west",
+        "weight": 6.41,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-88",
+        "from": "an-d4-b",
+        "to": "an-place-p-entrance",
+        "weight": 4.88,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-89",
+        "from": "an-d4-b",
+        "to": "an-pano-pa-6",
+        "weight": 2.58,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-90",
+        "from": "an-d4-b",
+        "to": "an-corner-u-services-1",
+        "weight": 4.39,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-91",
+        "from": "an-d4-b",
+        "to": "an-corner-u-services-2",
+        "weight": 1.56,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-92",
+        "from": "an-d5-a",
+        "to": "an-place-p-registration",
+        "weight": 10.76,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-93",
+        "from": "an-d5-a",
+        "to": "an-place-p-food-west",
+        "weight": 2.77,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-94",
+        "from": "an-d5-a",
+        "to": "an-place-p-entrance",
+        "weight": 6.51,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-95",
+        "from": "an-d5-a",
+        "to": "an-pano-pa-6",
+        "weight": 5.9,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-96",
+        "from": "an-d5-a",
+        "to": "an-corner-u-services-0",
+        "weight": 1.14,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-97",
+        "from": "an-d5-a",
+        "to": "an-corner-u-services-1",
+        "weight": 3.69,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-98",
+        "from": "an-d5-a",
+        "to": "an-corner-u-services-2",
+        "weight": 8.12,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-99",
+        "from": "an-d5-a",
+        "to": "an-corner-u-services-3",
+        "weight": 10.68,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-100",
+        "from": "an-place-p-registration",
+        "to": "an-place-p-food-west",
+        "weight": 8.35,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-101",
+        "from": "an-place-p-registration",
+        "to": "an-place-p-entrance",
+        "weight": 4.91,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-102",
+        "from": "an-place-p-registration",
+        "to": "an-pano-pa-6",
+        "weight": 4.98,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-103",
+        "from": "an-place-p-registration",
+        "to": "an-corner-u-services-0",
+        "weight": 9.68,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-104",
+        "from": "an-place-p-registration",
+        "to": "an-corner-u-services-1",
+        "weight": 7.18,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-105",
+        "from": "an-place-p-registration",
+        "to": "an-corner-u-services-2",
+        "weight": 3.06,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-106",
+        "from": "an-place-p-registration",
+        "to": "an-corner-u-services-3",
+        "weight": 1.72,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-107",
+        "from": "an-place-p-food-west",
+        "to": "an-place-p-entrance",
+        "weight": 3.79,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-108",
+        "from": "an-place-p-food-west",
+        "to": "an-pano-pa-6",
+        "weight": 3.92,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-109",
+        "from": "an-place-p-food-west",
+        "to": "an-corner-u-services-0",
+        "weight": 2.13,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-110",
+        "from": "an-place-p-food-west",
+        "to": "an-corner-u-services-1",
+        "weight": 2.24,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-111",
+        "from": "an-place-p-food-west",
+        "to": "an-corner-u-services-2",
+        "weight": 6.08,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-112",
+        "from": "an-place-p-food-west",
+        "to": "an-corner-u-services-3",
+        "weight": 8.56,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-113",
+        "from": "an-place-p-entrance",
+        "to": "an-pano-pa-6",
+        "weight": 2.75,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-114",
+        "from": "an-place-p-entrance",
+        "to": "an-corner-u-services-0",
+        "weight": 5.63,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-115",
+        "from": "an-place-p-entrance",
+        "to": "an-corner-u-services-1",
+        "weight": 3.71,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-116",
+        "from": "an-place-p-entrance",
+        "to": "an-corner-u-services-2",
+        "weight": 3.71,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-117",
+        "from": "an-place-p-entrance",
+        "to": "an-corner-u-services-3",
+        "weight": 5.63,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-118",
+        "from": "an-pano-pa-6",
+        "to": "an-corner-u-services-0",
+        "weight": 4.79,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-119",
+        "from": "an-pano-pa-6",
+        "to": "an-corner-u-services-1",
+        "weight": 2.23,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-120",
+        "from": "an-pano-pa-6",
+        "to": "an-corner-u-services-2",
+        "weight": 2.23,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-121",
+        "from": "an-pano-pa-6",
+        "to": "an-corner-u-services-3",
+        "weight": 4.79,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-122",
+        "from": "an-corner-u-services-0",
+        "to": "an-corner-u-services-1",
+        "weight": 2.56,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-123",
+        "from": "an-corner-u-services-0",
+        "to": "an-corner-u-services-2",
+        "weight": 7,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-124",
+        "from": "an-corner-u-services-0",
+        "to": "an-corner-u-services-3",
+        "weight": 9.56,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-125",
+        "from": "an-corner-u-services-1",
+        "to": "an-corner-u-services-2",
+        "weight": 4.44,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-126",
+        "from": "an-corner-u-services-1",
+        "to": "an-corner-u-services-3",
+        "weight": 7,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-127",
+        "from": "an-corner-u-services-2",
+        "to": "an-corner-u-services-3",
+        "weight": 2.56,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-128",
+        "from": "an-d5-b",
+        "to": "an-place-p-1",
+        "weight": 0.65,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-129",
+        "from": "an-d3-a",
+        "to": "an-place-p-2",
+        "weight": 0.47,
+        "access": "public"
+      },
+      {
+        "id": "ae-L1-130",
+        "from": "an-d4-a",
+        "to": "an-place-p-3",
+        "weight": 0.47,
+        "access": "public"
+      }
+    ]
+  },
+  "units": [
+    {
+      "id": "u-manezh",
+      "kind": "hall",
+      "name": "Манеж",
+      "holes": [],
+      "level": "L1",
+      "polygon": [
+        [
+          0,
+          6
+        ],
+        [
+          42,
+          6
+        ],
+        [
+          42,
+          17
+        ],
+        [
+          0,
+          17
+        ]
+      ],
+      "walkable": true
+    },
+    {
+      "id": "u-services",
+      "kind": "lobby",
+      "name": "",
+      "holes": [
+        [
+          [
+            16,
+            3.5
+          ],
+          [
+            18,
+            3.5
+          ],
+          [
+            18,
+            6
+          ],
+          [
+            16,
+            6
+          ]
+        ],
+        [
+          [
+            23,
+            3.5
+          ],
+          [
+            25,
+            3.5
+          ],
+          [
+            25,
+            6
+          ],
+          [
+            23,
+            6
+          ]
+        ]
+      ],
+      "level": "L1",
+      "polygon": [
+        [
+          14,
+          0
+        ],
+        [
+          27,
+          0
+        ],
+        [
+          27,
+          6
+        ],
+        [
+          14,
+          6
+        ]
+      ],
+      "walkable": true
+    },
+    {
+      "id": "u-1",
+      "kind": "room",
+      "name": "",
+      "level": "L1",
+      "polygon": [
+        [
+          11.5,
+          0.5
+        ],
+        [
+          14,
+          0.5
+        ],
+        [
+          14,
+          5.5
+        ],
+        [
+          11.5,
+          5.5
+        ]
+      ],
+      "walkable": true
+    },
+    {
+      "id": "u-2",
+      "kind": "room",
+      "name": "WC",
+      "level": "L1",
+      "parent": "u-services",
+      "polygon": [
+        [
+          16,
+          3.5
+        ],
+        [
+          18,
+          3.5
+        ],
+        [
+          18,
+          6
+        ],
+        [
+          16,
+          6
+        ]
+      ],
+      "walkable": true
+    },
+    {
+      "id": "u-3",
+      "kind": "room",
+      "name": "WC",
+      "level": "L1",
+      "parent": "u-services",
+      "polygon": [
+        [
+          23,
+          3.5
+        ],
+        [
+          25,
+          3.5
+        ],
+        [
+          25,
+          6
+        ],
+        [
+          23,
+          6
+        ]
+      ],
+      "walkable": true
+    }
+  ],
+  "venue": {
+    "id": "demo",
+    "name": "Хакатон «Осень 2026» — Манеж ДГТУ",
+    "planNorth": 0,
+    "scaleClass": "schematic"
+  },
+  "levels": [
+    {
+      "id": "L1",
+      "name": "Манеж",
+      "ordinal": 0,
+      "underlay": null
+    }
+  ],
+  "places": [
+    {
+      "id": "p-track",
+      "pos": [
+        36.5,
+        11.5
+      ],
+      "name": "Беговая дорожка",
+      "node": "an-place-p-track",
+      "hours": "",
+      "level": "L1",
+      "hidden": false,
+      "number": "",
+      "photos": [],
+      "polygon": [
+        [
+          23,
+          16.7
+        ],
+        [
+          31,
+          16.4
+        ],
+        [
+          36,
+          15.6
+        ],
+        [
+          39,
+          14
+        ],
+        [
+          40.5,
+          11.5
+        ],
+        [
+          39,
+          9
+        ],
+        [
+          36,
+          7.4
+        ],
+        [
+          31,
+          6.6
+        ],
+        [
+          23,
+          6.3
+        ],
+        [
+          15,
+          6.6
+        ],
+        [
+          10,
+          7.4
+        ],
+        [
+          7,
+          9
+        ],
+        [
+          5.5,
+          11.5
+        ],
+        [
+          7,
+          14
+        ],
+        [
+          10,
+          15.6
+        ],
+        [
+          15,
+          16.4
+        ]
+      ],
+      "category": "track",
+      "description": "Овальная дорожка манежа."
+    },
+    {
+      "id": "p-participants",
+      "pos": [
+        21.5,
+        11.25
+      ],
+      "name": "Зона участников",
+      "node": "an-place-p-participants",
+      "hours": "",
+      "level": "L1",
+      "hidden": false,
+      "number": "",
+      "photos": [],
+      "polygon": [
+        [
+          11.63,
+          8.25
+        ],
+        [
+          31.38,
+          8.25
+        ],
+        [
+          31.38,
+          14.25
+        ],
+        [
+          11.63,
+          14.25
+        ]
+      ],
+      "category": "participants",
+      "description": "Рабочая зона участников внутри беговой дорожки."
+    },
+    {
+      "id": "p-partners",
+      "pos": [
+        8.5,
+        11
+      ],
+      "name": "Зона партнёров",
+      "node": "an-place-p-partners",
+      "hours": "",
+      "level": "L1",
+      "hidden": false,
+      "number": "",
+      "photos": [],
+      "polygon": [
+        [
+          7.4,
+          6.6
+        ],
+        [
+          9.7,
+          6.6
+        ],
+        [
+          9.7,
+          15.8
+        ],
+        [
+          7.4,
+          15.8
+        ]
+      ],
+      "category": "partners",
+      "description": "Партнёрские стенды вдоль левой стороны дорожки."
+    },
+    {
+      "id": "p-stage",
+      "pos": [
+        21,
+        16.1
+      ],
+      "name": "Сцена",
+      "node": "an-place-p-stage",
+      "hours": "",
+      "level": "L1",
+      "hidden": false,
+      "number": "",
+      "photos": [],
+      "polygon": [
+        [
+          18.6,
+          15.6
+        ],
+        [
+          23.4,
+          15.6
+        ],
+        [
+          23.4,
+          16.7
+        ],
+        [
+          18.6,
+          16.7
+        ]
+      ],
+      "category": "stage",
+      "description": "Сцена у верхней стороны манежа."
+    },
+    {
+      "id": "p-rest",
+      "pos": [
+        38.4,
+        16
+      ],
+      "name": "Зона отдыха",
+      "node": "an-place-p-rest",
+      "hours": "",
+      "level": "L1",
+      "hidden": false,
+      "number": "",
+      "photos": [],
+      "polygon": [
+        [
+          35.2,
+          15.4
+        ],
+        [
+          41.8,
+          15.4
+        ],
+        [
+          41.8,
+          16.8
+        ],
+        [
+          35.2,
+          16.8
+        ]
+      ],
+      "category": "rest",
+      "description": "Зона отдыха у правой верхней стороны манежа."
+    },
+    {
+      "id": "p-registration",
+      "pos": [
+        25.25,
+        1.5
+      ],
+      "name": "Регистрация",
+      "node": "an-place-p-registration",
+      "hours": "",
+      "level": "L1",
+      "hidden": false,
+      "number": "",
+      "photos": [],
+      "polygon": [
+        [
+          23.95,
+          0.3
+        ],
+        [
+          26.55,
+          0.3
+        ],
+        [
+          26.55,
+          2.7
+        ],
+        [
+          23.95,
+          2.7
+        ]
+      ],
+      "category": "registration",
+      "description": "Регистрация участников и получение бейджей."
+    },
+    {
+      "id": "p-food-west",
+      "pos": [
+        16.9,
+        1.45
+      ],
+      "name": "Зона питания",
+      "node": "an-place-p-food-west",
+      "hours": "",
+      "level": "L1",
+      "hidden": false,
+      "number": "",
+      "photos": [],
+      "polygon": [
+        [
+          14.3,
+          0.4
+        ],
+        [
+          19.5,
+          0.4
+        ],
+        [
+          19.5,
+          2.5
+        ],
+        [
+          14.3,
+          2.5
+        ]
+      ],
+      "category": "food",
+      "description": "Зона питания с левой стороны служебного блока."
+    },
+    {
+      "id": "p-entrance",
+      "pos": [
+        20.5,
+        0.25
+      ],
+      "name": "Вход и выход",
+      "node": "an-place-p-entrance",
+      "hours": "",
+      "level": "L1",
+      "hidden": false,
+      "number": "",
+      "photos": [],
+      "polygon": null,
+      "category": "entrance",
+      "description": "Вход и выход со стороны служебного блока, между зонами питания."
+    },
+    {
+      "id": "p-1",
+      "pos": [
+        12.75,
+        3
+      ],
+      "name": "Гардероб",
+      "node": "an-place-p-1",
+      "hours": "",
+      "level": "L1",
+      "hidden": false,
+      "number": "",
+      "photos": [],
+      "polygon": [
+        [
+          11.75,
+          0.88
+        ],
+        [
+          13.75,
+          0.88
+        ],
+        [
+          13.75,
+          5.13
+        ],
+        [
+          11.75,
+          5.13
+        ]
+      ],
+      "category": "wardrobe",
+      "description": ""
+    },
+    {
+      "id": "p-2",
+      "pos": [
+        17,
+        4.75
+      ],
+      "name": "Туалет М",
+      "node": "an-place-p-2",
+      "hours": "",
+      "level": "L1",
+      "hidden": false,
+      "number": "",
+      "photos": [],
+      "polygon": null,
+      "category": "wc",
+      "description": ""
+    },
+    {
+      "id": "p-3",
+      "pos": [
+        24,
+        4.5
+      ],
+      "name": "Туалет Ж",
+      "node": "an-place-p-3",
+      "hours": "",
+      "level": "L1",
+      "hidden": false,
+      "number": "",
+      "photos": [],
+      "polygon": null,
+      "category": "wc",
+      "description": ""
+    }
+  ],
+  "schema": 2,
+  "anchors": [
+    {
+      "id": "q-entrance",
+      "pos": [
+        20.5,
+        0.25
+      ],
+      "code": "ENTRANCE",
+      "level": "L1",
+      "facing": 0
+    }
+  ],
+  "openings": [
+    {
+      "id": "d-entrance",
+      "kind": "entrance",
+      "level": "L1",
+      "units": [
+        "u-services"
+      ],
+      "segment": [
+        [
+          19.6,
+          0
+        ],
+        [
+          21.4,
+          0
+        ]
+      ]
+    },
+    {
+      "id": "d-services",
+      "kind": "passage",
+      "level": "L1",
+      "units": [
+        "u-manezh",
+        "u-services"
+      ],
+      "segment": [
+        [
+          19.5,
+          6
+        ],
+        [
+          21.5,
+          6
+        ]
+      ]
+    },
+    {
+      "id": "d3",
+      "door": {
+        "hinge": "start",
+        "swing": 1,
+        "leaves": 1,
+        "openAngle": 90
+      },
+      "kind": "door",
+      "level": "L1",
+      "units": [
+        "u-services",
+        "u-2"
+      ],
+      "segment": [
+        [
+          18,
+          4.05
+        ],
+        [
+          18,
+          4.95
+        ]
+      ]
+    },
+    {
+      "id": "d4",
+      "door": {
+        "hinge": "start",
+        "swing": 1,
+        "leaves": 1,
+        "openAngle": 90
+      },
+      "kind": "door",
+      "level": "L1",
+      "units": [
+        "u-services",
+        "u-3"
+      ],
+      "segment": [
+        [
+          23,
+          5.2
+        ],
+        [
+          23,
+          4.3
+        ]
+      ]
+    },
+    {
+      "id": "d5",
+      "kind": "passage",
+      "level": "L1",
+      "units": [
+        "u-services",
+        "u-1"
+      ],
+      "segment": [
+        [
+          14,
+          5.35
+        ],
+        [
+          14,
+          0.65
+        ]
+      ]
+    }
+  ],
+  "settings": {
+    "linkRange": 15,
+    "markerRange": 30
+  },
+  "obstacles": [],
+  "panoramas": [
+    {
+      "id": "pa-1",
+      "pos": [
+        21,
+        15.25
+      ],
+      "node": "an-pano-pa-1",
+      "pano": "demo-manezh-1",
+      "level": "L1",
+      "links": [],
+      "heading": 0,
+      "markers": [],
+      "cameraHeight": 1.5,
+      "customMarkers": []
+    },
+    {
+      "id": "pa-2",
+      "pos": [
+        10.5,
+        11
+      ],
+      "node": "an-pano-pa-2",
+      "pano": "demo-manezh-2",
+      "level": "L1",
+      "links": [],
+      "heading": 0,
+      "markers": [],
+      "cameraHeight": 1.5,
+      "customMarkers": []
+    },
+    {
+      "id": "pa-3",
+      "pos": [
+        38,
+        11.5
+      ],
+      "node": "an-pano-pa-3",
+      "pano": "demo-manezh-3",
+      "level": "L1",
+      "links": [],
+      "heading": 0,
+      "markers": [],
+      "cameraHeight": 1.5,
+      "customMarkers": []
+    },
+    {
+      "id": "pa-4",
+      "pos": [
+        21.25,
+        11.25
+      ],
+      "node": "an-pano-pa-4",
+      "pano": "demo-manezh-4",
+      "level": "L1",
+      "links": [],
+      "heading": 0,
+      "markers": [],
+      "cameraHeight": 1.5,
+      "customMarkers": []
+    },
+    {
+      "id": "pa-5",
+      "pos": [
+        36.75,
+        15.25
+      ],
+      "node": "an-pano-pa-5",
+      "pano": "demo-manezh-5",
+      "level": "L1",
+      "links": [],
+      "heading": 0,
+      "markers": [],
+      "cameraHeight": 1.5,
+      "customMarkers": []
+    },
+    {
+      "id": "pa-6",
+      "pos": [
+        20.5,
+        3
+      ],
+      "node": "an-pano-pa-6",
+      "pano": "demo-manezh-6",
+      "level": "L1",
+      "links": [],
+      "heading": 0,
+      "markers": [],
+      "cameraHeight": 1.5,
+      "customMarkers": []
+    }
+  ],
+  "categories": [
+    {
+      "id": "entrance",
+      "icon": "door",
+      "name": "Вход",
+      "color": "#2F855A",
+      "synonyms": [
+        "выход",
+        "вход в манеж"
+      ]
+    },
+    {
+      "id": "food",
+      "icon": "coffee",
+      "name": "Зона питания",
+      "color": "#D6B91E",
+      "synonyms": [
+        "еда",
+        "кофе",
+        "питание"
+      ]
+    },
+    {
+      "id": "wardrobe",
+      "icon": "room",
+      "name": "Гардероб",
+      "color": "#C23BC5",
+      "synonyms": [
+        "одежда",
+        "вещи"
+      ]
+    },
+    {
+      "id": "wc",
+      "icon": "wc",
+      "name": "WC",
+      "color": "#A94D70",
+      "synonyms": [
+        "туалет",
+        "уборная",
+        "санузел"
+      ]
+    },
+    {
+      "id": "registration",
+      "icon": "desk",
+      "name": "Регистрация",
+      "color": "#B38319",
+      "synonyms": [
+        "стойка",
+        "бейдж",
+        "регистрация участников"
+      ]
+    },
+    {
+      "id": "stage",
+      "icon": "booth",
+      "name": "Сцена",
+      "color": "#B43832",
+      "synonyms": [
+        "выступления",
+        "доклады"
+      ]
+    },
+    {
+      "id": "participants",
+      "icon": "hall",
+      "name": "Зона участников",
+      "color": "#3937C9",
+      "synonyms": [
+        "участники",
+        "рабочая зона"
+      ]
+    },
+    {
+      "id": "partners",
+      "icon": "booth",
+      "name": "Зона партнёров",
+      "color": "#54A83C",
+      "synonyms": [
+        "партнёры",
+        "стенды"
+      ]
+    },
+    {
+      "id": "rest",
+      "icon": "info",
+      "name": "Зона отдыха",
+      "color": "#4EB8D1",
+      "synonyms": [
+        "отдых",
+        "лаунж"
+      ]
+    },
+    {
+      "id": "track",
+      "icon": "walk",
+      "name": "Беговая дорожка",
+      "color": "#7A8492",
+      "synonyms": [
+        "дорожка",
+        "манеж"
+      ]
+    }
+  ],
+  "capturePoints": [
+    {
+      "id": "cp-8",
+      "pos": [
+        12.5,
+        3
+      ],
+      "level": "L1",
+      "origin": "removed",
+      "panorama": null
+    },
+    {
+      "id": "cp-2",
+      "pos": [
+        23,
+        4.5
+      ],
+      "level": "L1",
+      "origin": "removed",
+      "panorama": null
+    },
+    {
+      "id": "cp-9",
+      "pos": [
+        15,
+        1
+      ],
+      "level": "L1",
+      "origin": "removed",
+      "panorama": null
+    },
+    {
+      "id": "cp-10",
+      "pos": [
+        17,
+        4.5
+      ],
+      "level": "L1",
+      "origin": "removed",
+      "panorama": null
+    },
+    {
+      "id": "cp-3",
+      "pos": [
+        34.5,
+        12
+      ],
+      "level": "L1",
+      "origin": "removed",
+      "panorama": null
+    },
+    {
+      "id": "cp-6",
+      "pos": [
+        34.5,
+        9
+      ],
+      "level": "L1",
+      "origin": "removed",
+      "panorama": null
+    },
+    {
+      "id": "cp-1",
+      "pos": [
+        20.5,
+        9
+      ],
+      "level": "L1",
+      "origin": "removed",
+      "panorama": null
+    },
+    {
+      "id": "cp-5",
+      "pos": [
+        21,
+        15
+      ],
+      "level": "L1",
+      "origin": "removed",
+      "panorama": null
+    },
+    {
+      "id": "cp-7",
+      "pos": [
+        4.5,
+        10.5
+      ],
+      "level": "L1",
+      "origin": "removed",
+      "panorama": null
+    },
+    {
+      "id": "cp-4",
+      "pos": [
+        15,
+        12
+      ],
+      "level": "L1",
+      "origin": "removed",
+      "panorama": null
+    },
+    {
+      "id": "cp-13",
+      "pos": [
+        26,
+        3.5
+      ],
+      "level": "L1",
+      "origin": "removed",
+      "panorama": null
+    },
+    {
+      "id": "cp-14",
+      "pos": [
+        21.25,
+        11.25
+      ],
+      "level": "L1",
+      "origin": "manual",
+      "panorama": "pa-4"
+    },
+    {
+      "id": "cp-15",
+      "pos": [
+        10.5,
+        11
+      ],
+      "level": "L1",
+      "origin": "manual",
+      "panorama": "pa-2"
+    },
+    {
+      "id": "cp-16",
+      "pos": [
+        21,
+        15.25
+      ],
+      "level": "L1",
+      "origin": "manual",
+      "panorama": "pa-1"
+    },
+    {
+      "id": "cp-17",
+      "pos": [
+        36.75,
+        15.25
+      ],
+      "level": "L1",
+      "origin": "manual",
+      "panorama": "pa-5"
+    },
+    {
+      "id": "cp-18",
+      "pos": [
+        38,
+        11.5
+      ],
+      "level": "L1",
+      "origin": "manual",
+      "panorama": "pa-3"
+    },
+    {
+      "id": "cp-11",
+      "pos": [
+        20.5,
+        3
+      ],
+      "level": "L1",
+      "origin": "auto",
+      "panorama": "pa-6"
+    }
+  ]
+}

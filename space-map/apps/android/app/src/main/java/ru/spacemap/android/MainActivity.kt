@@ -2,12 +2,15 @@ package ru.spacemap.android
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
@@ -84,19 +87,44 @@ class MainActivity : ComponentActivity() {
         fileCallback = null
     }
 
+    private val localNetworkPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) web.loadUrl(BuildConfig.START_URL)
+        else AlertDialog.Builder(this)
+            .setTitle("Нет доступа к локальному стенду")
+            .setMessage("Для подключения к компьютеру по Wi-Fi разрешите доступ к устройствам поблизости. Телефон и компьютер должны быть в одной сети.")
+            .setPositiveButton("Повторить") { _, _ -> requestLocalNetwork() }
+            .setNegativeButton("Закрыть") { _, _ -> finish() }
+            .show()
+    }
+
+    private fun requestLocalNetwork() {
+        localNetworkPermission.launch("android.permission.ACCESS_LOCAL_NETWORK")
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Отладочная сборка: страницу можно смотреть в Chrome DevTools (chrome://inspect) через USB.
         if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
-        web = WebView(this).apply { layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) }
-        setContentView(web)
-        // Страница не заходит под строку состояния, панель навигации и клавиатуру.
-        ViewCompat.setOnApplyWindowInsetsListener(web) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+        web = WebView(this)
+        val root = FrameLayout(this).apply {
+            addView(web, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ))
+        }
+        setContentView(root)
+        // Отодвигаем WebView от системных панелей: его HTML viewport не
+        // включает их в область страницы и заголовок не уходит под статус-бар.
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
+            (web.layoutParams as FrameLayout.LayoutParams).also { params ->
+                params.setMargins(safe.left, safe.top, safe.right, safe.bottom)
+                web.layoutParams = params
+            }
             WindowInsetsCompat.CONSUMED
         }
+        ViewCompat.requestApplyInsets(root)
 
         with(web.settings) {
             javaScriptEnabled = true
@@ -115,7 +143,10 @@ class MainActivity : ComponentActivity() {
             if (web.canGoBack()) web.goBack() else finish()
         }
 
-        if (savedInstanceState == null || web.restoreState(savedInstanceState) == null) web.loadUrl(BuildConfig.START_URL)
+        val needsLocalPermission = BuildConfig.DEBUG && start.scheme == "http" && Build.VERSION.SDK_INT >= 37 &&
+            ContextCompat.checkSelfPermission(this, "android.permission.ACCESS_LOCAL_NETWORK") != PackageManager.PERMISSION_GRANTED
+        if (needsLocalPermission) requestLocalNetwork()
+        else if (savedInstanceState == null || web.restoreState(savedInstanceState) == null) web.loadUrl(BuildConfig.START_URL)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -179,7 +210,8 @@ class MainActivity : ComponentActivity() {
         web.evaluateJavascript("window.__spaceMapNative && window.__spaceMapNative(${JSONObject.quote(id)}, $result)", null)
     }
 
-    private fun isOurs(uri: Uri): Boolean = uri.scheme == "https" && uri.host == start.host
+    private fun isOurs(uri: Uri): Boolean =
+        uri.scheme == start.scheme && uri.host == start.host && uri.port == start.port
 
     private inner class PageClient : WebViewClient() {
         /** Свой сайт — в приложении, всё остальное (ссылки наружу, intent:) — системе. */

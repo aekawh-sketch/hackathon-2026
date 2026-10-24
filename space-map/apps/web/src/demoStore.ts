@@ -2,7 +2,8 @@
 // редактор пишет сюда, карта посетителя `/m/demo` читает отсюда.
 import { validateReferences, type MapDocument } from '@space-map/map-core';
 
-const KEY = 'space-map:demo-doc:v1';
+// v2 starts from the new hackathon venue model; retain any previous v1 browser edits untouched.
+const KEY = 'space-map:demo-doc:v2';
 
 export function loadEditedDemo(): MapDocument | null {
   try {

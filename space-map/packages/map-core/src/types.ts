@@ -48,6 +48,8 @@ export type UnitKind =
 
 export interface Unit {
   id: string;
+  /** Родительское помещение, из которого выделена эта вложенная комната. */
+  parent?: string;
   level: string;
   kind: UnitKind;
   name: string;

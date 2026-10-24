@@ -1493,6 +1493,15 @@ button.insp-row:hover {
   flex: 1;
 }
 
+.shot-actions {
+  flex-direction: column;
+}
+
+.shot-actions .btn {
+  flex: none;
+  white-space: normal;
+}
+
 .swatch {
   width: 22px;
   height: 22px;

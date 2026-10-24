@@ -115,6 +115,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -1113,13 +1114,6 @@ fun PhotoSphereCameraScreen(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            if (showInstructions && run.activeIndex == 0 && bufferedFrames.isEmpty()) {
-                CaptureInstructions(
-                    onDismiss = { showInstructions = false },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-
             CaptureHud(
                 capturedCount = run.capturedTargets,
                 totalTargets = run.totalTargets,
@@ -1214,6 +1208,19 @@ fun PhotoSphereCameraScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(insets),
+                )
+            }
+
+            // This belongs last in the Box: it must cover the viewfinder, aim
+            // markers and HUD until the person has acknowledged the workflow.
+            // zIndex also keeps that guarantee if a sibling gains a custom
+            // layer in a future UI change.
+            if (showInstructions && run.activeIndex == 0 && bufferedFrames.isEmpty()) {
+                CaptureInstructions(
+                    onDismiss = { showInstructions = false },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(1f),
                 )
             }
         }

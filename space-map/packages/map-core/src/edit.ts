@@ -1,7 +1,7 @@
 // Правка плана в редакторе: помещения (создать, сдвинуть, изменить форму, удалить), места, двери и граф.
 // Все функции чистые: принимают документ и возвращают новый — так работают «Отменить / Повторить».
 import { acceptSuggestions } from './panorama.ts';
-import { distance, hasLineOfSight, pointInPolygon, pointInUnit, pointSegmentDistance, polygonArea, polygonEdges, segmentIntersection, signedArea, unitRings } from './geometry.ts';
+import { distance, hasLineOfSight, pointInPolygon, pointInUnit, pointSegmentDistance, polygonArea, polygonEdges, segmentIntersection, signedArea, unitAt, unitRings } from './geometry.ts';
 import type { MapDocument, NavEdge, NavNode, Opening, Place, Unit, UnitKind, Vec2 } from './types.ts';
 
 /** Шаг сетки редактора, метры. */
@@ -88,7 +88,34 @@ export function polygonsOverlap(a: Vec2[], b: Vec2[]): boolean {
 
 /** Помещения, с которыми пересекается полигон (кроме `except`). */
 export function overlappingUnits(doc: MapDocument, level: string, polygon: Vec2[], except?: string): Unit[] {
-  return doc.units.filter((u) => u.level === level && u.id !== except && polygonsOverlap(polygon, u.polygon));
+  const isAncestor = (ancestor: string, child: string) => {
+    let current = doc.units.find((u) => u.id === child);
+    while (current?.parent) {
+      if (current.parent === ancestor) return true;
+      current = doc.units.find((u) => u.id === current!.parent);
+    }
+    return false;
+  };
+  return doc.units.filter((u) =>
+    u.level === level && u.id !== except && polygonsOverlap(polygon, u.polygon) &&
+    !(except && (isAncestor(except, u.id) || isAncestor(u.id, except))),
+  );
+}
+
+/** Проверяет новую комнату: она может быть свободной либо целиком вложенной в одно существующее помещение. */
+export function roomPlacement(doc: MapDocument, level: string, polygon: Vec2[]): { valid: boolean; parent: Unit | null } {
+  const center: Vec2 = [polygon.reduce((s, p) => s + p[0], 0) / polygon.length, polygon.reduce((s, p) => s + p[1], 0) / polygon.length];
+  const candidate = unitAt(doc, level, center);
+  const nested = !!candidate?.walkable && polygon.every((p) => pointInUnit(p, candidate));
+  const ancestors = new Set<string>();
+  let ancestor = candidate?.parent ? doc.units.find((u) => u.id === candidate.parent) : undefined;
+  while (ancestor) {
+    ancestors.add(ancestor.id);
+    ancestor = ancestor.parent ? doc.units.find((u) => u.id === ancestor!.parent) : undefined;
+  }
+  const overlaps = overlappingUnits(doc, level, polygon).filter((u) => u.id !== candidate?.id && !ancestors.has(u.id));
+  const parent = nested ? candidate : null;
+  return { valid: overlaps.length === 0 && (!candidate || nested), parent };
 }
 
 // ── Общие стены и двери ──
@@ -112,8 +139,13 @@ export function sharedWalls(a: Vec2[], b: Vec2[]): [Vec2, Vec2][] {
   return out;
 }
 
-function onBoundary(segment: [Vec2, Vec2], polygon: Vec2[]): boolean {
-  return polygonEdges(polygon).some(
+/** Общие стены помещений, включая границу внутренней комнаты, записанную как вырез родителя. */
+export function sharedUnitWalls(a: Unit, b: Unit): [Vec2, Vec2][] {
+  return unitRings(a).flatMap((ringA) => unitRings(b).flatMap((ringB) => sharedWalls(ringA, ringB)));
+}
+
+function onBoundary(segment: [Vec2, Vec2], unit: Unit): boolean {
+  return unitRings(unit).flatMap(polygonEdges).some(
     ([a, b]) => pointSegmentDistance(segment[0], a, b) < ON_WALL && pointSegmentDistance(segment[1], a, b) < ON_WALL,
   );
 }
@@ -124,7 +156,7 @@ export function reconcileOpenings(doc: MapDocument): MapDocument {
   const openings = doc.openings.filter((o) =>
     o.units.every((id) => {
       const u = units.get(id);
-      return !!u && onBoundary(o.segment, u.polygon);
+      return !!u && onBoundary(o.segment, u);
     }),
   );
   return openings.length === doc.openings.length ? doc : { ...doc, openings };
@@ -146,7 +178,7 @@ export function autoConnect(doc: MapDocument, unitId: string): MapDocument {
   let best: { other: Unit; wall: [Vec2, Vec2]; score: number } | null = null;
   for (const other of doc.units) {
     if (other.id === unit.id || other.level !== unit.level || !other.walkable) continue;
-    for (const wall of sharedWalls(unit.polygon, other.polygon)) {
+    for (const wall of sharedUnitWalls(unit, other)) {
       const len = distance(wall[0], wall[1]);
       if (len < 0.8) continue;
       const score = len + (HUB_KINDS.includes(other.kind) ? 1000 : 0);
@@ -174,7 +206,7 @@ export function addDoor(doc: MapDocument, a: string, b: string, at?: Vec2): MapD
   const ua = doc.units.find((u) => u.id === a);
   const ub = doc.units.find((u) => u.id === b);
   if (!ua || !ub) return doc;
-  const walls = sharedWalls(ua.polygon, ub.polygon).filter(([p, q]) => distance(p, q) >= 0.8);
+  const walls = sharedUnitWalls(ua, ub).filter(([p, q]) => distance(p, q) >= 0.8);
   if (walls.length === 0) return doc;
   const target = at ?? midpoint(walls[0]!);
   const wall = walls.reduce((w, cur) => (pointSegmentDistance(target, cur[0], cur[1]) < pointSegmentDistance(target, w[0], w[1]) ? cur : w));
@@ -203,7 +235,7 @@ export function neighbours(doc: MapDocument, unitId: string): Unit[] {
   const unit = doc.units.find((u) => u.id === unitId);
   if (!unit) return [];
   return doc.units.filter(
-    (u) => u.id !== unitId && u.level === unit.level && sharedWalls(unit.polygon, u.polygon).some(([p, q]) => distance(p, q) >= 0.8),
+    (u) => u.id !== unitId && u.level === unit.level && sharedUnitWalls(unit, u).some(([p, q]) => distance(p, q) >= 0.8),
   );
 }
 
@@ -229,17 +261,20 @@ export interface CreateRoomOptions {
 /** Новое помещение. Возвращает документ и ID; граф достраивается сам, дверь организатор ставит вручную. */
 export function createRoom(doc: MapDocument, level: string, polygon: Vec2[], options: CreateRoomOptions = {}): { doc: MapDocument; id: string } {
   const id = newId(doc, 'u');
+  const { parent } = roomPlacement(doc, level, polygon);
   const kind = options.kind ?? 'room';
   const count = doc.units.filter((u) => u.kind === kind).length + 1;
   const unit: Unit = {
     id,
     level,
+    ...(parent ? { parent: parent.id } : {}),
     kind,
     name: options.name ?? `${UNIT_KIND_NAMES[kind]} ${count}`,
     walkable: kind !== 'service',
     polygon: polygon.map(round2v),
   };
-  return { doc: rebuildGraph({ ...doc, units: [...doc.units, unit] }, level), id };
+  const units = doc.units.map((u) => u.id === parent?.id ? { ...u, holes: [...(u.holes ?? []), unit.polygon] } : u);
+  return { doc: rebuildGraph({ ...doc, units: [...units, unit] }, level), id };
 }
 
 export function updateUnit(doc: MapDocument, id: string, patch: Partial<Pick<Unit, 'name' | 'kind' | 'walkable'>>): MapDocument {
@@ -251,6 +286,10 @@ export function updateUnit(doc: MapDocument, id: string, patch: Partial<Pick<Uni
   return next;
 }
 
+function samePolygon(a: Vec2[], b: Vec2[]): boolean {
+  return a.length === b.length && a.every((p, i) => Math.abs(p[0] - b[i]![0]) < EPS && Math.abs(p[1] - b[i]![1]) < EPS);
+}
+
 /**
  * Сдвиг помещения вместе со всем, что внутри: вырезы, места, препятствия, панорамы, QR-якоря и его двери.
  * Двери, оторвавшиеся от соседей, исчезают — новую организатор ставит сам.
@@ -258,6 +297,17 @@ export function updateUnit(doc: MapDocument, id: string, patch: Partial<Pick<Uni
 export function translateUnit(doc: MapDocument, id: string, delta: Vec2): MapDocument {
   const unit = doc.units.find((u) => u.id === id);
   if (!unit || (Math.abs(delta[0]) < EPS && Math.abs(delta[1]) < EPS)) return doc;
+  const movedIds = new Set([id]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const candidate of doc.units) {
+      if (candidate.parent && movedIds.has(candidate.parent) && !movedIds.has(candidate.id)) {
+        movedIds.add(candidate.id);
+        changed = true;
+      }
+    }
+  }
   const inside = (p: Vec2) => pointInPolygon(p, unit.polygon);
   const move = (p: Vec2): Vec2 => round2v([p[0] + delta[0], p[1] + delta[1]]);
   const centroid = (poly: Vec2[]): Vec2 => [poly.reduce((s, p) => s + p[0], 0) / poly.length, poly.reduce((s, p) => s + p[1], 0) / poly.length];
@@ -266,12 +316,16 @@ export function translateUnit(doc: MapDocument, id: string, delta: Vec2): MapDoc
   const before = new Set(doc.openings.map((o) => o.id));
   const moved: MapDocument = {
     ...doc,
-    units: doc.units.map((u) => (u.id === id ? { ...u, polygon: u.polygon.map(move), ...(u.holes ? { holes: u.holes.map((h) => h.map(move)) } : {}) } : u)),
+    units: doc.units.map((u) => {
+      if (movedIds.has(u.id)) return { ...u, polygon: u.polygon.map(move), ...(u.holes ? { holes: u.holes.map((h) => h.map(move)) } : {}) };
+      if (u.id === unit.parent) return { ...u, holes: (u.holes ?? []).map((hole) => samePolygon(hole, unit.polygon) ? unit.polygon.map(move) : hole) };
+      return u;
+    }),
     places: doc.places.map((p) => (same(p.level) && inside(p.pos) ? { ...p, pos: move(p.pos), polygon: p.polygon?.map(move) ?? null } : p)),
     obstacles: doc.obstacles.map((o) => (same(o.level) && inside(centroid(o.polygon)) ? { ...o, polygon: o.polygon.map(move) } : o)),
     panoramas: doc.panoramas.map((pa) => (same(pa.level) && inside(pa.pos) ? { ...pa, pos: move(pa.pos) } : pa)),
     anchors: doc.anchors.map((a) => (same(a.level) && inside(a.pos) ? { ...a, pos: move(a.pos) } : a)),
-    openings: doc.openings.map((o) => (hasUnit(o, id) ? { ...o, segment: [move(o.segment[0]), move(o.segment[1])] as [Vec2, Vec2] } : o)),
+    openings: doc.openings.map((o) => (o.units.some((unitId) => movedIds.has(unitId)) ? { ...o, segment: [move(o.segment[0]), move(o.segment[1])] as [Vec2, Vec2] } : o)),
     ...(doc.capturePoints ? { capturePoints: doc.capturePoints.map((c) => (same(c.level) && inside(c.pos) ? { ...c, pos: move(c.pos) } : c)) } : {}),
   };
   return afterGeometryChange(moved, unit.level, id, before);
@@ -283,10 +337,15 @@ export function setUnitPolygon(doc: MapDocument, id: string, polygon: Vec2[]): M
   if (!unit || polygon.length < 3 || polygonArea(polygon) < 0.5) return doc;
   const before = new Set(doc.openings.map((o) => o.id));
   const shape = polygon.map(round2v);
+  if (doc.units.some((child) => child.parent === id && !child.polygon.every((p) => pointInPolygon(p, shape)))) return doc;
   const holes = unit.holes?.filter((h) => h.every((p) => strictlyInside(p, shape)));
   const next: MapDocument = {
     ...doc,
-    units: doc.units.map((u) => (u.id === id ? { ...u, polygon: shape, ...(holes ? { holes } : {}) } : u)),
+    units: doc.units.map((u) => {
+      if (u.id === id) return { ...u, polygon: shape, ...(holes ? { holes } : {}) };
+      if (u.id === unit.parent) return { ...u, holes: (u.holes ?? []).map((hole) => samePolygon(hole, unit.polygon) ? shape : hole) };
+      return u;
+    }),
   };
   return afterGeometryChange(next, unit.level, id, before);
 }
@@ -308,14 +367,27 @@ function afterGeometryChange(doc: MapDocument, level: string, _changed: string, 
 export function deleteUnit(doc: MapDocument, id: string): MapDocument {
   const unit = doc.units.find((u) => u.id === id);
   if (!unit) return doc;
+  const removedIds = new Set([id]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const child of doc.units) {
+      if (child.parent && removedIds.has(child.parent) && !removedIds.has(child.id)) {
+        removedIds.add(child.id);
+        changed = true;
+      }
+    }
+  }
   const inside = (p: Vec2) => pointInPolygon(p, unit.polygon);
   const same = (lvl: string) => lvl === unit.level;
   const gonePlaces = new Set(doc.places.filter((p) => same(p.level) && inside(p.pos)).map((p) => p.id));
   const gonePanos = new Set(doc.panoramas.filter((p) => same(p.level) && inside(p.pos)).map((p) => p.id));
   const next: MapDocument = {
     ...doc,
-    units: doc.units.filter((u) => u.id !== id),
-    openings: doc.openings.filter((o) => !hasUnit(o, id)),
+    units: doc.units
+      .filter((u) => !removedIds.has(u.id))
+      .map((u) => u.id === unit.parent ? { ...u, holes: (u.holes ?? []).filter((hole) => !samePolygon(hole, unit.polygon)) } : u),
+    openings: doc.openings.filter((o) => !o.units.some((unitId) => removedIds.has(unitId))),
     obstacles: doc.obstacles.filter((o) => !(same(o.level) && o.polygon.every(inside))),
     places: doc.places.filter((p) => !gonePlaces.has(p.id)),
     anchors: doc.anchors.filter((a) => !(same(a.level) && inside(a.pos))),
@@ -346,7 +418,7 @@ export function duplicateUnit(doc: MapDocument, id: string): { doc: MapDocument;
   ];
   for (const [dx, dy] of candidates) {
     const polygon = unit.polygon.map((p) => [p[0] + dx, p[1] + dy] as Vec2);
-    if (overlappingUnits(doc, unit.level, polygon).length === 0) {
+    if (roomPlacement(doc, unit.level, polygon).valid) {
       return createRoom(doc, unit.level, polygon, { kind: unit.kind, name: `${unit.name} (копия)` });
     }
   }
@@ -358,7 +430,12 @@ export function duplicateUnit(doc: MapDocument, id: string): { doc: MapDocument;
 export function movePlace(doc: MapDocument, id: string, pos: Vec2): MapDocument {
   const place = doc.places.find((p) => p.id === id);
   if (!place) return doc;
-  const next: MapDocument = { ...doc, places: doc.places.map((p) => (p.id === id ? { ...p, pos: round2v(pos) } : p)) };
+  const delta: Vec2 = [pos[0] - place.pos[0], pos[1] - place.pos[1]];
+  const move = (point: Vec2): Vec2 => round2v([point[0] + delta[0], point[1] + delta[1]]);
+  const next: MapDocument = {
+    ...doc,
+    places: doc.places.map((p) => (p.id === id ? { ...p, pos: move(p.pos), polygon: p.polygon?.map(move) ?? null } : p)),
+  };
   return rebuildGraph(next, place.level);
 }
 

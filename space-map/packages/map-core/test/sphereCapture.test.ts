@@ -1,8 +1,8 @@
+import { businessCentreFixture } from './fixtures/businessCentre.ts';
 import { describe, expect, it } from 'vitest';
 import {
   activeCapturePoints,
   addPanoramaAtPoint,
-  demoVenue,
   directionInFrame,
   equirectDirection,
   isLinked,
@@ -70,7 +70,7 @@ describe('фотосфера по ориентации камеры', () => {
 
 describe('снятая панорама — на план', () => {
   it('встаёт в точку, точка снята, переходы в обе стороны, ссылки целы', () => {
-    const doc = refreshCapturePoints(rebuildGraph(demoVenue(), 'L1'));
+    const doc = refreshCapturePoints(rebuildGraph(businessCentreFixture(), 'L1'));
     // Точка в коридоре у двери в переговорную — рядом панорама коридора.
     const point = pendingCapturePoints(doc, 'L1').find((p) => p.pos[0] === 13 && p.pos[1] === 5.5)!;
     expect(point).toBeDefined();
@@ -89,7 +89,7 @@ describe('снятая панорама — на план', () => {
 
 describe('направление загруженной панорамы по двери', () => {
   it('без направления меток и переходов нет; нажали на дверь — появились, направление верное', () => {
-    const doc = refreshCapturePoints(rebuildGraph(demoVenue(), 'L1'));
+    const doc = refreshCapturePoints(rebuildGraph(businessCentreFixture(), 'L1'));
     const point = pendingCapturePoints(doc, 'L1').find((p) => p.pos[0] === 13 && p.pos[1] === 5.5)!;
     const placed = addPanoramaAtPoint(doc, { pointId: point.id, pano: 'shot-2', level: 'L1', pos: point.pos, heading: null, cameraHeight: 1.5 });
     const before = placed.doc.panoramas.find((p) => p.id === placed.id)!;

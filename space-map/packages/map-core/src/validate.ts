@@ -1,5 +1,6 @@
 // Целостность ссылок внутри документа (п. 69) и каскадное удаление.
 import type { MapDocument } from './types.ts';
+import { pointInPolygon, pointSegmentDistance, polygonEdges } from './geometry.ts';
 
 export interface Issue {
   path: string;
@@ -26,6 +27,16 @@ export function validateReferences(doc: MapDocument): Issue[] {
   doc.units.forEach((u, i) => {
     need(levels.has(u.level), `units[${i}].level`, `нет этажа ${u.level}`);
     need(u.polygon.length >= 3, `units[${i}].polygon`, 'меньше трёх вершин');
+    if (u.parent) {
+      const parent = doc.units.find((candidate) => candidate.id === u.parent);
+      need(units.has(u.parent), `units[${i}].parent`, `нет родительского помещения ${u.parent}`);
+      if (parent) {
+        need(parent.level === u.level, `units[${i}].parent`, 'родитель находится на другом этаже');
+        const inside = u.polygon.every((p) => pointInPolygon(p, parent.polygon)
+          || polygonEdges(parent.polygon).some(([a, b]) => pointSegmentDistance(p, a, b) < 1e-9));
+        need(inside, `units[${i}].parent`, 'комната выходит за границы родителя');
+      }
+    }
     u.holes?.forEach((h, j) => need(h.length >= 3, `units[${i}].holes[${j}]`, 'меньше трёх вершин'));
   });
   doc.obstacles.forEach((o, i) => need(levels.has(o.level), `obstacles[${i}].level`, `нет этажа ${o.level}`));

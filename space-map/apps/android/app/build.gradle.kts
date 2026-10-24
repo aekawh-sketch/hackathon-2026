@@ -13,14 +13,20 @@ android {
         applicationId = "ru.spacemap.android"
         minSdk = 26
         targetSdk = 37
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.1.2"
         // Откуда грузить сайт. Другой стенд: ./gradlew assembleDebug -PstartUrl=https://…
         val startUrl = (project.findProperty("startUrl") as String?) ?: "https://193-233-88-64.sslip.io/app"
         buildConfigField("String", "START_URL", "\"$startUrl\"")
+        manifestPlaceholders["usesCleartextTraffic"] = "false"
     }
 
     buildTypes {
+        debug {
+            // Локальный стенд по Wi-Fi: нативная камера работает и без HTTPS.
+            val startUrl = (project.findProperty("startUrl") as String?) ?: "https://193-233-88-64.sslip.io/app"
+            manifestPlaceholders["usesCleartextTraffic"] = startUrl.startsWith("http://").toString()
+        }
         release {
             isMinifyEnabled = false
         }
