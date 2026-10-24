@@ -31,18 +31,18 @@ async function readUpload(req: FastifyRequest, maxBytes: number): Promise<{ file
   return { file, fields };
 }
 
-export const mediaRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db, storage }) => {
+export const mediaRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db, storage, config }) => {
   // ── Готовые панорамы ──
 
   app.get('/:id/panoramas', { schema: { params: VenueId } }, async (req) => {
-    const venue = await ownedVenue(db, req.params.id, requireUser(req).id);
+    const venue = await ownedVenue(db, req.params.id, requireUser(req).id, config.openAccess);
     const rows = await db.select().from(panoramas).where(eq(panoramas.venueId, venue.id)).orderBy(desc(panoramas.createdAt));
     return { panoramas: rows.map(panoramaView) };
   });
 
   app.post('/:id/panoramas', { schema: { params: VenueId } }, async (req, reply) => {
     const user = requireUser(req);
-    const venue = await ownedVenue(db, req.params.id, user.id);
+    const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
     const { file } = await readUpload(req, 60_000_000);
     const out = await processPanorama(file);
     const [row] = await db
@@ -56,7 +56,7 @@ export const mediaRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
   });
 
   app.delete('/:id/panoramas/:pid', { schema: { params: Type.Object({ id: Type.String(), pid: Type.String() }) } }, async (req) => {
-    const venue = await ownedVenue(db, req.params.id, requireUser(req).id);
+    const venue = await ownedVenue(db, req.params.id, requireUser(req).id, config.openAccess);
     if (!isUuid(req.params.pid)) throw notFound('Панорама не найдена');
     const [draft] = await db.select({ doc: mapDrafts.doc }).from(mapDrafts).where(eq(mapDrafts.venueId, venue.id));
     if (draft?.doc.panoramas.some((p) => p.pano === req.params.pid)) {
@@ -74,14 +74,14 @@ export const mediaRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
   // ── Серии кадров для склейки ──
 
   app.get('/:id/captures', { schema: { params: VenueId } }, async (req) => {
-    const venue = await ownedVenue(db, req.params.id, requireUser(req).id);
+    const venue = await ownedVenue(db, req.params.id, requireUser(req).id, config.openAccess);
     const rows = await db.select().from(captures).where(eq(captures.venueId, venue.id)).orderBy(desc(captures.createdAt)).limit(50);
     return { captures: await Promise.all(rows.map((c) => captureView(c))) };
   });
 
   app.post('/:id/captures', { schema: { params: VenueId } }, async (req, reply) => {
     const user = requireUser(req);
-    const venue = await ownedVenue(db, req.params.id, user.id);
+    const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
     const [row] = await db.insert(captures).values({ venueId: venue.id, createdBy: user.id }).returning();
     return reply.status(201).send({ capture: await captureView(row!) });
   });
@@ -154,7 +154,7 @@ export const mediaRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
   });
 
   async function ownedCapture(req: FastifyRequest<{ Params: { id: string; cid: string } }>) {
-    const venue = await ownedVenue(db, req.params.id, requireUser(req).id);
+    const venue = await ownedVenue(db, req.params.id, requireUser(req).id, config.openAccess);
     if (!isUuid(req.params.cid)) throw notFound('Съёмка не найдена');
     const [capture] = await db
       .select()

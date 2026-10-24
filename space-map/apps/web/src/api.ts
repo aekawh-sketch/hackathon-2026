@@ -133,7 +133,8 @@ export const auth = {
 };
 
 export const venuesApi = {
-  list: () => request<{ venues: VenueSummary[] }>('GET', '/api/venues').then((r) => r.venues),
+  /** Мои площадки; при общем доступе стенда (`openAccess`) — все. */
+  list: () => request<{ venues: VenueSummary[]; openAccess?: boolean }>('GET', '/api/venues'),
   create: (name: string) => request<{ venue: VenueSummary }>('POST', '/api/venues', { name }).then((r) => r.venue),
   get: (id: string) => request<{ venue: VenueSummary }>('GET', `/api/venues/${id}`).then((r) => r.venue),
   update: (id: string, patch: Partial<Pick<VenueSummary, 'name' | 'slug' | 'visibility' | 'embedDomains'>>) =>

@@ -9,12 +9,13 @@ import type { Storage } from './storage.ts';
 
 export type Venue = typeof venues.$inferSelect;
 
-export async function ownedVenue(db: Db, venueId: string, userId: string): Promise<Venue> {
+/** Площадка, которую этот пользователь может править: своя, а при общем доступе (`OPEN_ACCESS`) — любая. */
+export async function ownedVenue(db: Db, venueId: string, userId: string, openAccess = false): Promise<Venue> {
   if (!isUuid(venueId)) throw notFound('Площадка не найдена');
   const [venue] = await db
     .select()
     .from(venues)
-    .where(and(eq(venues.id, venueId), eq(venues.ownerId, userId)))
+    .where(openAccess ? eq(venues.id, venueId) : and(eq(venues.id, venueId), eq(venues.ownerId, userId)))
     .limit(1);
   if (!venue) throw notFound('Площадка не найдена');
   return venue;

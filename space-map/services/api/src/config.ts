@@ -5,6 +5,11 @@ export interface Config {
   cookieSecure: boolean;
   /** Срок сессии организатора. */
   sessionDays: number;
+  /**
+   * Временный общий доступ (стенд команды): любой вошедший видит и правит все площадки.
+   * Выключен по умолчанию — включать только на демо-стенде, не в продакшене.
+   */
+  openAccess: boolean;
   logger: boolean;
 }
 
@@ -17,6 +22,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     storageDir: env.STORAGE_DIR ?? './data',
     cookieSecure: env.COOKIE_SECURE === 'true',
     sessionDays: 14,
+    openAccess: env.OPEN_ACCESS === 'true',
     logger: env.NODE_ENV !== 'test',
   };
 }

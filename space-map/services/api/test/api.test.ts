@@ -21,7 +21,7 @@ beforeAll(async () => {
   await client.end();
   await migrate(DB_URL);
   storageDir = await mkdtemp(join(tmpdir(), 'space-map-test-'));
-  app = await buildApp({ port: 0, databaseUrl: DB_URL, storageDir, cookieSecure: false, sessionDays: 14, logger: false });
+  app = await buildApp({ port: 0, databaseUrl: DB_URL, storageDir, cookieSecure: false, sessionDays: 14, logger: false, openAccess: false });
 });
 
 afterAll(async () => {
@@ -33,11 +33,14 @@ afterAll(async () => {
 class Client {
   cookies = new Map<string, string>();
 
+  /** Какой экземпляр API: по умолчанию общий для тестов. */
+  constructor(private readonly server: () => typeof app = () => app) {}
+
   async req(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', url: string, body?: unknown, opts: { csrf?: boolean; ip?: string } = {}) {
     const headers: Record<string, string> = {};
     if (this.cookies.size) headers.cookie = [...this.cookies].map(([k, v]) => `${k}=${v}`).join('; ');
     if (opts.csrf !== false && this.cookies.has('sm_csrf')) headers['x-csrf-token'] = this.cookies.get('sm_csrf')!;
-    const res = await app.inject({ method, url, headers, ...(opts.ip ? { remoteAddress: opts.ip } : {}), ...(body !== undefined ? { payload: body as object } : {}) });
+    const res = await this.server().inject({ method, url, headers, ...(opts.ip ? { remoteAddress: opts.ip } : {}), ...(body !== undefined ? { payload: body as object } : {}) });
     this.store(res.headers['set-cookie']);
     return res;
   }
@@ -50,7 +53,7 @@ class Client {
     }
     parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="x.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`));
     parts.push(file, Buffer.from(`\r\n--${boundary}--\r\n`));
-    const res = await app.inject({
+    const res = await this.server().inject({
       method,
       url,
       payload: Buffer.concat(parts),
@@ -347,5 +350,33 @@ describe('серия кадров для склейки', () => {
     expect(stitched.json().capture.frames).toHaveLength(6);
     // Повторное «склеить» не ставит вторую задачу.
     expect((await c.req('POST', `/api/venues/${v.id}/captures/${cap.id}/stitch`)).json().capture.status).toBe('queued');
+  });
+});
+
+describe('общий доступ (OPEN_ACCESS — стенд команды)', () => {
+  it('любой вошедший видит и правит чужую площадку; без флага — 404', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'space-map-open-'));
+    const open = await buildApp({ port: 0, databaseUrl: DB_URL, storageDir: dir, cookieSecure: false, sessionDays: 14, logger: false, openAccess: true });
+    try {
+      const owner = await newUser();
+      const v = await newVenue(owner, 'Общая площадка');
+
+      const teammate = new Client(() => open);
+      expect((await teammate.req('POST', '/api/auth/register', { email: 'teammate@test.local', password: 'correct-horse', name: 'Сокомандник' })).statusCode).toBe(201);
+      const list = (await teammate.req('GET', '/api/venues')).json();
+      expect(list.openAccess).toBe(true);
+      expect(list.venues.map((x: { id: string }) => x.id)).toContain(v.id);
+      const draft = (await teammate.req('GET', `/api/venues/${v.id}/draft`)).json();
+      expect((await teammate.req('PUT', `/api/venues/${v.id}/draft`, { revision: draft.revision, doc: draft.doc })).statusCode).toBe(200);
+
+      // Тот же сокомандник на API без флага — чужую площадку не видит.
+      const strict = new Client();
+      strict.cookies = teammate.cookies;
+      expect((await strict.req('GET', `/api/venues/${v.id}`)).statusCode).toBe(404);
+      expect((await strict.req('GET', '/api/venues')).json().openAccess).toBe(false);
+    } finally {
+      await open.close();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

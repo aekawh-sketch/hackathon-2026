@@ -25,11 +25,13 @@ function venueView(v: Venue) {
   };
 }
 
-export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db, storage }) => {
+export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db, storage, config }) => {
   app.get('/', async (req) => {
     const user = requireUser(req);
-    const rows = await db.select().from(venues).where(eq(venues.ownerId, user.id)).orderBy(desc(venues.updatedAt));
-    return { venues: rows.map(venueView) };
+    // Общий доступ (стенд команды) — все площадки, иначе только свои.
+    const query = db.select().from(venues);
+    const rows = await (config.openAccess ? query : query.where(eq(venues.ownerId, user.id))).orderBy(desc(venues.updatedAt));
+    return { venues: rows.map(venueView), openAccess: config.openAccess };
   });
 
   app.post(
@@ -56,7 +58,7 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
 
   app.get('/:id', { schema: { params: VenueId } }, async (req) => {
     const user = requireUser(req);
-    return { venue: venueView(await ownedVenue(db, req.params.id, user.id)) };
+    return { venue: venueView(await ownedVenue(db, req.params.id, user.id, config.openAccess)) };
   });
 
   app.patch(
@@ -74,7 +76,7 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
     },
     async (req) => {
       const user = requireUser(req);
-      const venue = await ownedVenue(db, req.params.id, user.id);
+      const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
       const { slug, ...rest } = req.body;
       if (slug !== undefined && slug !== venue.slug) {
         if (!isValidSlug(slug)) throw new ApiError(422, 'bad_slug', 'Ссылка: латинские буквы, цифры и дефис, от 3 до 48 символов');
@@ -95,7 +97,7 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
     { schema: { params: VenueId, body: Type.Object({ confirmName: Type.String({ maxLength: 120 }) }) } },
     async (req) => {
       const user = requireUser(req);
-      const venue = await ownedVenue(db, req.params.id, user.id);
+      const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
       if (req.body.confirmName.trim() !== venue.name) throw new ApiError(422, 'confirm_mismatch', 'Введите точное название площадки');
       await db.delete(venues).where(eq(venues.id, venue.id));
       await storage.delete(`versions/${venue.id}`);
@@ -107,7 +109,7 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
 
   app.get('/:id/draft', { schema: { params: VenueId } }, async (req) => {
     const user = requireUser(req);
-    const venue = await ownedVenue(db, req.params.id, user.id);
+    const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
     const [draft] = await db
       .select({ revision: mapDrafts.revision, doc: mapDrafts.doc, updatedAt: mapDrafts.updatedAt, updatedBy: users.name })
       .from(mapDrafts)
@@ -125,7 +127,7 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
     },
     async (req) => {
       const user = requireUser(req);
-      const venue = await ownedVenue(db, req.params.id, user.id);
+      const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
       const doc = { ...req.body.doc, venue: { ...req.body.doc.venue, id: venue.id } };
       const issues = validateReferences(doc);
       if (issues.length) throw new ApiError(422, 'invalid_map', 'В карте есть ошибки ссылок', issues);
@@ -154,14 +156,14 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
 
   app.post('/:id/publish', { schema: { params: VenueId } }, async (req) => {
     const user = requireUser(req);
-    const venue = await ownedVenue(db, req.params.id, user.id);
+    const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
     const version = await publish(db, storage, venue.id, user.id);
     return { version, url: `/m/${venue.slug}` };
   });
 
   app.get('/:id/versions', { schema: { params: VenueId } }, async (req) => {
     const user = requireUser(req);
-    const venue = await ownedVenue(db, req.params.id, user.id);
+    const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
     const rows = await db
       .select({ version: mapVersions.version, createdAt: mapVersions.createdAt, createdBy: users.name })
       .from(mapVersions)

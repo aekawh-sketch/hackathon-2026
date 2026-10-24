@@ -2054,6 +2054,14 @@ button.insp-row:hover {
   margin: 0 0 10px;
 }
 
+.guest-note.is-open {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff4e5;
+  color: #8a4b00;
+}
+
 .guest-note.is-ok {
   display: flex;
   align-items: center;

@@ -9,6 +9,7 @@ import { useSession } from './session.tsx';
 export default function VenuesPage() {
   const { user, setUser, logout } = useSession();
   const [claimed, setClaimed] = useState(false);
+  const [openAccess, setOpenAccess] = useState(false);
   const navigate = useNavigate();
   const [venues, setVenues] = useState<VenueSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +20,10 @@ export default function VenuesPage() {
   useEffect(() => {
     venuesApi
       .list()
-      .then(setVenues)
+      .then((r) => {
+        setVenues(r.venues);
+        setOpenAccess(!!r.openAccess);
+      })
       .catch((err) => setError(err instanceof ApiError ? err.message : 'Не удалось загрузить площадки'));
   }, []);
 
@@ -50,7 +54,7 @@ export default function VenuesPage() {
             <Icon name="building" size={20} />
           </span>
           <div className="brand-text">
-            <h1 className="brand-title">Мои площадки</h1>
+            <h1 className="brand-title">{openAccess ? 'Все площадки' : 'Мои площадки'}</h1>
             <p className="brand-sub">{user?.name}</p>
           </div>
         </div>
@@ -72,7 +76,13 @@ export default function VenuesPage() {
 
         {error && <p className="notice">{error}</p>}
 
-        {user?.isGuest && (
+        {openAccess && (
+          <p className="guest-note is-open">
+            <Icon name="eye" size={16} /> Общий доступ на время: все вошедшие видят и правят все площадки команды.
+          </p>
+        )}
+
+        {user?.isGuest && !openAccess && (
           <GuestClaim
             onClaimed={(u) => {
               setUser(u);
