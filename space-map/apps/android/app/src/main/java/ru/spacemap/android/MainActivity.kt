@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
@@ -105,14 +106,25 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // Отладочная сборка: страницу можно смотреть в Chrome DevTools (chrome://inspect) через USB.
         if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
-        web = WebView(this).apply { layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) }
-        setContentView(web)
-        // Страница не заходит под строку состояния, панель навигации и клавиатуру.
-        ViewCompat.setOnApplyWindowInsetsListener(web) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+        web = WebView(this)
+        val root = FrameLayout(this).apply {
+            addView(web, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ))
+        }
+        setContentView(root)
+        // Отодвигаем WebView от системных панелей: его HTML viewport не
+        // включает их в область страницы и заголовок не уходит под статус-бар.
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
+            (web.layoutParams as FrameLayout.LayoutParams).also { params ->
+                params.setMargins(safe.left, safe.top, safe.right, safe.bottom)
+                web.layoutParams = params
+            }
             WindowInsetsCompat.CONSUMED
         }
+        ViewCompat.requestApplyInsets(root)
 
         with(web.settings) {
             javaScriptEnabled = true
