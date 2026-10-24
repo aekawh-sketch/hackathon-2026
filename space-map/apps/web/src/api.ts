@@ -11,9 +11,24 @@ export interface LoadedMap {
   edited: boolean;
 }
 
+/**
+ * Указатель на последнюю опубликованную версию — всегда свежий, мимо кэша браузера (сервер разрешает хранить его 30 с):
+ * иначе обновлённая карта подтянулась бы со старым номером. Сама версия (map.json) неизменна и кэшируется.
+ */
+async function latestPointer(slug: string): Promise<{ version: number; url: string }> {
+  const res = await fetch(`/p/${encodeURIComponent(slug)}/latest.json`, { cache: 'no-store', credentials: 'same-origin' });
+  if (!res.ok) throw new Error(`latest.json: ${res.status}`);
+  return (await res.json()) as { version: number; url: string };
+}
+
+/** Номер опубликованной версии — без самой карты: посетитель так узнаёт, что карту обновили. */
+export async function publishedVersion(slug: string): Promise<number> {
+  return (await latestPointer(slug)).version;
+}
+
 export async function loadPublishedMap(slug: string): Promise<LoadedMap> {
   try {
-    const latest = await getJson<{ version: number; url: string }>(`/p/${encodeURIComponent(slug)}/latest.json`);
+    const latest = await latestPointer(slug);
     const doc = await getJson<MapDocument>(latest.url);
     return { doc, version: latest.version, offlineDemo: false, edited: false };
   } catch (err) {
@@ -139,7 +154,8 @@ export const auth = {
     request<{ user: User }>('POST', '/api/auth/register', { name, email, password }).then((r) => r.user),
   logout: () => request<{ ok: true }>('POST', '/api/auth/logout'),
   /** Вход одной кнопкой: гостевой аккаунт и своя копия демо-площадки. */
-  guest: () => request<{ user: User; venueId: string }>('POST', '/api/auth/guest'),
+  /** `shared` — общий доступ: гость правит общую демо-площадку, а не свою копию. */
+  guest: () => request<{ user: User; venueId: string; shared?: boolean }>('POST', '/api/auth/guest'),
   /** Гость сохраняет аккаунт: почта и пароль, площадки остаются при нём. */
   claim: (name: string, email: string, password: string) =>
     request<{ user: User }>('POST', '/api/auth/claim', { name, email, password }).then((r) => r.user),
@@ -159,6 +175,8 @@ export const venuesApi = {
   update: (id: string, patch: Partial<Pick<VenueSummary, 'name' | 'slug' | 'visibility' | 'embedDomains'>>) =>
     request<{ venue: VenueSummary }>('PATCH', `/api/venues/${id}`, patch).then((r) => r.venue),
   draft: (id: string) => request<Draft>('GET', `/api/venues/${id}/draft`),
+  /** Только номер ревизии черновика — проверить, не сохранил ли кто-то после нас. */
+  draftRevision: (id: string) => request<{ revision: number; updatedBy: string | null }>('GET', `/api/venues/${id}/draft/revision`),
   saveDraft: (id: string, revision: number, doc: MapDocument) =>
     request<{ revision: number; publishedVersion: number | null }>('PUT', `/api/venues/${id}/draft`, { revision, doc }),
   publish: (id: string) => request<{ version: number; url: string }>('POST', `/api/venues/${id}/publish`),

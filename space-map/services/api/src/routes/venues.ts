@@ -188,6 +188,21 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
     return draft;
   });
 
+  // Лёгкая проверка «не сохранил ли кто-то после меня»: редактор спрашивает раз в несколько секунд,
+  // а весь документ забирает, только когда ревизия выросла.
+  app.get('/:id/draft/revision', { schema: { params: VenueId } }, async (req) => {
+    const user = requireUser(req);
+    const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
+    const [row] = await db
+      .select({ revision: mapDrafts.revision, updatedBy: users.name })
+      .from(mapDrafts)
+      .leftJoin(users, eq(users.id, mapDrafts.updatedBy))
+      .where(eq(mapDrafts.venueId, venue.id))
+      .limit(1);
+    if (!row) throw new ApiError(404, 'not_found', 'Черновик не найден');
+    return row;
+  });
+
   app.put(
     '/:id/draft',
     {

@@ -34,11 +34,24 @@ export const authRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db, 
   // Вход одной кнопкой: свой гостевой аккаунт и своя копия демо-площадки — гости не правят одну карту на всех.
   app.post('/guest', async (req, reply) => {
     guestLimit.hit(req.ip, 'Слишком много гостевых входов с этого адреса. Попробуйте через час или зарегистрируйтесь.');
+    const guestUser = () => ({ email: `guest-${randomBytes(6).toString('hex')}@guest.space-map`, name: 'Гость', passwordHash: GUEST_PASSWORD_HASH, isGuest: true });
+
+    // Общий доступ (стенд команды): гость правит общую демо-площадку — её видят посетители /m/demo,
+    // а не личную копию, которую никто, кроме него, не увидит. Без общего доступа — своя копия.
+    if (config.openAccess) {
+      const [shared] = await db.select({ id: venues.id }).from(venues).where(eq(venues.slug, 'demo')).limit(1);
+      if (shared) {
+        const [user] = await db.insert(users).values(guestUser()).returning({ id: users.id, email: users.email, name: users.name, isGuest: users.isGuest });
+        await startSession(db, config, reply, user!.id);
+        return reply.status(201).send({ user: user!, venueId: shared.id, shared: true });
+      }
+    }
+
     const name = 'Демо-площадка — ваша копия';
     const { user, venueId } = await db.transaction(async (tx) => {
       const [user] = await tx
         .insert(users)
-        .values({ email: `guest-${randomBytes(6).toString('hex')}@guest.space-map`, name: 'Гость', passwordHash: GUEST_PASSWORD_HASH, isGuest: true })
+        .values(guestUser())
         .returning({ id: users.id, email: users.email, name: users.name, isGuest: users.isGuest });
       const [venue] = await tx.insert(venues).values({ ownerId: user!.id, name, slug: slugWithSuffix('demo-copy') }).returning({ id: venues.id });
       const doc = await demoTemplate(db);

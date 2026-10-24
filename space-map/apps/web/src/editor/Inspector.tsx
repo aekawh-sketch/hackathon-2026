@@ -75,6 +75,9 @@ export interface InspectorProps {
   onUploadPanorama?: (pointId: string) => void;
   /** Снять фотосферу встроенной съёмкой приложения; нет — не в приложении или демо без сервера. */
   onShootPanorama?: (pointId: string) => void;
+  /** То же из карточки места: точка съёмки у места создаётся сама. */
+  onShootForPlace?: (placeId: string) => void;
+  onUploadForPlace?: (placeId: string) => void;
   /** Открыть панораму на весь экран — проверить, как она снята и повёрнута. */
   /** Открыть панораму; yaw — куда смотреть (у места — на само место). */
   onOpenPanorama: (panoId: string, yaw?: number) => void;
@@ -510,7 +513,7 @@ const PLACE_PANO_REASON: Record<PlacePanorama['reason'], string> = {
   visible: 'Место видно из этой панорамы.',
 };
 
-function PlacePanel({ doc, place, onSelect, onCommit, onToast, onOpenPanorama }: InspectorProps & { place: Place }) {
+function PlacePanel({ doc, place, onSelect, onCommit, onToast, onOpenPanorama, onShootForPlace, onUploadForPlace }: InspectorProps & { place: Place }) {
   const cat = doc.categories.find((c) => c.id === place.category);
   const placePano = panoramaForPlace(doc, place);
   const patch = (p: Parameters<typeof updatePlace>[2]) => onCommit(updatePlace(doc, place.id, p), { kind: 'place', id: place.id });
@@ -554,7 +557,29 @@ function PlacePanel({ doc, place, onSelect, onCommit, onToast, onOpenPanorama }:
             <p className="insp-note">{PLACE_PANO_REASON[placePano.reason]} Посетитель увидит эту панораму в карточке места.</p>
           </>
         ) : (
-          <p className="insp-note">Рядом с местом панорамы пока нет. Снимите фотосферу в ближайшей точке съёмки — она появится здесь и в карточке у посетителей.</p>
+          <>
+            <p className="insp-note">Панорамы у места пока нет. Снимите фотосферу прямо здесь — она появится в карточке места у посетителей.</p>
+            <div className="insp-stack">
+              {onShootForPlace ? (
+                <button type="button" className="btn btn-success" onClick={() => onShootForPlace(place.id)}>
+                  <Icon name="camera" size={18} /> Снять фотосферу
+                </button>
+              ) : (
+                onUploadForPlace &&
+                isAndroid() && (
+                  <a className="btn btn-secondary" href={APP_APK_URL}>
+                    <Icon name="download" size={18} /> Скачать приложение для съёмки
+                  </a>
+                )
+              )}
+              {onUploadForPlace && (
+                <button type="button" className="btn btn-secondary" onClick={() => onUploadForPlace(place.id)}>
+                  <Icon name="pano" size={18} /> Загрузить готовую панораму
+                </button>
+              )}
+              {!onUploadForPlace && <p className="insp-note">Снимать и загружать панорамы можно в площадке из кабинета.</p>}
+            </div>
+          </>
         )}
       </Section>
       <div className="insp-actions">

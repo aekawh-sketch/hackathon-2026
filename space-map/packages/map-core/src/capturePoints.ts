@@ -170,6 +170,28 @@ export function addCapturePoint(doc: MapDocument, level: string, pos: Vec2): Cap
   return { ok: true, doc: refreshCapturePoints({ ...doc, capturePoints: [...(doc.capturePoints ?? []), point] }), id };
 }
 
+/**
+ * Точка съёмки для места (снять фотосферу из карточки места): неснятая точка в том же помещении не дальше 2 м,
+ * иначе — новая своя точка в самом месте, а если оно у стены — чуть ближе к середине помещения.
+ */
+export function capturePointForPlace(doc: MapDocument, placeId: string): { doc: MapDocument; pointId: string } | null {
+  const place = doc.places.find((p) => p.id === placeId);
+  if (!place) return null;
+  const unit = doc.units.find((u) => u.level === place.level && u.walkable && pointInUnit(place.pos, u));
+  if (!unit) return null;
+  const near = pendingCapturePoints(doc, place.level)
+    .filter((p) => pointInUnit(p.pos, unit) && distance(p.pos, place.pos) <= 2)
+    .sort((a, b) => distance(a.pos, place.pos) - distance(b.pos, place.pos))[0];
+  if (near) return { doc, pointId: near.id };
+  const center: Vec2 = [unit.polygon.reduce((s, p) => s + p[0], 0) / unit.polygon.length, unit.polygon.reduce((s, p) => s + p[1], 0) / unit.polygon.length];
+  for (let step = 0; step <= 10; step++) {
+    const t = step / 10;
+    const r = addCapturePoint(doc, place.level, round2v([place.pos[0] + (center[0] - place.pos[0]) * t, place.pos[1] + (center[1] - place.pos[1]) * t]));
+    if (r.ok) return { doc: r.doc, pointId: r.id };
+  }
+  return null;
+}
+
 /** Сдвинуть точку. Рассчитанная становится ручной: расчёт её больше не двигает. */
 export function moveCapturePoint(doc: MapDocument, id: string, pos: Vec2): CaptureEditResult {
   const point = doc.capturePoints?.find((p) => p.id === id);

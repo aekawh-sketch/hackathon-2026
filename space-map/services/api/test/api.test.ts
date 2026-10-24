@@ -374,6 +374,17 @@ describe('общий доступ (OPEN_ACCESS — стенд команды)', 
       expect(del.statusCode).toBe(403);
       expect(del.json().code).toBe('not_owner');
 
+      // Ревизия черновика — без самого документа: так редакторы узнают о чужих сохранениях.
+      const rev = (await teammate.req('GET', `/api/venues/${v.id}/draft/revision`)).json();
+      expect(rev).toMatchObject({ revision: draft.revision + 1, updatedBy: 'Сокомандник' });
+
+      // Гость при общем доступе попадает в общую демо-площадку, а не в личную копию.
+      let demoId = (await teammate.req('GET', '/api/venues')).json().venues.find((x: { slug: string }) => x.slug === 'demo')?.id;
+      if (!demoId) demoId = (await owner.req('POST', '/api/venues', { name: 'Демо', slug: 'demo' })).json().venue.id;
+      const guest = await new Client(() => open).req('POST', '/api/auth/guest', undefined, { ip: '10.0.0.9' });
+      expect(guest.statusCode).toBe(201);
+      expect(guest.json().venueId).toBe(demoId);
+
       // Тот же сокомандник на API без флага — чужую площадку не видит.
       const strict = new Client();
       strict.cookies = teammate.cookies;

@@ -3,6 +3,7 @@
 // демо без сервера (`/app/editor`) — в браузере, и `/m/demo` в этом же браузере видит изменения, если API недоступен.
 import {
   addPanoramaAtPoint,
+  capturePointForPlace,
   captureRoute,
   DEFAULT_DOOR_PRESET,
   deleteHole,
@@ -176,7 +177,11 @@ function Editor({ initial, server }: EditorProps) {
   const { doc } = history;
   const [venue, setVenue] = useState<VenueSummary | null>(server?.venue ?? null);
   const [publishOpen, setPublishOpen] = useState(false);
-  const remote = useServerSave(server?.venue.id ?? null, server?.revision ?? 0, doc);
+  // Чужое сохранение (общий доступ — правят несколько человек): показываем новый документ, история — с него.
+  const remote = useServerSave(server?.venue.id ?? null, server?.revision ?? 0, doc, (theirs, by) => {
+    history.reset(theirs);
+    showToast(by ? `Подтянули изменения: ${by}` : 'Подтянули изменения из другого окна');
+  });
   const level = doc.levels[0]?.id ?? 'L1';
   const [tool, setTool] = useState<Tool>('select');
   const [areaCategory, setAreaCategory] = useState(() => doc.categories.find((c) => c.id === 'food')?.id ?? doc.categories[0]?.id ?? '');
@@ -397,6 +402,27 @@ function Editor({ initial, server }: EditorProps) {
       showToast(cancelText(err));
     }
   };
+  // Фотосфера из карточки места: точка съёмки у места — неснятая рядом или новая своя.
+  const pointForPlace = (placeId: string): string | null => {
+    const r = capturePointForPlace(docRef.current, placeId);
+    if (!r) {
+      showToast('Место должно стоять внутри помещения, куда пускают посетителей');
+      return null;
+    }
+    if (r.doc !== docRef.current) {
+      docRef.current = r.doc;
+      commit(r.doc);
+    }
+    return r.pointId;
+  };
+  const shootForPlace = (placeId: string) => {
+    const pointId = pointForPlace(placeId);
+    if (pointId) void shootPanoramaFor(pointId);
+  };
+  const uploadForPlace = (placeId: string) => {
+    const pointId = pointForPlace(placeId);
+    if (pointId) uploadPanoramaFor(pointId);
+  };
   const uploadPanorama = async (file: File) => {
     const point = docRef.current.capturePoints?.find((p) => p.id === uploadFor.current);
     if (!server || !point) return;
@@ -579,12 +605,12 @@ function Editor({ initial, server }: EditorProps) {
         <>
           <div className="tool-rail">{toolbar}</div>
           <aside className="inspector" aria-label="Свойства">
-            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onOpenPanorama={openPreview} />
+            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onShootForPlace={server && hasNativeCapture() ? shootForPlace : undefined} onUploadForPlace={server ? uploadForPlace : undefined} onOpenPanorama={openPreview} />
           </aside>
         </>
       ) : (
         <Sheet mode={sheetMode} onModeChange={setSheetMode} desktop={false} peekHeight={118} topGap={64} onHeight={setSheetHeight} label="Инструменты и свойства" header={toolbar}>
-          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onOpenPanorama={openPreview} />
+          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onShootForPlace={server && hasNativeCapture() ? shootForPlace : undefined} onUploadForPlace={server ? uploadForPlace : undefined} onOpenPanorama={openPreview} />
         </Sheet>
       )}
 

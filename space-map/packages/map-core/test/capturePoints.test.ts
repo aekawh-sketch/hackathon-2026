@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   activeCapturePoints,
   addCapturePoint,
+  addPlace,
   captureCoverage,
+  capturePointForPlace,
   captureRoute,
   deleteUnit,
   demoVenue,
@@ -276,5 +278,29 @@ describe('логичный маршрут', () => {
     expect(plain.ok && plain.nodes).toEqual(['A', 'P', 'Q', 'R', 'C']);
     expect(logical.ok && logical.nodes).toEqual(['A', 'B', 'C']);
     expect(logical.ok && logical.length).toBeCloseTo(20.4);
+  });
+});
+
+describe('фотосфера из карточки места', () => {
+  const room = () => plan([{ id: 'wc', kind: 'restroom', polygon: rectPolygon([0, 0], [4, 3]) }]);
+
+  it('новое место «Туалет» — своя точка съёмки в самом месте, второй раз — та же точка', () => {
+    const placed = addPlace(room(), L, [2, 1.5], 'wc', 'Туалет');
+    const first = capturePointForPlace(placed.doc, placed.id)!;
+    expect(first).not.toBeNull();
+    const point = first.doc.capturePoints!.find((p) => p.id === first.pointId)!;
+    expect(point.pos).toEqual([2, 1.5]);
+    expect(point.panorama).toBeNull();
+    const again = capturePointForPlace(first.doc, placed.id)!;
+    expect(again.pointId).toBe(first.pointId);
+    expect(again.doc).toBe(first.doc);
+  });
+
+  it('место у стены — точка встаёт ближе к середине помещения, не ближе 30 см к стене', () => {
+    const placed = addPlace(room(), L, [0.1, 1.5], 'wc', 'Туалет');
+    const r = capturePointForPlace(placed.doc, placed.id)!;
+    const point = r.doc.capturePoints!.find((p) => p.id === r.pointId)!;
+    expect(point.pos[0]).toBeGreaterThanOrEqual(0.3);
+    expect(validateReferences(r.doc)).toEqual([]);
   });
 });

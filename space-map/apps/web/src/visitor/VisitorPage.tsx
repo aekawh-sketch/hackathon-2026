@@ -19,7 +19,7 @@ import {
 } from '@space-map/map-core';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { hasOrganizerSession, loadPublishedMap, panoramaUrls, type LoadedMap } from '../api.ts';
+import { loadPublishedMap, panoramaUrls, publishedVersion, type LoadedMap } from '../api.ts';
 import type { PanoMarker } from '../panorama/PanoramaViewer.tsx';
 import { PlanCanvas } from '../plan/PlanCanvas.tsx';
 import { ErrorBoundary } from '../ui/ErrorBoundary.tsx';
@@ -30,6 +30,8 @@ const PanoramaViewer = lazy(() => import('../panorama/PanoramaViewer.tsx'));
 const Model3DView = lazy(() => import('../three/Model3DView.tsx'));
 
 const WALK_SPEED = 1.2; // м/с, ТЗ 4.4
+/** Как часто карта посетителя проверяет, не опубликовали ли новую версию. */
+const MAP_SYNC_MS = 20_000;
 /** Поворот на 90° «стоит» метр пути: из почти равных маршрутов выбираем тот, где меньше поворотов. */
 const TURN_PENALTY = 1;
 const DESKTOP = '(min-width: 900px)';
@@ -57,6 +59,34 @@ export function VisitorPage() {
       .then(setLoaded)
       .catch(() => setError('Карта не найдена или пока закрыта.'));
   }, [slug]);
+
+  // Карту обновили (организатор сохранил или снял панораму) — подхватываем новую версию без перезагрузки.
+  // Спрашиваем только номер версии; вкладка в фоне не спрашивает, при возвращении — сразу.
+  const version = loaded?.offlineDemo ? null : (loaded?.version ?? null);
+  useEffect(() => {
+    if (version === null) return;
+    let stopped = false;
+    const check = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        if ((await publishedVersion(slug)) === version || stopped) return;
+        const next = await loadPublishedMap(slug);
+        if (!stopped && !next.offlineDemo) setLoaded(next);
+      } catch {
+        // Нет связи — спросим в следующий раз.
+      }
+    };
+    const id = setInterval(() => void check(), MAP_SYNC_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void check();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [slug, version]);
 
   if (error)
     return (
@@ -345,15 +375,11 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
     </div>
   );
 
-  // Вход в кабинет с карты. Вошедший организатор сразу попадает в редактор этой площадки
-  // (чужую площадку редактор не откроет — проверка владения на сервере), остальные — на вход в кабинет.
+  // «Редактировать план» — редактор именно этой площадки: без входа сначала вход (гость при общем доступе
+  // попадает сюда же, а не в свою копию), чужую площадку без общего доступа редактор честно не откроет.
   // Карта, встроенная в чужой сайт, кнопку не показывает.
   const embedded = window.self !== window.top;
-  const edit = offlineDemo
-    ? { to: '/app/editor', label: 'Редактировать план' }
-    : hasOrganizerSession()
-      ? { to: `/app/venues/${doc.venue.id}`, label: 'Редактировать план' }
-      : { to: '/app', label: 'Кабинет организатора' };
+  const edit = offlineDemo ? { to: '/app/editor', label: 'Редактировать план' } : { to: `/app/venues/${doc.venue.id}`, label: 'Редактировать план' };
   const editLink = embedded ? null : (
     <Link to={edit.to} className="icon-btn" aria-label={edit.label} title={edit.label}>
       <Icon name="edit" size={19} />

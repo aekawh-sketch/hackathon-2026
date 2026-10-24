@@ -13,9 +13,20 @@ export type SaveStatus =
   | { kind: 'conflict'; updatedBy: string | null };
 
 const DEBOUNCE_MS = 700;
+/** Как часто спрашивать, не сохранил ли кто-то после нас (общий доступ — правят вдвоём-втроём). */
+const SYNC_MS = 8000;
 const RETRY_MS = 5000;
 
-export function useServerSave(venueId: string | null, initialRevision: number, doc: MapDocument) {
+/**
+ * @param onRemote чужое сохранение пришло, а у нас ничего не ждёт сохранения — показать новый документ.
+ *   Если свои правки есть, чужие не подтягиваем: при сохранении сработает окно «чью версию оставить».
+ */
+export function useServerSave(
+  venueId: string | null,
+  initialRevision: number,
+  doc: MapDocument,
+  onRemote?: (doc: MapDocument, updatedBy: string | null) => void,
+) {
   const [status, setStatus] = useState<SaveStatus>({ kind: 'idle' });
   const revision = useRef(initialRevision);
   const latest = useRef(doc);
@@ -25,6 +36,8 @@ export function useServerSave(venueId: string | null, initialRevision: number, d
   const blocked = useRef(false); // конфликт: ждём решения
   const skipDoc = useRef<MapDocument | null>(doc); // этот документ уже на сервере — не сохранять
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const onRemoteRef = useRef(onRemote);
+  onRemoteRef.current = onRemote;
 
   const flush = useCallback(async (): Promise<void> => {
     if (!venueId || blocked.current) return;
@@ -90,6 +103,38 @@ export function useServerSave(venueId: string | null, initialRevision: number, d
       clearTimeout(timer.current);
     };
   }, [venueId, flush]);
+
+  // Чужие сохранения: раз в несколько секунд — только номер ревизии; весь документ — когда он вырос
+  // и у нас всё сохранено. Вкладка в фоне не спрашивает, при возвращении — спрашивает сразу.
+  useEffect(() => {
+    if (!venueId) return;
+    let stopped = false;
+    const clean = () => !inFlight.current && !blocked.current && latest.current === skipDoc.current;
+    const check = async () => {
+      if (document.visibilityState !== 'visible' || !clean()) return;
+      try {
+        const remote = await venuesApi.draftRevision(venueId);
+        if (stopped || remote.revision <= revision.current || !clean()) return;
+        const draft = await venuesApi.draft(venueId);
+        if (stopped || !clean()) return;
+        revision.current = draft.revision;
+        skipDoc.current = draft.doc;
+        onRemoteRef.current?.(draft.doc, draft.updatedBy);
+      } catch {
+        // Нет связи — спросим в следующий раз.
+      }
+    };
+    const id = setInterval(() => void check(), SYNC_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void check();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [venueId]);
 
   /** Конфликт: «оставить мою» — сохранить поверх новой ревизии; «взять их» — вернуть документ с сервера. */
   const resolveConflict = useCallback(

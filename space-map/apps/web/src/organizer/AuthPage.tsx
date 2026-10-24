@@ -28,8 +28,9 @@ export default function AuthPage() {
     setBusy(true);
     setError(null);
     try {
-      const { user: guest, venueId } = await auth.guest();
-      after.current = `/app/venues/${venueId}`;
+      const { user: guest, venueId, shared } = await auth.guest();
+      // Общий доступ: можно править любую площадку — пришёл с «Редактировать план» на карте, туда и ведём.
+      after.current = shared && next.startsWith('/app/venues/') ? next : `/app/venues/${venueId}`;
       setUser(guest);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не удалось открыть редактор. Попробуйте ещё раз.');
