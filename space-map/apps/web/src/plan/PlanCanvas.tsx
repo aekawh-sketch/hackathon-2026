@@ -29,15 +29,22 @@ export interface PlanCanvasProps {
   onEmptyClick?: (world: Vec2) => void;
 }
 
-const TAP_TOLERANCE = 8;
-const PLACE_HIT = 22;
-const PANO_HIT = 16;
+// Палец при нажатии почти всегда немного съезжает, а попасть им точнее ~1 см трудно —
+// для касаний пороги больше, чем для мыши: иначе нажатие считается сдвигом карты или промахом.
+const COARSE = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
+const TAP_TOLERANCE = COARSE ? 12 : 8;
+const PLACE_HIT = COARSE ? 28 : 22;
+const PANO_HIT = COARSE ? 24 : 16;
+/** Кнопкам масштаба нужно столько свободной высоты над шторкой; меньше — прячем «+/−», остаётся щипок. */
+const ZOOM_ROOM = 230;
+const FIT_ROOM = 110;
 
 export function PlanCanvas(props: PlanCanvasProps) {
   const { doc, level, route, selectedPlace, activePanorama, fromPoint, toPoint, category, insets, fitKey = 0, focus } = props;
   const wrapRef = useRef<HTMLDivElement>(null);
   const size = useElementSize(wrapRef);
   const [view, setView] = useState<Viewport>({ scale: 20, x: 0, y: 0 });
+  const freeHeight = (size?.h ?? 1000) - (insets?.bottom ?? 0) - (insets?.top ?? 0);
   const pointers = useRef(new Map<number, Vec2>());
   const gesture = useRef({ moved: false, start: [0, 0] as Vec2 });
 
@@ -215,13 +222,21 @@ export function PlanCanvas(props: PlanCanvasProps) {
           </Stage>
         )}
       </div>
-      <div className="map-controls" style={{ bottom: (insets?.bottom ?? 0) + 16 }} onPointerDown={(e) => e.stopPropagation()}>
-        <button type="button" className="map-ctl" aria-label="Приблизить" onClick={() => zoomButton(1.4)}>
-          <Icon name="plus" />
-        </button>
-        <button type="button" className="map-ctl" aria-label="Отдалить" onClick={() => zoomButton(1 / 1.4)}>
-          <Icon name="minus" />
-        </button>
+      <div
+        className="map-controls"
+        style={{ bottom: (insets?.bottom ?? 0) + 16, display: freeHeight < FIT_ROOM ? 'none' : undefined }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        {freeHeight >= ZOOM_ROOM && (
+          <>
+            <button type="button" className="map-ctl" aria-label="Приблизить" onClick={() => zoomButton(1.4)}>
+              <Icon name="plus" />
+            </button>
+            <button type="button" className="map-ctl" aria-label="Отдалить" onClick={() => zoomButton(1 / 1.4)}>
+              <Icon name="minus" />
+            </button>
+          </>
+        )}
         <button
           type="button"
           className="map-ctl"

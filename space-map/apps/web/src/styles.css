@@ -1226,14 +1226,21 @@ button.route-end:hover {
   text-overflow: ellipsis;
 }
 
+.editor-title strong,
 .editor-title small {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.editor-title small {
+  display: block;
   color: var(--muted);
   font-size: 12.5px;
-  white-space: nowrap;
-  overflow: hidden;
+}
+
+.editor-title small svg {
+  vertical-align: -2px;
 }
 
 .editor-top-actions {
@@ -1301,8 +1308,10 @@ button.route-end:hover {
 }
 
 .is-mobile .tool-btn {
-  flex: 1 0 52px;
-  min-width: 52px;
+  flex: 1 1 0;
+  min-width: 44px;
+  padding-inline: 2px;
+  font-size: 10.5px;
 }
 
 .tool-hint {
@@ -2472,19 +2481,16 @@ button.insp-row:hover {
 }
 
 /* Ушли с места съёмки: стрелка к нему внизу, над панелью. */
+/* Внутри панели, первой строкой: на невысоком экране не налезает на кнопки. */
 .guide-home {
-  position: absolute;
-  left: 50%;
-  bottom: calc(max(12px, env(safe-area-inset-bottom)) + 200px);
   display: flex;
   align-items: center;
   gap: 12px;
-  max-width: calc(100% - 32px);
+  margin: 0 0 12px;
   padding: 10px 16px 10px 10px;
-  transform: translateX(-50%);
   border-radius: 999px;
-  background: rgb(18 161 80 / 0.92);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.3);
+  background: var(--ok);
+  color: #fff;
   animation: guide-panel-in 0.3s var(--ease);
 }
 
@@ -2554,4 +2560,50 @@ button.insp-row:hover {
 
 .guide-shoot .btn-block {
   margin-bottom: 8px;
+}
+
+/* ── Телефон: всё, что нажимают пальцем, — не меньше 40 px ── */
+.segmented button {
+  min-height: 40px;
+}
+
+.search-clear {
+  width: 40px;
+  height: 40px;
+  margin-right: -6px;
+}
+
+.map-banner-btn {
+  min-height: 40px;
+  padding: 8px 14px;
+}
+
+.guide-settings summary {
+  padding: 10px 0;
+}
+
+/* Ссылки в подсказках: зона нажатия выше строки, а строки не раздвигаются. */
+.hint a,
+.tips a,
+.org-foot a,
+.auth-page a {
+  display: inline-block;
+  padding: 10px 0;
+  margin: -10px 0;
+}
+
+@media (pointer: coarse) {
+  .icon-btn.sm {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* Шапка панорамы: длинное название помещения не расталкивает кнопки. */
+.pano-top .glass-title,
+.guide-top .glass-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }

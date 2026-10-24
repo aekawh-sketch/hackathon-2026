@@ -1,5 +1,5 @@
 // Вход и регистрация организатора (ТЗ 6.1, 8.1).
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router';
 import { ApiError, auth } from '../api.ts';
 import { Icon } from '../ui/icons.tsx';
@@ -18,7 +18,10 @@ export default function AuthPage() {
 
   // Только свои пути внутри кабинета — не уводим по ссылке на чужой сайт.
   const next = params.get('next')?.startsWith('/app') ? params.get('next')! : '/app';
-  if (user) return <Navigate to={next} replace />;
+  // Куда уйти после входа. Гостя — сразу в редактор его площадки: иначе перенаправление «вошёл — в кабинет»
+  // срабатывает после navigate() и уводит на «Мои площадки».
+  const after = useRef<string | null>(null);
+  if (user) return <Navigate to={after.current ?? next} replace />;
 
   // Одна кнопка — и сразу редактор: своя копия демо-площадки, без email и пароля.
   const tryAsGuest = async () => {
@@ -26,8 +29,8 @@ export default function AuthPage() {
     setError(null);
     try {
       const { user: guest, venueId } = await auth.guest();
+      after.current = `/app/venues/${venueId}`;
       setUser(guest);
-      navigate(`/app/venues/${venueId}`, { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не удалось открыть редактор. Попробуйте ещё раз.');
       setBusy(false);

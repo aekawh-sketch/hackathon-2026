@@ -38,12 +38,13 @@ import { useServerSave, type SaveStatus } from './useServerSave.ts';
 const Model3DView = lazy(() => import('../three/Model3DView.tsx'));
 const CaptureGuide = lazy(() => import('../capture/CaptureGuide.tsx'));
 
-const TOOLS: { id: Tool; icon: IconName; label: string; key: string }[] = [
+// `short` — подпись на телефоне: семь инструментов должны влезть в 360 px без прокрутки.
+const TOOLS: { id: Tool; icon: IconName; label: string; short?: string; key: string }[] = [
   { id: 'select', icon: 'cursor', label: 'Выбор', key: 'V' },
   { id: 'room', icon: 'square', label: 'Комната', key: 'R' },
   { id: 'place', icon: 'pin', label: 'Место', key: 'P' },
   { id: 'door', icon: 'doorAdd', label: 'Дверь', key: 'D' },
-  { id: 'split', icon: 'split', label: 'Разделить', key: 'S' },
+  { id: 'split', icon: 'split', label: 'Разделить', short: 'Делить', key: 'S' },
   { id: 'hole', icon: 'hole', label: 'Вырез', key: 'H' },
   { id: 'shot', icon: 'camera', label: 'Съёмка', key: 'C' },
 ];
@@ -350,7 +351,7 @@ function Editor({ initial, server }: EditorProps) {
           }}
         >
           <Icon name={t.icon} size={21} />
-          <span>{t.label}</span>
+          <span>{desktop ? t.label : (t.short ?? t.label)}</span>
         </button>
       ))}
     </div>

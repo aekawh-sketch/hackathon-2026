@@ -109,19 +109,31 @@ function axisSnap(a: Vec2, b: Vec2): Vec2 {
   return b;
 }
 
-const TAP = 7;
+/** Сдвиг пальца, после которого нажатие уже не нажатие, а перетаскивание. */
+const TAP_MOUSE = 7;
+const TAP_TOUCH = 12;
+/** Кнопкам масштаба нужно столько свободной высоты над шторкой; меньше — прячем «+/−», остаётся щипок. */
+const ZOOM_ROOM = 230;
+const FIT_ROOM = 110;
 
 export function EditorCanvas(props: EditorCanvasProps) {
   const { doc, level, tool, selection, showGraph, insets } = props;
   const wrapRef = useRef<HTMLDivElement>(null);
   const size = useElementSize(wrapRef);
   const [view, setView] = useState<Viewport>({ scale: 20, x: 0, y: 0 });
+  // Под подсказкой инструмента (~48 px) и над шторкой.
+  const freeHeight = (size?.h ?? 1000) - (insets.bottom ?? 0) - (insets.top ?? 0) - 48;
   const [preview, setPreview] = useState<Preview | null>(null);
   const [hover, setHover] = useState<string | null>(null);
   const pointers = useRef(new Map<number, Vec2>());
   const drag = useRef<{ mode: Drag; startScreen: Vec2; moved: boolean; pointerId: number } | null>(null);
   const coarse = useMemo(() => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches, []);
   const handleR = coarse ? 13 : 8;
+  // Пальцем точнее ~1 см не попасть: для касаний зоны попадания больше.
+  const tap = coarse ? TAP_TOUCH : TAP_MOUSE;
+  const placeHit = coarse ? 28 : 20;
+  const shotHit = coarse ? 26 : 16;
+  const doorHit = coarse ? 18 : 10;
 
   const insetKey = `${insets.top ?? 0}:${insets.right ?? 0}:${insets.bottom ?? 0}:${insets.left ?? 0}`;
   const fit = () => size && setView(fitBoundsInset(levelBounds(doc, level), size.w, size.h, insets, 40));
@@ -157,19 +169,19 @@ export function EditorCanvas(props: EditorCanvasProps) {
       .sort((a, b) => Number(b.id === selection?.id) - Number(a.id === selection?.id))
       .find((p) => {
         const q = toScreen(p.pos);
-        return Math.hypot(q[0] - s[0], q[1] - s[1]) <= 20;
+        return Math.hypot(q[0] - s[0], q[1] - s[1]) <= placeHit;
       });
   const shotsVisible = props.showShots || tool === 'shot';
   const hitShot = (s: Vec2) =>
     shotsVisible
       ? activeCapturePoints(doc, level).find((p) => {
           const q = toScreen(p.pos);
-          return Math.hypot(q[0] - s[0], q[1] - s[1]) <= 16;
+          return Math.hypot(q[0] - s[0], q[1] - s[1]) <= shotHit;
         })
       : undefined;
   const hitOpening = (s: Vec2) => {
     const w = toWorld(s);
-    const tol = 10 / view.scale;
+    const tol = doorHit / view.scale;
     return doc.openings.find((o) => o.level === level && pointSegmentDistance(w, o.segment[0], o.segment[1]) <= tol);
   };
   /** Ручка на краю выбранной двери: 0 — segment[0], 1 — segment[1]. */
@@ -467,7 +479,7 @@ export function EditorCanvas(props: EditorCanvasProps) {
     }
     const d = drag.current;
     if (!d || d.pointerId !== e.pointerId) return;
-    if (!d.moved && Math.hypot(s[0] - d.startScreen[0], s[1] - d.startScreen[1]) > TAP) d.moved = true;
+    if (!d.moved && Math.hypot(s[0] - d.startScreen[0], s[1] - d.startScreen[1]) > tap) d.moved = true;
     if (!d.moved) return;
     if (d.mode.kind === 'pan' || d.mode.kind === 'tap') {
       touched.current = true;
@@ -695,13 +707,21 @@ export function EditorCanvas(props: EditorCanvasProps) {
           </Stage>
         )}
       </div>
-      <div className="map-controls" style={{ bottom: (insets.bottom ?? 0) + 16, right: (insets.right ?? 0) + 16 }} onPointerDown={(e) => e.stopPropagation()}>
-        <button type="button" className="map-ctl" aria-label="Приблизить" onClick={() => size && setView((v) => zoomAt(v, [size.w / 2, size.h / 2], 1.4))}>
-          <Icon name="plus" />
-        </button>
-        <button type="button" className="map-ctl" aria-label="Отдалить" onClick={() => size && setView((v) => zoomAt(v, [size.w / 2, size.h / 2], 1 / 1.4))}>
-          <Icon name="minus" />
-        </button>
+      <div
+        className="map-controls"
+        style={{ bottom: (insets.bottom ?? 0) + 16, right: (insets.right ?? 0) + 16, display: freeHeight < FIT_ROOM ? 'none' : undefined }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        {freeHeight >= ZOOM_ROOM && (
+          <>
+            <button type="button" className="map-ctl" aria-label="Приблизить" onClick={() => size && setView((v) => zoomAt(v, [size.w / 2, size.h / 2], 1.4))}>
+              <Icon name="plus" />
+            </button>
+            <button type="button" className="map-ctl" aria-label="Отдалить" onClick={() => size && setView((v) => zoomAt(v, [size.w / 2, size.h / 2], 1 / 1.4))}>
+              <Icon name="minus" />
+            </button>
+          </>
+        )}
         <button type="button" className="map-ctl" aria-label="Показать всё" onClick={fit}>
           <Icon name="fit" />
         </button>
