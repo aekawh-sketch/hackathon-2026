@@ -29,6 +29,7 @@ import { ThemeToggle } from '../ui/theme.tsx';
 
 const PanoramaViewer = lazy(() => import('../panorama/PanoramaViewer.tsx'));
 const Model3DView = lazy(() => import('../three/Model3DView.tsx'));
+const ShareDialog = lazy(() => import('../ui/ShareDialog.tsx'));
 
 const WALK_SPEED = 1.2; // м/с, ТЗ 4.4
 /** Как часто карта посетителя проверяет, не опубликовали ли новую версию. */
@@ -104,10 +105,10 @@ export function VisitorPage() {
         <div className="loader" aria-label="Загружаем карту" />
       </div>
     );
-  return <Visitor doc={loaded.doc} anchorCode={search.get('a')} offlineDemo={loaded.offlineDemo} edited={loaded.edited} />;
+  return <Visitor slug={slug} doc={loaded.doc} anchorCode={search.get('a')} offlineDemo={loaded.offlineDemo} edited={loaded.edited} />;
 }
 
-function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; anchorCode: string | null; offlineDemo: boolean; edited: boolean }) {
+function Visitor({ slug, doc, anchorCode, offlineDemo, edited }: { slug: string; doc: MapDocument; anchorCode: string | null; offlineDemo: boolean; edited: boolean }) {
   const level = doc.levels[0]?.id ?? 'L1';
   const levelName = doc.levels[0]?.name ?? '';
   const graph = useMemo(() => new NavGraph(doc, { turnPenalty: TURN_PENALTY }), [doc]);
@@ -130,6 +131,7 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
   const [fitKey, setFitKey] = useState(0);
   const [focusRoute, setFocusRoute] = useState(false);
   const [sheetMode, setSheetMode] = useState<SheetMode>('peek');
+  const [sharing, setSharing] = useState(false);
   const [sheetHeight, setSheetHeight] = useState(0);
 
   // QR-якорь «Вы здесь»: точка «откуда» уже стоит (ТЗ 5.19, слой 1).
@@ -383,6 +385,12 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
       <Icon name="grid" size={19} />
     </Link>
   );
+  // Поделиться картой — ссылка без «Вы здесь» (?a=…): у того, кому отправили, своё место.
+  const shareButton = (
+    <button type="button" className="icon-btn" aria-label="Поделиться картой" title="Поделиться картой" onClick={() => setSharing(true)}>
+      <Icon name="share" size={19} />
+    </button>
+  );
 
   let content;
   if (routeVisible) {
@@ -598,6 +606,7 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
           {brand}
           <div className="topbar-actions">
             {viewSwitch}
+            {shareButton}
             {homeLink}
           </div>
         </header>
@@ -616,6 +625,7 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
               <div className="topbar-actions">
                 {viewSwitch}
                 <ThemeToggle />
+                {shareButton}
                 {homeLink}
               </div>
             </div>
@@ -691,6 +701,13 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
             </div>
           )}
         </div>
+      )}
+      {sharing && (
+        <ErrorBoundary fallback={null}>
+          <Suspense fallback={null}>
+            <ShareDialog url={`${location.origin}/m/${slug}`} title={doc.venue.name} fileName={slug} onClose={() => setSharing(false)} />
+          </Suspense>
+        </ErrorBoundary>
       )}
     </div>
   );

@@ -1,16 +1,20 @@
 // «Все карты» — главная для посетителя: опубликованные открытые карты, с каждой карты можно вернуться сюда.
 import type { PanoramaPlacement } from '@space-map/map-core';
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { loadCatalog, panoramaUrls, type CatalogItem } from '../api.ts';
+import { ErrorBoundary } from '../ui/ErrorBoundary.tsx';
 import { Icon } from '../ui/icons.tsx';
 import { PlanThumb } from '../ui/PlanThumb.tsx';
 import { ThemeToggle } from '../ui/theme.tsx';
+
+const ShareDialog = lazy(() => import('../ui/ShareDialog.tsx'));
 
 export function CatalogPage() {
   const [items, setItems] = useState<CatalogItem[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [query, setQuery] = useState('');
+  const [sharing, setSharing] = useState<CatalogItem | null>(null);
 
   useEffect(() => {
     document.title = 'Все карты — Карта пространства';
@@ -92,12 +96,23 @@ export function CatalogPage() {
                   <Link className="btn btn-primary" to={`/m/${v.slug}`}>
                     <Icon name="map" size={17} /> Открыть карту
                   </Link>
+                  <button type="button" className="btn btn-secondary" onClick={() => setSharing(v)}>
+                    <Icon name="share" size={17} /> Поделиться
+                  </button>
                 </div>
               </div>
             </li>
           ))}
         </ul>
       </main>
+
+      {sharing && (
+        <ErrorBoundary fallback={null}>
+          <Suspense fallback={null}>
+            <ShareDialog url={`${location.origin}/m/${sharing.slug}`} title={sharing.name} fileName={sharing.slug} onClose={() => setSharing(null)} />
+          </Suspense>
+        </ErrorBoundary>
+      )}
     </div>
   );
 }

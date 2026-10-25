@@ -15,3 +15,34 @@ export function qrPath(text: string): { d: string; size: number } {
   });
   return { d, size };
 }
+
+/**
+ * QR-код картинкой PNG — распечатать у входа или отправить в чат: чёрный на белом, модуль [scale] пикселей,
+ * под кодом — подпись (название карты), чтобы на распечатке было понятно, куда он ведёт.
+ */
+export function qrPng(text: string, caption = '', scale = 12): Promise<Blob> {
+  const { d, size } = qrPath(text);
+  const side = size * scale;
+  const captionHeight = caption ? scale * 4 : 0;
+  const canvas = document.createElement('canvas');
+  canvas.width = side;
+  canvas.height = side + captionHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return Promise.reject(new Error('Холст недоступен'));
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.scale(scale, scale);
+  ctx.fillStyle = '#000';
+  ctx.fill(new Path2D(d));
+  ctx.restore();
+  if (caption) {
+    ctx.fillStyle = '#000';
+    ctx.font = `600 ${scale * 2}px system-ui, -apple-system, 'Segoe UI', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    // Длинное название сжимается до ширины кода, а не вылезает за край.
+    ctx.fillText(caption, side / 2, side - scale, side - scale * 8);
+  }
+  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG не собрался'))), 'image/png'));
+}
