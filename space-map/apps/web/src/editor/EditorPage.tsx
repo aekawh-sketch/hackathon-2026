@@ -22,6 +22,8 @@ import {
   type DoorPreset,
   type MapDocument,
   type ShotPanorama,
+  type UnitKind,
+  UNIT_KIND_NAMES,
 } from '@space-map/map-core';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -34,10 +36,11 @@ import { Icon, type IconName } from '../ui/icons.tsx';
 import { Sheet, useMediaQuery, type SheetMode } from '../ui/Sheet.tsx';
 import { setTheme, ThemeToggle, useTheme } from '../ui/theme.tsx';
 import { Tour, type TourStep } from '../ui/Tour.tsx';
-import { LevelSwitch } from '../ui/LevelSwitch.tsx';
 import { AddLevelDialog, type UnderlayApi } from './FloorsPanel.tsx';
 import { EditorCanvas, holeRef, type Selection, type Tool } from './EditorCanvas.tsx';
-import { Inspector } from './Inspector.tsx';
+import { Inspector, type InspectorProps } from './Inspector.tsx';
+import { EditorSettingsDialog } from './EditorSettingsDialog.tsx';
+import { TOOL_CONTEXT } from './toolContext.ts';
 import { useHistory } from './useHistory.ts';
 import { cancelText, captureNativeSphere, hasNativeCapture } from '../capture/native.ts';
 import { PanoramaPreview } from './PanoramaPreview.tsx';
@@ -59,18 +62,6 @@ const TOOLS: { id: Tool; icon: IconName; label: string; short?: string; key: str
   { id: 'hole', icon: 'hole', label: 'Вырез', key: 'H' },
   { id: 'shot', icon: 'camera', label: 'Съёмка', key: 'C' },
 ];
-
-const TOOL_HINT: Record<Tool, string> = {
-  select: 'Нажмите на помещение, место или дверь. Тяните, чтобы сдвинуть.',
-  room: 'Протяните прямоугольник на свободном месте или внутри зала',
-  zone: 'Выберите категорию и протяните прямоугольник внутри помещения',
-  place: 'Нажмите внутри помещения, чтобы поставить место',
-  door: 'Нажмите на стену: общая стена — дверь между помещениями, наружная — вход с улицы',
-  wall: 'Проведите линию — получится стена. От стены до стены — делит комнату на две',
-  hole: 'Протяните прямоугольник внутри комнаты: колонна, шахта или перегородка',
-  shot: 'Точки панорам рассчитаны по плану. Нажмите в помещении — своя точка; тяните точку, чтобы сдвинуть',
-  underlay: 'Тяните картинку плана, чтобы совместить её с рисунком. Закончили — «Готово» в панели',
-};
 
 /** Обучение по кнопке «?»: по очереди каждая кнопка редактора и что она делает. Кнопок не на этом экране — пропуск. */
 const TOUR: TourStep[] = [
@@ -95,8 +86,8 @@ const TOUR: TourStep[] = [
   { target: '[data-tour="visitor"]', title: 'Карта посетителя', text: 'Как карту увидят по ссылке.' },
   { target: '[data-tour="publish"]', title: 'Публикация', text: 'Ссылка на карту и код для сайта. Правки обновляют карту по той же ссылке.' },
   { target: '[data-tour="more"]', title: 'Ещё', text: '3D, сетка маршрутов, точки съёмки, тема, сканер QR, загрузка и выгрузка карты, публикация.' },
-  { target: '[data-tour="inspector"]', title: 'Свойства', text: 'Свойства выбранного. Без выбора — сводка площадки: название, помещения, категории.' },
-  { target: '.sheet', title: 'Шторка', text: 'Свойства выбранного. Тяните вверх и вниз; без выбора — сводка площадки.' },
+  { target: '[data-tour="inspector"]', title: 'Свойства', text: 'Настройки текущего инструмента или выбранного объекта. Настройки площадки — в названии сверху; этажа — в меню на плане.' },
+  { target: '.sheet', title: 'Шторка', text: 'Внизу — выбранный инструмент и его настройки. Нажмите на название или потяните вверх, чтобы раскрыть свойства.' },
   { target: '[data-tour="help"]', title: 'Обучение', text: 'Пройти ещё раз — эта кнопка.' },
 ];
 
@@ -246,6 +237,12 @@ function Editor({ initial, server }: EditorProps) {
   const level = doc.levels.some((l) => l.id === levelId) ? levelId : (levels[0]?.id ?? 'L1');
   const [addLevelOpen, setAddLevelOpen] = useState(false);
   const [tool, setTool] = useState<Tool>('select');
+  const [settings, setSettings] = useState<'project' | 'floor' | null>(null);
+  const closeSettings = useCallback(() => setSettings(null), []);
+  const [roomKind, setRoomKind] = useState<UnitKind>('room');
+  const [placeCategory, setPlaceCategory] = useState(() => doc.categories.find((c) => c.id === 'room')?.id ?? doc.categories[0]?.id ?? '');
+  const activePlaceCategory = doc.categories.some((c) => c.id === placeCategory) ? placeCategory : doc.categories[0]?.id ?? '';
+  const [doorWidth, setDoorWidth] = useState(0.9);
   const [areaCategory, setAreaCategory] = useState(() => doc.categories.find((c) => c.id === 'food')?.id ?? doc.categories[0]?.id ?? '');
   const activeAreaCategory = doc.categories.some((c) => c.id === areaCategory) ? areaCategory : doc.categories[0]?.id ?? '';
   // Настройки новой двери: тип и насколько открыта — применяются в момент постановки.
@@ -320,6 +317,13 @@ function Editor({ initial, server }: EditorProps) {
     if (!desktop && !opts?.keepSheet) setSheetMode(s ? 'auto' : 'peek');
   };
 
+  const activateTool = useCallback((next: Tool) => {
+    setTool(next);
+    setSelection(null);
+    setView('plan');
+    if (!desktop) setSheetMode('peek');
+  }, [desktop]);
+
   // Выбор пропал после отмены — снимаем.
   useEffect(() => {
     if (selection && !selectionExists(doc, selection)) setSelection(null);
@@ -329,7 +333,7 @@ function Editor({ initial, server }: EditorProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (target.closest('input, textarea, select')) return;
+      if (target.closest('input, textarea, select, [role="dialog"]')) return;
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === 'z') {
         e.preventDefault();
@@ -344,7 +348,7 @@ function Editor({ initial, server }: EditorProps) {
       }
       if (mod) return;
       const t = TOOLS.find((x) => x.key.toLowerCase() === e.key.toLowerCase() || x.key === layoutKey(e.key));
-      if (t) return setTool(t.id);
+      if (t) return activateTool(t.id);
       if (e.key === 'Escape') {
         setTool('select');
         setSelection(null);
@@ -377,7 +381,7 @@ function Editor({ initial, server }: EditorProps) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [history.undo, history.redo, doc, selection, commit, level]);
+  }, [history.undo, history.redo, doc, selection, commit, level, activateTool]);
 
   const download = () => {
     const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
@@ -433,8 +437,7 @@ function Editor({ initial, server }: EditorProps) {
           aria-pressed={tool === t.id}
           title={`${t.label} (${t.key})`}
           onClick={() => {
-            setTool(t.id);
-            if (view === '3d') setView('plan');
+            activateTool(t.id);
           }}
         >
           <Icon name={t.icon} size={21} />
@@ -518,6 +521,8 @@ function Editor({ initial, server }: EditorProps) {
 
   // phoneOnly — только в меню «Ещё» на телефоне: на компьютере для этого есть своя кнопка в шапке.
   const menuItems: { icon: IconName; label: string; onClick: () => void; pressed?: boolean; danger?: boolean; phoneOnly?: boolean }[] = [
+    { icon: 'building', label: 'Настройки площадки', onClick: () => setSettings('project'), phoneOnly: true },
+    { icon: 'layers', label: 'Настройки этажа и подложки', onClick: () => setSettings('floor'), phoneOnly: true },
     // На телефоне сканер и тема — в «Ещё»: в шапке место нужно названию площадки.
     ...(desktop
       ? []
@@ -562,15 +567,39 @@ function Editor({ initial, server }: EditorProps) {
   );
   const floorProps = {
     onLevel: changeLevel,
-    onAddLevel: () => setAddLevelOpen(true),
+    onAddLevel: () => { setSettings(null); setAddLevelOpen(true); },
     underlayApi,
     underlayMoving: tool === 'underlay',
     onUnderlayMove: (on: boolean) => {
-      setSelection(null);
-      setTool(on ? 'underlay' : 'select');
-      if (on && view === '3d') setView('plan');
+      setSettings(null);
+      activateTool(on ? 'underlay' : 'select');
     },
   };
+
+  const inspectorProps: InspectorProps = {
+    doc, level, selection, tool, onSelect: select, onCommit: commit, onToast: showToast,
+    roomKind, onRoomKind: setRoomKind, placeCategory: activePlaceCategory, onPlaceCategory: setPlaceCategory,
+    areaCategory: activeAreaCategory, onAreaCategory: setAreaCategory, doorWidth, onDoorWidth: setDoorWidth,
+    doorPreset, onDoorPreset: (preset) => {
+      if (preset.type !== doorPreset.type) setDoorWidth(preset.type === 'double' ? 1.6 : preset.type === 'passage' ? 1.2 : 0.9);
+      setDoorPreset(preset);
+    },
+    onExitTool: () => activateTool('select'), shotLabels: shotPlan.labels, onOpenGuide: openGuide,
+    onUploadPanorama: server ? uploadPanoramaFor : undefined,
+    onShootPanorama: server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined,
+    onShootForPlace: server && hasNativeCapture() ? shootForPlace : undefined,
+    onUploadForPlace: server ? uploadForPlace : undefined, onOpenPanorama: openPreview, ...floorProps,
+  };
+  const currentFloor = levels.find((l) => l.id === level);
+  const selectedName = selection?.kind === 'unit' ? doc.units.find((u) => u.id === selection.id)?.name
+    : selection?.kind === 'place' ? (doc.places.find((p) => p.id === selection.id)?.name || 'Место без названия')
+    : selection?.kind === 'opening' ? 'Дверь / проход' : selection?.kind === 'shot' ? 'Точка съёмки'
+    : selection?.kind === 'hole' ? 'Вырез' : null;
+  const contextTitle = selectedName || TOOL_CONTEXT[tool].title;
+  const contextSummary = selection ? 'Свойства объекта' : tool === 'room' ? UNIT_KIND_NAMES[roomKind]
+    : tool === 'place' ? doc.categories.find((c) => c.id === activePlaceCategory)?.name
+    : tool === 'zone' ? doc.categories.find((c) => c.id === activeAreaCategory)?.name
+    : tool === 'shot' ? `${doc.panoramas.filter((p) => p.level === level).length} панорам` : 'Настройки и подсказка';
 
   const resolveConflict = async (keep: 'mine' | 'theirs') => {
     try {
@@ -595,7 +624,9 @@ function Editor({ initial, server }: EditorProps) {
             tool={tool}
             selection={selection}
             showGraph={showGraph}
-            placeCategory={doc.categories.find((c) => c.id === 'room')?.id ?? doc.categories[0]?.id ?? ''}
+            placeCategory={activePlaceCategory}
+            roomKind={roomKind}
+            doorWidth={doorWidth}
             areaCategory={activeAreaCategory}
             doorPreset={doorPreset}
             insets={insets}
@@ -622,8 +653,19 @@ function Editor({ initial, server }: EditorProps) {
             </Suspense>
           </ErrorBoundary>
         )}
-        {view === 'plan' && <div className="tool-hint" style={desktop ? { left: 112, top: 88 } : { top: topHeight + 6 }}>{TOOL_HINT[tool]}</div>}
-        <LevelSwitch levels={levels} value={level} onChange={changeLevel} onAdd={() => setAddLevelOpen(true)} style={desktop ? { left: 112, bottom: 24 } : { left: 12, top: topHeight + 64 }} />
+        {view === 'plan' && <div className="tool-hint" style={desktop ? { left: 112, top: 88 } : { top: topHeight + 6 }}>{TOOL_CONTEXT[tool].hint}</div>}
+        <div className="editor-level-control" style={desktop ? { left: 112, bottom: 24 } : { left: 12, top: topHeight + 64 }}>
+          <Icon name="layers" size={18} />
+          <select aria-label="Текущий этаж" value={level} onChange={(e) => changeLevel(e.target.value)}>
+            {[...levels].reverse().map((l) => <option key={l.id} value={l.id}>{l.name || 'Без названия'}</option>)}
+          </select>
+          <button type="button" className="icon-btn" aria-label="Настройки этажа" title="Настройки этажа и подложки" onClick={() => setSettings('floor')}><Icon name="more" size={18} /></button>
+        </div>
+        {view === 'plan' && tool === 'select' && !selection && !doc.units.some((u) => u.level === level) && !currentFloor?.underlay && <div className="editor-empty-floor">
+          <h2>Начните с плана этажа</h2><p>Нарисуйте помещения или загрузите готовый план.</p>
+          <button type="button" className="btn btn-primary" onClick={() => activateTool('room')}>Нарисовать помещение</button>
+          <button type="button" className="btn btn-secondary" onClick={() => setSettings('floor')}>Загрузить план</button>
+        </div>}
       </main>
 
       <header className="editor-top" ref={topRef}>
@@ -636,7 +678,9 @@ function Editor({ initial, server }: EditorProps) {
           <Icon name="back" />
         </Link>
         <div className="editor-title">
-          <strong>{server ? (venue?.name ?? doc.venue.name) : desktop ? 'Редактор площадки' : 'Редактор'}</strong>
+          <button type="button" className="editor-name-button" aria-label="Настройки площадки" title="Настройки площадки" onClick={() => setSettings('project')}>
+            <strong>{doc.venue.name}</strong><Icon name="chevronDown" size={14} />
+          </button>
           <small className={server && (remote.status.kind === 'error' || remote.status.kind === 'conflict') ? 'save-problem' : undefined}>
             {server ? (
               // На телефоне шапка узкая — статус коротко, без ссылки.
@@ -750,12 +794,14 @@ function Editor({ initial, server }: EditorProps) {
         <>
           <div className="tool-rail">{toolbar}</div>
           <aside className="inspector" aria-label="Свойства" data-tour="inspector">
-            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onShootForPlace={server && hasNativeCapture() ? shootForPlace : undefined} onUploadForPlace={server ? uploadForPlace : undefined} onOpenPanorama={openPreview} {...floorProps} />
+            <Inspector {...inspectorProps} />
           </aside>
         </>
       ) : (
-        <Sheet mode={sheetMode} onModeChange={setSheetMode} desktop={false} peekHeight={118} topGap={64} onHeight={setSheetHeight} label="Инструменты и свойства" header={toolbar}>
-          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onShootForPlace={server && hasNativeCapture() ? shootForPlace : undefined} onUploadForPlace={server ? uploadForPlace : undefined} onOpenPanorama={openPreview} {...floorProps} />
+        <Sheet mode={sheetMode} onModeChange={setSheetMode} desktop={false} peekHeight={148} topGap={64} onHeight={setSheetHeight} label="Инструменты и свойства" header={<>{toolbar}<button type="button" className="editor-context-trigger" aria-label={`Свойства: ${contextTitle}`} aria-expanded={sheetMode !== 'peek'} onClick={() => setSheetMode((mode) => mode === 'peek' ? 'auto' : 'peek')}>
+          <span><strong>{contextTitle}</strong><small>{contextSummary}</small></span><Icon name={sheetMode === 'peek' ? 'chevronUp' : 'chevronDown'} size={18} />
+        </button></>}>
+          <Inspector {...inspectorProps} />
         </Sheet>
       )}
 
@@ -781,6 +827,8 @@ function Editor({ initial, server }: EditorProps) {
           e.target.value = '';
         }}
       />
+
+      {settings && <EditorSettingsDialog kind={settings} onClose={closeSettings} inspector={inspectorProps} />}
 
       {tourOpen && <Tour steps={TOUR} onClose={() => setTourOpen(false)} />}
 

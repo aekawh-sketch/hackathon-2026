@@ -73,21 +73,27 @@ export function Sheet({ mode, onModeChange, desktop, peekHeight = 164, topGap = 
   const vh = useViewportHeight();
   const sheetRef = useRef<HTMLElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [contentH, setContentH] = useState(0);
+  const [headerH, setHeaderH] = useState(30);
 
   useLayoutEffect(() => {
     const el = contentRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setContentH(el.scrollHeight));
+    const measure = () => {
+      setContentH(el.scrollHeight);
+      setHeaderH(headerRef.current?.getBoundingClientRect().height ?? 30);
+    };
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
-    setContentH(el.scrollHeight);
+    if (headerRef.current) ro.observe(headerRef.current);
+    measure();
     return () => ro.disconnect();
   }, [desktop]);
 
   const full = Math.max(vh - topGap, peekHeight + 40);
-  const grab = 30; // ручка и отступы над содержимым
-  const auto = Math.min(Math.max(contentH + grab + 22, peekHeight), Math.round(vh * 0.66), full);
+  const auto = Math.min(Math.max(contentH + headerH + 22, peekHeight), Math.round(vh * 0.66), full);
   const target = mode === 'peek' ? peekHeight : mode === 'full' ? full : auto;
 
   useEffect(() => {
@@ -298,7 +304,7 @@ export function Sheet({ mode, onModeChange, desktop, peekHeight = 164, topGap = 
         }
       }}
     >
-      <div className="sheet-grab" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+      <div ref={headerRef} className="sheet-grab" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
         <div className="sheet-handle" aria-hidden />
         {header}
       </div>

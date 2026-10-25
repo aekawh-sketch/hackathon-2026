@@ -38,6 +38,8 @@ import {
   unitAt,
   type MapDocument,
   type Vec2,
+  type UnitKind,
+  setOpeningWidth,
 } from '@space-map/map-core';
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
 import { Circle, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva';
@@ -64,6 +66,8 @@ export interface EditorCanvasProps {
   tool: Tool;
   selection: Selection;
   showGraph: boolean;
+  roomKind: UnitKind;
+  doorWidth: number;
   placeCategory: string;
   areaCategory: string;
   /** Настройки новой двери: тип и насколько открыта. */
@@ -450,7 +454,7 @@ export function EditorCanvas(props: EditorCanvasProps) {
         return props.onToolDone();
       }
       if (draft.invalid) return props.onToast('Комната меньше 1 м или налезает на другое помещение');
-      const created = createRoom(doc, level, draft.polygon);
+      const created = createRoom(doc, level, draft.polygon, { kind: props.roomKind });
       const doors = created.doc.openings.filter((o) => (o.units as readonly string[]).includes(created.id)).length;
       props.onCommit(created.doc, { kind: 'unit', id: created.id });
       props.onToast(
@@ -497,7 +501,7 @@ export function EditorCanvas(props: EditorCanvasProps) {
           // Дверь встаёт по центру свободного куска стены, с настройками из панели «Новая дверь».
           const placed = placeDoor(doc, a.id, b.id, w, props.doorPreset);
           if (!placed) return props.onToast('На этой стене нет места для двери');
-          props.onCommit(rebuildGraph(placed.doc, level), { kind: 'opening', id: placed.id });
+          props.onCommit(rebuildGraph(setOpeningWidth(placed.doc, placed.id, props.doorWidth), level), { kind: 'opening', id: placed.id });
           return props.onToast(`${props.doorPreset.type === 'passage' ? 'Проём' : 'Дверь'} по центру стены: ${a.name} ↔ ${b.name}. Края можно тянуть`);
         }
       }
@@ -510,7 +514,7 @@ export function EditorCanvas(props: EditorCanvasProps) {
       if (outer) {
         const placed = placeEntrance(doc, outer.id, w, props.doorPreset);
         if (!placed) return props.onToast('На этой стене нет места для входа');
-        props.onCommit(rebuildGraph(placed.doc, level), { kind: 'opening', id: placed.id });
+        props.onCommit(rebuildGraph(setOpeningWidth(placed.doc, placed.id, props.doorWidth), level), { kind: 'opening', id: placed.id });
         return props.onToast(`Вход с улицы в «${outer.name}» — по центру наружной стены`);
       }
       return props.onToast('Нажмите на стену помещения');

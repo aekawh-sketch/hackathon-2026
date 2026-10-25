@@ -56,6 +56,7 @@ import { CategoryDialog } from './CategoryDialog.tsx';
 import { useTheme } from '../ui/theme.tsx';
 import { CategoryBadge, Icon } from '../ui/icons.tsx';
 import { holeRef, type Selection, type Tool } from './EditorCanvas.tsx';
+import { TOOL_CONTEXT } from './toolContext.ts';
 import { FloorsSection, UnderlaySection, type UnderlayApi } from './FloorsPanel.tsx';
 
 export interface InspectorProps {
@@ -66,6 +67,12 @@ export interface InspectorProps {
   onCommit: (doc: MapDocument, select?: Selection) => void;
   onToast: (message: string) => void;
   tool: Tool;
+  roomKind: UnitKind;
+  onRoomKind: (kind: UnitKind) => void;
+  placeCategory: string;
+  onPlaceCategory: (category: string) => void;
+  doorWidth: number;
+  onDoorWidth: (width: number) => void;
   areaCategory: string;
   onAreaCategory: (category: string) => void;
   /** Настройки новой двери — показываются, пока выбран инструмент «Дверь». */
@@ -99,8 +106,6 @@ export interface InspectorProps {
 export function Inspector(props: InspectorProps) {
   useTheme(); // образцы цвета помещений — из палитры темы
   const { doc, selection } = props;
-  if (props.tool === 'zone') return <ZoneToolPanel {...props} />;
-  if (!selection && props.tool === 'door') return <DoorPresetPanel {...props} />;
   if (selection?.kind === 'unit') {
     const unit = doc.units.find((u) => u.id === selection.id);
     if (unit) return <UnitPanel {...props} unit={unit} />;
@@ -122,8 +127,10 @@ export function Inspector(props: InspectorProps) {
     const point = doc.capturePoints?.find((p) => p.id === selection.id && p.origin !== 'removed');
     if (point) return <ShotPanel {...props} point={point} />;
   }
-  if (!selection && props.tool === 'shot') return <CapturePlan {...props} />;
-  return <Overview {...props} />;
+  if (props.tool === 'zone') return <ZoneToolPanel {...props} />;
+  if (props.tool === 'door') return <DoorPresetPanel {...props} />;
+  if (props.tool === 'shot') return <CapturePlan {...props} />;
+  return <ToolPanel {...props} />;
 }
 
 // ── Сводка ──
@@ -137,7 +144,7 @@ function CategorySelect({ doc, value, label, onChange, onCreated }: { doc: MapDo
     <>
       <label className="field">
         <span>{label}</span>
-        <select value={value} onChange={(e) => (e.target.value === NEW_CATEGORY ? setCreating(true) : onChange(e.target.value))}>
+        <select aria-label={label} value={value} onChange={(e) => (e.target.value === NEW_CATEGORY ? setCreating(true) : onChange(e.target.value))}>
           {doc.categories.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -151,7 +158,7 @@ function CategorySelect({ doc, value, label, onChange, onCreated }: { doc: MapDo
   );
 }
 
-function Overview(props: InspectorProps) {
+export function ProjectSettings(props: InspectorProps) {
   const { doc, level, onSelect, onCommit } = props;
   const units = doc.units.filter((u) => u.level === level);
   const area = units.reduce((s, u) => s + unitArea(doc, u), 0);
@@ -162,12 +169,9 @@ function Overview(props: InspectorProps) {
       <Section title="Площадка">
         <TextField label="Название" value={doc.venue.name} onCommit={(name) => onCommit({ ...doc, venue: { ...doc.venue, name } })} />
         <p className="insp-meta">
-          {count(units.length, 'помещение', 'помещения', 'помещений')} · {count(places, 'место', 'места', 'мест')} · {count(doors, 'проход', 'прохода', 'проходов')} · {Math.round(area)} м²
+          {count(units.length, 'помещение', 'помещения', 'помещений')} · {count(places, 'место', 'места', 'мест')} · {count(doors, 'проход', 'прохода', 'проходов')}{doc.venue.scaleClass === 'scaled' ? ` · ${Math.round(area)} м²` : ''}
         </p>
       </Section>
-      <FloorsSection doc={doc} level={level} onLevel={props.onLevel} onCommit={(next) => onCommit(next)} onAdd={props.onAddLevel} />
-      <UnderlaySection doc={doc} level={level} api={props.underlayApi} moving={props.underlayMoving} onMove={props.onUnderlayMove} onCommit={(next) => onCommit(next)} onToast={props.onToast} />
-      <CaptureSummary {...props} />
       <Section title="Помещения">
         <ul className="insp-list">
           {units.map((u) => (
@@ -178,7 +182,7 @@ function Overview(props: InspectorProps) {
                   <strong>{u.name}</strong>
                   <small>{UNIT_KIND_NAMES[u.kind]}</small>
                 </span>
-                <span className="insp-row-meta">{fmt(unitArea(doc, u))} м²</span>
+                <span className="insp-row-meta">{doc.venue.scaleClass === 'scaled' ? `${fmt(unitArea(doc, u))} м²` : ''}</span>
               </button>
             </li>
           ))}
@@ -187,6 +191,27 @@ function Overview(props: InspectorProps) {
       <CategoriesSection {...props} />
     </div>
   );
+}
+
+export function FloorSettings(props: InspectorProps) {
+  return <div className="insp">
+    <FloorsSection doc={props.doc} level={props.level} onLevel={props.onLevel} onCommit={props.onCommit} onAdd={props.onAddLevel} />
+    <UnderlaySection doc={props.doc} level={props.level} api={props.underlayApi} moving={props.underlayMoving} onMove={props.onUnderlayMove} onCommit={props.onCommit} onToast={props.onToast} />
+  </div>;
+}
+
+function ToolPanel(props: InspectorProps) {
+  const context = TOOL_CONTEXT[props.tool];
+  return <div className="insp tool-panel">
+    <PanelHead icon={<Icon name={context.icon} size={24} />} kicker={props.tool === 'select' ? 'Редактирование' : 'Инструмент'} title={context.title} onClose={props.tool === 'select' ? undefined : props.onExitTool} closeLabel="Завершить инструмент" />
+    <p className="tool-panel-hint">{context.hint}</p>
+    {props.tool === 'room' && <Section>
+      <label className="field"><span>Тип помещения</span><select aria-label="Тип помещения" value={props.roomKind} onChange={(e) => props.onRoomKind(e.target.value as UnitKind)}>
+        {Object.entries(UNIT_KIND_NAMES).map(([value, name]) => <option key={value} value={value}>{name}</option>)}
+      </select></label>
+    </Section>}
+    {props.tool === 'place' && <Section><CategorySelect doc={props.doc} value={props.placeCategory} label="Категория места" onChange={props.onPlaceCategory} onCreated={(doc, id) => { props.onCommit(doc); props.onPlaceCategory(id); }} /></Section>}
+  </div>;
 }
 
 /** Категории мест и зон площадки: нажать — изменить, «Добавить» — своя. */
@@ -231,11 +256,13 @@ function CaptureSummary({ doc, level, onCommit, onOpenGuide }: InspectorProps) {
           <Icon name="route" size={18} /> Маршрут съёмки с камерой
         </button>
       )}
-      {removed > 0 && (
-        <button type="button" className="btn btn-secondary insp-wide" onClick={() => onCommit(restoreRemovedCapturePoints(doc, level))}>
+      <progress className="capture-progress" aria-label="Прогресс съёмки" max={Math.max(shot + pending.length, 1)} value={shot} />
+      {removed > 0 && <details className="context-details">
+        <summary>Дополнительные действия</summary>
+        <button type="button" className="btn btn-ghost insp-wide" onClick={() => onCommit(restoreRemovedCapturePoints(doc, level))}>
           <Icon name="reset" size={17} /> Вернуть убранные точки · {removed}
         </button>
-      )}
+      </details>}
     </Section>
   );
 }
@@ -402,7 +429,7 @@ function UnitPanel({ doc, unit, onSelect, onCommit, onToast }: InspectorProps & 
         <TextField label="Название" value={unit.name} onCommit={(v) => onCommit(updateUnit(doc, unit.id, { name: v }), { kind: 'unit', id: unit.id })} />
         <label className="field">
           <span>Тип</span>
-          <select value={unit.kind} onChange={(e) => onCommit(updateUnit(doc, unit.id, { kind: e.target.value as UnitKind }), { kind: 'unit', id: unit.id })}>
+          <select aria-label="Тип" value={unit.kind} onChange={(e) => onCommit(updateUnit(doc, unit.id, { kind: e.target.value as UnitKind }), { kind: 'unit', id: unit.id })}>
             {Object.entries(UNIT_KIND_NAMES).map(([k, v]) => (
               <option key={k} value={k}>
                 {v}
@@ -441,8 +468,8 @@ function UnitPanel({ doc, unit, onSelect, onCommit, onToast }: InspectorProps & 
           </div>
         ) : null}
         <p className="insp-note">
-          Площадь <b>{fmt(unitArea(doc, unit))} м²</b>
-          {rect ? ' · левый нижний угол на месте' : ' · форму меняйте ручками на плане'}
+          {doc.venue.scaleClass === 'scaled' && <>Площадь <b>{fmt(unitArea(doc, unit))} м²</b></>}
+          {doc.venue.scaleClass === 'scaled' ? ' · ' : ''}{rect ? 'Левый нижний угол на месте' : 'Форму меняйте ручками на плане'}
         </p>
         {(unit.holes?.length ?? 0) > 0 && (
           <ul className="insp-list">
@@ -735,18 +762,16 @@ const DOOR_ANGLES: { value: number; label: string }[] = [
 const nearestAngle = (deg: number) => DOOR_ANGLES.reduce((a, b) => (Math.abs(b.value - deg) < Math.abs(a.value - deg) ? b : a)).value;
 
 /** Настройки новой двери: пока выбран инструмент «Дверь», каждая новая дверь ставится такой. */
-function DoorPresetPanel({ doorPreset, onDoorPreset, onExitTool }: InspectorProps) {
-  const style: DoorStyle | null =
-    doorPreset.type === 'passage' ? null : { leaves: doorPreset.type === 'double' ? 2 : 1, swing: 1, hinge: 'start', openAngle: doorPreset.openAngle };
+function DoorPresetPanel({ doc, doorPreset, onDoorPreset, doorWidth, onDoorWidth, onExitTool }: InspectorProps) {
   return (
     <div className="insp">
       <PanelHead icon={<span className="swatch lg door"><Icon name="doorAdd" size={18} /></span>} kicker="Инструмент «Дверь»" title="Новая дверь" onClose={onExitTool} />
       <Section>
-        <DoorGlyph style={style} width={doorPreset.type === 'double' ? 1.6 : doorPreset.type === 'passage' ? 1.2 : 0.9} />
         <Choice label="Тип" value={doorPreset.type} options={DOOR_TYPES} onChange={(type) => onDoorPreset({ ...doorPreset, type })} />
-        {doorPreset.type !== 'passage' && (
+        <NumberField label={doc.venue.scaleClass === 'scaled' ? 'Ширина двери, м' : 'Ширина двери'} value={doorWidth} step={0.1} onCommit={(width) => onDoorWidth(Math.max(0.4, Math.min(6, width)))} />
+        {doorPreset.type !== 'passage' && <details className="context-details"><summary>Положение створки</summary>
           <Choice label="Створка" value={doorPreset.openAngle} options={DOOR_ANGLES} onChange={(openAngle) => onDoorPreset({ ...doorPreset, openAngle })} />
-        )}
+        </details>}
       </Section>
     </div>
   );
@@ -818,7 +843,7 @@ function OpeningPanel({ doc, opening, onSelect, onCommit, onToast }: InspectorPr
 
 // ── Поля ──
 
-function PanelHead({ icon, kicker, title, onClose }: { icon: ReactNode; kicker: string; title: string; onClose: () => void }) {
+function PanelHead({ icon, kicker, title, onClose, closeLabel = 'Снять выбор' }: { icon: ReactNode; kicker: string; title: string; onClose?: () => void; closeLabel?: string }) {
   return (
     <div className="insp-head">
       {icon}
@@ -826,9 +851,9 @@ function PanelHead({ icon, kicker, title, onClose }: { icon: ReactNode; kicker: 
         <small>{kicker}</small>
         <strong>{title}</strong>
       </div>
-      <button type="button" className="icon-btn ghost" aria-label="Снять выбор" onClick={onClose}>
+      <>{onClose && <button type="button" className="icon-btn ghost" aria-label={closeLabel} onClick={onClose}>
         <Icon name="close" />
-      </button>
+      </button>}</>
     </div>
   );
 }
