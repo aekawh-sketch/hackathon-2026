@@ -1,5 +1,5 @@
 // 3D-вид этажа (ТЗ 5.18): модель строится из плана, без внешних файлов, и выгружается в glTF (.glb).
-// Оформление «макет на столе»: светлые стены с тёмным срезом, мягкие тени, подписи помещений и значки мест.
+// Оформление «макет на столе»: светлые стены с тёмным срезом, мягкие тени и значки мест.
 import { buildModel3D, doorLeaves, doorStyleOf, type MapDocument, type Vec2 } from '@space-map/map-core';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
@@ -8,7 +8,7 @@ import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { drawFloorPlan, type FloorPlan } from '../plan/floorTexture.ts';
 import { ENTRANCE, PANORAMA, ROUTE, SCENE_3D, UNIT_FLOOR_3D } from '../plan/style.ts';
 import { useTheme } from '../ui/theme.tsx';
-import { polygonCentroid, type Insets } from '../plan/viewport.ts';
+import type { Insets } from '../plan/viewport.ts';
 import { categoryIconPath, Icon } from '../ui/icons.tsx';
 
 export interface Model3DViewProps {
@@ -26,7 +26,6 @@ const WALL_HEIGHT = 2.7;
 const WALL_THICKNESS = 0.16;
 const DOOR_HEIGHT = 2.1;
 const CUT_SCALE = 0.36;
-const FONT = '600 30px Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
 // План (x, y) → three (x, −z): y плана уходит «вглубь», ось three Y — вверх.
 const v3 = (p: Vec2, h = 0) => new THREE.Vector3(p[0], h, -p[1]);
@@ -165,7 +164,7 @@ function planUV(geometry: THREE.BufferGeometry, plan: FloorPlan) {
   geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
 }
 
-// ── Подписи и значки: спрайты из canvas, всегда повёрнуты к камере ──
+// ── Значки мест: спрайты из canvas, всегда повёрнуты к камере ──
 
 function canvasSprite(draw: (ctx: CanvasRenderingContext2D) => void, w: number, h: number, worldHeight: number): THREE.Sprite {
   const canvas = document.createElement('canvas');
@@ -177,43 +176,6 @@ function canvasSprite(draw: (ctx: CanvasRenderingContext2D) => void, w: number, 
   texture.anisotropy = 4;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false, depthTest: false }));
   sprite.scale.set((worldHeight * w) / h, worldHeight, 1);
-  return sprite;
-}
-
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
-function labelSprite(text: string): THREE.Sprite {
-  const measure = document.createElement('canvas').getContext('2d')!;
-  measure.font = FONT;
-  const w = Math.ceil(measure.measureText(text).width) + 44;
-  const h = 56;
-  const sprite = canvasSprite(
-    (ctx) => {
-      ctx.font = FONT;
-      ctx.fillStyle = 'rgba(255,255,255,0.94)';
-      roundRect(ctx, 2, 2, w - 4, h - 4, 18);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(31,42,61,0.12)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.fillStyle = '#1A2433';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(text, 22, h / 2 + 1);
-    },
-    w,
-    h,
-    0.62,
-  );
-  sprite.center.set(0.5, 0);
-  sprite.renderOrder = 2;
   return sprite;
 }
 
@@ -268,7 +230,6 @@ interface Stage3D {
   building: THREE.Group;
   walls: THREE.Object3D[];
   lintels: THREE.Object3D | undefined;
-  labels: THREE.Group;
   pins: Map<string, THREE.Sprite>;
   routeGroup: THREE.Group;
   center: THREE.Vector3;
@@ -343,17 +304,6 @@ export function Model3DView({ doc, level, route, selectedPlace, onPlaceClick, in
     (grid.material as THREE.Material).opacity = 0.55;
     scene.add(grid);
 
-    // Подписи помещений
-    const labels = new THREE.Group();
-    for (const u of doc.units) {
-      if (u.level !== level) continue;
-      const sprite = labelSprite(u.name);
-      sprite.position.copy(v3(polygonCentroid(u.polygon), 0.1));
-      sprite.name = `label:${u.id}`;
-      labels.add(sprite);
-    }
-    scene.add(labels);
-
     // Значки мест
     const categories = new Map(doc.categories.map((c) => [c.id, c]));
     const pins = new Map<string, THREE.Sprite>();
@@ -403,7 +353,6 @@ export function Model3DView({ doc, level, route, selectedPlace, onPlaceClick, in
       building,
       walls: building.getObjectByName('walls') ? [building.getObjectByName('walls')!] : [],
       lintels: building.getObjectByName('lintels'),
-      labels,
       pins,
       routeGroup,
       center,
