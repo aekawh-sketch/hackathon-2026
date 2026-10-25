@@ -1,7 +1,8 @@
 // Публикация: постоянная ссылка и код для сайта (ТЗ 5.11). Ссылка не меняется при правках.
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ApiError, venuesApi, type VenueSummary } from '../api.ts';
 import { Icon } from '../ui/icons.tsx';
+import { qrPath } from '../ui/qr.ts';
 
 export function PublishDialog({ venue, onClose, onPublished }: { venue: VenueSummary; onClose: () => void; onPublished: (v: VenueSummary) => void }) {
   const [busy, setBusy] = useState(false);
@@ -9,6 +10,8 @@ export function PublishDialog({ venue, onClose, onPublished }: { venue: VenueSum
   const [copied, setCopied] = useState<string | null>(null);
 
   const url = `${location.origin}/m/${venue.slug}`;
+  const qr = useMemo(() => qrPath(url), [url]);
+  const qrDownload = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${qr.size} ${qr.size}" width="512" height="512" shape-rendering="crispEdges"><rect width="${qr.size}" height="${qr.size}" fill="#fff"/><path d="${qr.d}" fill="#000"/></svg>`)}`;
   const iframe = `<iframe src="${url}" width="100%" height="600" style="border:0;border-radius:12px" allow="fullscreen; gyroscope; accelerometer" loading="lazy" title="${escapeAttr(venue.name)}"></iframe>`;
 
   useEffect(() => {
@@ -69,6 +72,17 @@ export function PublishDialog({ venue, onClose, onPublished }: { venue: VenueSum
                 </button>
               </div>
             </label>
+            <section className="publish-qr" aria-label="QR-код для посетителей">
+              <svg className="publish-qr-code" viewBox={`0 0 ${qr.size} ${qr.size}`} shapeRendering="crispEdges" role="img" aria-label="QR-код ссылки на карту">
+                <rect width={qr.size} height={qr.size} fill="#fff" />
+                <path d={qr.d} fill="#000" />
+              </svg>
+              <div>
+                <p><strong>QR-код для посетителей</strong></p>
+                <p className="hint">Наведите камеру телефона, чтобы открыть карту.</p>
+                <a className="btn btn-secondary" href={qrDownload} download={`qr-${venue.slug}.svg`}>Скачать QR-код</a>
+              </div>
+            </section>
             <label className="field">
               <span>Код для сайта</span>
               <textarea readOnly rows={4} value={iframe} onFocus={(e) => e.currentTarget.select()} />

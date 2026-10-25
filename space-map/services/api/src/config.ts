@@ -5,11 +5,8 @@ export interface Config {
   cookieSecure: boolean;
   /** Срок сессии организатора. */
   sessionDays: number;
-  /**
-   * Код администратора (`ADMIN_INVITE_CODE`): с ним регистрируются администраторы — они видят и правят все площадки.
-   * Нет кода (или короче 8 символов) — администратором не стать, у каждого только свои площадки.
-   */
-  adminCode: string | null;
+  /** Почты существующих аккаунтов администраторов всего сервиса, только из .env. */
+  adminEmails: string[];
   logger: boolean;
 }
 
@@ -22,7 +19,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     storageDir: env.STORAGE_DIR ?? './data',
     cookieSecure: env.COOKIE_SECURE === 'true',
     sessionDays: 14,
-    adminCode: env.ADMIN_INVITE_CODE && env.ADMIN_INVITE_CODE.trim().length >= 8 ? env.ADMIN_INVITE_CODE.trim() : null,
+    adminEmails: [...new Set((env.ADMIN_EMAILS ?? '').split(',').map((email) => email.trim().toLowerCase()).filter(Boolean))],
     logger: env.NODE_ENV !== 'test',
   };
 }

@@ -1,6 +1,6 @@
 // Таблицы для запросов Drizzle. Источник правды по схеме — SQL в migrations/.
 import type { MapDocument } from '@space-map/map-core';
-import { bigserial, boolean, integer, jsonb, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { bigserial, boolean, date, integer, jsonb, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 
@@ -10,7 +10,7 @@ export const users = pgTable('users', {
   name: text('name').notNull(),
   passwordHash: text('password_hash').notNull(),
   isGuest: boolean('is_guest').notNull().default(false),
-  /** admin — видит и правит все площадки; user — только свои. */
+  /** Старое поле для совместимости БД; права в запросе вычисляются из ADMIN_EMAILS. */
   role: text('role', { enum: ['user', 'admin'] }).notNull().default('user'),
   createdAt: createdAt(),
 });
@@ -106,3 +106,16 @@ export const jobs = pgTable('jobs', {
   createdAt: createdAt(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** Счётчики просмотров карты по дням (migrations/0004_stats.sql). */
+export const venueStats = pgTable(
+  'venue_stats',
+  {
+    venueId: uuid('venue_id').notNull(),
+    day: date('day').notNull(),
+    kind: text('kind', { enum: ['open', 'place', 'route', 'panorama', 'search_miss'] }).notNull(),
+    target: text('target').notNull().default(''),
+    count: integer('count').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.venueId, t.day, t.kind, t.target] })],
+);

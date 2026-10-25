@@ -27,10 +27,9 @@ export const USER_FIELDS = { id: users.id, email: users.email, name: users.name,
 
 export const isAdmin = (user: SessionUser): boolean => user.role === 'admin';
 
-/** Код администратора совпал. Сравнение за постоянное время — по времени ответа код не подобрать. */
-export function adminCodeMatches(expected: string | null, given: string): boolean {
-  if (!expected) return false;
-  return timingSafeEqual(createHash('sha256').update(expected).digest(), createHash('sha256').update(given.trim()).digest());
+/** Права назначаются конфигурацией сервера, а не параметрами регистрации или старым полем БД. */
+export function configuredUser(user: SessionUser, config: Config): SessionUser {
+  return { ...user, role: !user.isGuest && config.adminEmails.includes(user.email.trim().toLowerCase()) ? 'admin' : 'user' };
 }
 
 /** У гостя нет пароля: это значение не разбирается как хэш argon2, поэтому вход по паролю невозможен. */
@@ -98,13 +97,16 @@ export class LoginThrottle {
   }
 }
 
-export async function startSession(db: Db, config: Config, reply: FastifyReply, userId: string): Promise<void> {
+export async function startSession(db: Db, config: Config, reply: FastifyReply, userId: string, req?: FastifyRequest): Promise<void> {
   const raw = token();
   await db.insert(sessions).values({
     tokenHash: sha256(raw),
     userId,
     expiresAt: new Date(Date.now() + config.sessionDays * 86_400_000),
   });
+  // Вход меняет текущую сессию: старый токен этого браузера больше не работает.
+  const previous = req?.cookies[SESSION_COOKIE];
+  if (previous) await db.delete(sessions).where(eq(sessions.tokenHash, sha256(previous)));
   const base = { path: '/', secure: config.cookieSecure, sameSite: 'lax' as const, maxAge: config.sessionDays * 86_400 };
   reply.setCookie(SESSION_COOKIE, raw, { ...base, httpOnly: true });
   // CSRF-токен читает фронт и шлёт заголовком; чужой сайт его не прочитает.
@@ -119,7 +121,7 @@ export async function endSession(db: Db, req: FastifyRequest, reply: FastifyRepl
 }
 
 /** Достаёт пользователя по cookie в каждом запросе и проверяет CSRF у изменяющих запросов. */
-export function registerAuth(app: FastifyInstance, db: Db): void {
+export function registerAuth(app: FastifyInstance, db: Db, config: Config): void {
   app.decorateRequest('user', null);
 
   app.addHook('onRequest', async (req) => {
@@ -131,15 +133,17 @@ export function registerAuth(app: FastifyInstance, db: Db): void {
       .innerJoin(users, eq(users.id, sessions.userId))
       .where(and(eq(sessions.tokenHash, sha256(raw)), gt(sessions.expiresAt, new Date())))
       .limit(1);
-    req.user = row ?? null;
+    req.user = row ? configuredUser(row, config) : null;
   });
 
   app.addHook('preHandler', async (req) => {
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return;
-    if (!req.cookies[SESSION_COOKIE]) return; // без сессии нечего подделывать
+    if (!req.user) return; // Истёкшая cookie не должна блокировать новый вход.
     const cookie = req.cookies[CSRF_COOKIE] ?? '';
     const header = String(req.headers[CSRF_HEADER] ?? '');
-    const ok = cookie.length > 0 && cookie.length === header.length && timingSafeEqual(Buffer.from(cookie), Buffer.from(header));
+    const cookieBytes = Buffer.from(cookie);
+    const headerBytes = Buffer.from(header);
+    const ok = cookieBytes.length > 0 && cookieBytes.length === headerBytes.length && timingSafeEqual(cookieBytes, headerBytes);
     if (!ok) throw new ApiError(403, 'csrf', 'Сессия устарела. Обновите страницу.');
   });
 }

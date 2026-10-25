@@ -1,6 +1,7 @@
 // Правка плана в редакторе: помещения (создать, сдвинуть, изменить форму, удалить), места, двери и граф.
 // Все функции чистые: принимают документ и возвращают новый — так работают «Отменить / Повторить».
 import { acceptSuggestions, pinnedMarkers } from './panorama.ts';
+import { floorEdgeWeight, interiorPoint, isVertical, verticalLinks, verticalNodeId } from './levels.ts';
 import { distance, hasLineOfSight, pointInPolygon, pointInUnit, pointSegmentDistance, polygonArea, polygonEdges, segmentIntersection, signedArea, unitAt, unitRings } from './geometry.ts';
 import type { Category, MapDocument, NavEdge, NavNode, Opening, Place, Unit, UnitKind, Vec2 } from './types.ts';
 
@@ -106,7 +107,10 @@ export function overlappingUnits(doc: MapDocument, level: string, polygon: Vec2[
 export function roomPlacement(doc: MapDocument, level: string, polygon: Vec2[]): { valid: boolean; parent: Unit | null } {
   const center: Vec2 = [polygon.reduce((s, p) => s + p[0], 0) / polygon.length, polygon.reduce((s, p) => s + p[1], 0) / polygon.length];
   const candidate = unitAt(doc, level, center);
-  const nested = !!candidate?.walkable && polygon.every((p) => pointInUnit(p, candidate));
+  // Угол на стене помещения (или на стене соседней вложенной комнаты) — ещё внутри: комнаты встают вплотную.
+  const insideOrOnWall = (p: Vec2, unit: Unit) =>
+    pointInUnit(p, unit) || unitRings(unit).some((ring) => polygonEdges(ring).some(([a, b]) => pointSegmentDistance(p, a, b) < ON_WALL));
+  const nested = !!candidate?.walkable && polygon.every((p) => insideOrOnWall(p, candidate));
   const ancestors = new Set<string>();
   let ancestor = candidate?.parent ? doc.units.find((u) => u.id === candidate.parent) : undefined;
   while (ancestor) {
@@ -250,7 +254,7 @@ export const UNIT_KIND_NAMES: Record<UnitKind, string> = {
   elevator: 'Лифт',
   restroom: 'Туалет',
   service: 'Служебное',
-  outdoor: 'Улица',
+  outdoor: 'Территория',
 };
 
 export interface CreateRoomOptions {
@@ -565,6 +569,14 @@ export function rebuildGraph(doc: MapDocument, level: string): MapDocument {
     });
   }
 
+  // В каждой лестнице и лифте — узел перехода на соседний этаж.
+  for (const unit of units) {
+    if (!isVertical(unit)) continue;
+    const node: NavNode = { id: verticalNodeId(unit.id), level, pos: interiorPoint(unit), origin: 'auto' };
+    nodes.push(node);
+    byUnit.get(unit.id)!.push(node);
+  }
+
   const next: MapDocument = { ...doc, places, panoramas, graph: { nodes, edges } };
   for (const unit of units) {
     const list = byUnit.get(unit.id)!;
@@ -576,7 +588,21 @@ export function rebuildGraph(doc: MapDocument, level: string): MapDocument {
       }
     }
   }
-  return next;
+
+  // Переходы между этажами: лестница над лестницей, лифт над лифтом.
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const stale = new Set<string>();
+  for (const v of verticalLinks(next)) {
+    if (v.a.level !== level && v.b.level !== level) continue;
+    const a = byId.get(verticalNodeId(v.a.id));
+    const b = byId.get(verticalNodeId(v.b.id));
+    if (a && b) edges.push({ id: `ve-${v.a.id}-${v.b.id}`, from: a.id, to: b.id, weight: floorEdgeWeight(v.kind, a.pos, b.pos), access: 'public' });
+    // У соседнего этажа узла ещё нет (карта до этажей) — достраиваем его граф, он сам соединится с этим.
+    else stale.add(v.a.level === level ? v.b.level : v.a.level);
+  }
+  let result = next;
+  for (const other of stale) result = rebuildGraph(result, other);
+  return result;
 }
 
 /**

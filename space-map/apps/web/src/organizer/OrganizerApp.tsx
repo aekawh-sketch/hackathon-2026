@@ -8,6 +8,7 @@ const EditorPage = lazy(() => import('../editor/EditorPage.tsx'));
 const ServerEditorPage = lazy(() => import('../editor/EditorPage.tsx').then((m) => ({ default: m.ServerEditorPage })));
 const AuthPage = lazy(() => import('./AuthPage.tsx'));
 const VenuesPage = lazy(() => import('./VenuesPage.tsx'));
+const StatsPage = lazy(() => import('./StatsPage.tsx'));
 
 export default function OrganizerApp() {
   return (
@@ -34,6 +35,14 @@ export default function OrganizerApp() {
             element={
               <RequireUser>
                 <ServerEditorPage />
+              </RequireUser>
+            }
+          />
+          <Route
+            path="venues/:id/stats"
+            element={
+              <RequireUser>
+                <StatsPage />
               </RequireUser>
             }
           />

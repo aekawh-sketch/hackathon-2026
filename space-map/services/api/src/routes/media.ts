@@ -3,11 +3,12 @@ import { Type } from '@sinclair/typebox';
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
+import { randomUUID } from 'node:crypto';
 import type { AppDeps } from '../app.ts';
 import { requireUser } from '../auth.ts';
 import { captureFrames, captures, jobs, mapDrafts, panoramas } from '../db/schema.ts';
 import { ApiError, notFound } from '../errors.ts';
-import { processFrame, processPanorama } from '../images.ts';
+import { processFrame, processPanorama, processUnderlay } from '../images.ts';
 import { isUuid, ownedVenue } from '../venues.ts';
 
 export const MIN_FRAMES = 6;
@@ -69,6 +70,26 @@ export const mediaRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
     if (!deleted.length) throw notFound('Панорама не найдена');
     await storage.delete(`panoramas/${req.params.pid}`);
     return { ok: true };
+  });
+
+  // ── Готовый план (подложка в редакторе) ──
+  // Нужна только тем, кто правит площадку: обвести комнаты или распознать их. Посетителю не отдаётся.
+
+  app.post('/:id/underlays', { schema: { params: VenueId } }, async (req, reply) => {
+    const venue = await ownedVenue(db, req.params.id, requireUser(req));
+    const { file } = await readUpload(req, 40_000_000);
+    const out = await processUnderlay(file);
+    const asset = randomUUID();
+    await storage.put(`underlays/${venue.id}/${asset}.jpg`, out.jpeg);
+    return reply.status(201).send({ underlay: { asset, width: out.width, height: out.height } });
+  });
+
+  app.get('/:id/underlays/:asset', { schema: { params: Type.Object({ id: Type.String(), asset: Type.String() }) } }, async (req, reply) => {
+    const venue = await ownedVenue(db, req.params.id, requireUser(req));
+    if (!isUuid(req.params.asset)) throw notFound('Подложка не найдена');
+    const file = await storage.read(`underlays/${venue.id}/${req.params.asset}.jpg`);
+    if (!file) throw notFound('Подложка не найдена');
+    return reply.header('content-type', 'image/jpeg').header('content-length', file.size).header('cache-control', 'private, max-age=31536000, immutable').send(file.stream);
   });
 
   // ── Серии кадров для склейки ──

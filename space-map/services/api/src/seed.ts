@@ -1,6 +1,6 @@
-// Демо-данные: организатор из DEMO_EMAIL / DEMO_PASSWORD и опубликованная площадка «demo».
-// Панорамы появятся после съёмки в манеже. Ничего не удаляет: что уже есть — пропускает.
-import { demoVenue } from '@space-map/map-core';
+// Демо-организатор, карта манежа с 12 панорамами и пример campus.
+// Существующие планы и версии не перезаписываем.
+import { campusVenue, demoVenue, DEMO_SLUG } from '@space-map/map-core';
 import { eq } from 'drizzle-orm';
 import { hashPassword } from './auth.ts';
 import { loadConfig } from './config.ts';
@@ -29,17 +29,22 @@ if (!user) {
   console.log(`организатор ${email} уже есть — пароль не меняю`);
 }
 
-const [existing] = await db.select().from(venues).where(eq(venues.slug, 'demo')).limit(1);
+// Перенос прежнего адреса на /m/demo сохраняет владельца, черновик, версии и панорамы.
+const LEGACY_DEMO_SLUG = 'hakaton-osen-2026-manezh-dgtu-bccf39';
+if (!(await db.select({ id: venues.id }).from(venues).where(eq(venues.slug, DEMO_SLUG)).limit(1)).length) {
+  await db.update(venues).set({ slug: DEMO_SLUG }).where(eq(venues.slug, LEGACY_DEMO_SLUG));
+}
+const [existing] = await db.select().from(venues).where(eq(venues.slug, DEMO_SLUG)).limit(1);
 const STOCK_DEMO_NAME = 'Демо-площадка «Бизнес-центр»';
 const HACKATHON_NAME = 'Хакатон «Осень 2026» — Манеж ДГТУ';
 
 if (!existing) {
-  const [venue] = await db.insert(venues).values({ ownerId: user!.id, name: HACKATHON_NAME, slug: 'demo' }).returning();
+  const [venue] = await db.insert(venues).values({ ownerId: user!.id, name: HACKATHON_NAME, slug: DEMO_SLUG }).returning();
   const doc = demoVenue();
   doc.venue.id = venue!.id;
   await db.insert(mapDrafts).values({ venueId: venue!.id, doc, updatedBy: user!.id });
   const version = await publish(db, storage, venue!.id, user!.id);
-  console.log(`площадка demo опубликована, версия ${version}: /m/demo`);
+  console.log(`площадка demo опубликована, версия ${version}: /m/${DEMO_SLUG}`);
 } else {
   const [draft] = await db.select().from(mapDrafts).where(eq(mapDrafts.venueId, existing.id)).limit(1);
   const isStockDemo = existing.name === STOCK_DEMO_NAME || draft?.doc.venue.name === STOCK_DEMO_NAME;
@@ -57,8 +62,21 @@ if (!existing) {
       }
     });
     const version = await publish(db, storage, existing.id, user!.id);
-    console.log(`стандартная демо-площадка обновлена и опубликована, версия ${version}: /m/demo`);
+    console.log(`стандартная демо-площадка обновлена и опубликована, версия ${version}: /m/${DEMO_SLUG}`);
   }
+}
+
+// Пример из нескольких зданий: этажи, лестницы, территория между корпусами.
+const [campus] = await db.select().from(venues).where(eq(venues.slug, 'campus')).limit(1);
+if (!campus) {
+  const doc = campusVenue();
+  const [venue] = await db.insert(venues).values({ ownerId: user!.id, name: doc.venue.name, slug: 'campus' }).returning();
+  doc.venue.id = venue!.id;
+  await db.insert(mapDrafts).values({ venueId: venue!.id, doc, updatedBy: user!.id });
+  const version = await publish(db, storage, venue!.id, user!.id);
+  console.log(`площадка campus опубликована, версия ${version}: /m/campus`);
+} else {
+  console.log('площадка campus уже есть — пропускаю');
 }
 
 await pool.end();

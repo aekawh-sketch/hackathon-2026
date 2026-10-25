@@ -3,6 +3,11 @@
 :80 {
 	encode zstd gzip
 
+	# Ссылка ранее перенесённой карты остаётся совместимой; основной адрес — /m/demo.
+	redir /m/hakaton-osen-2026-manezh-dgtu-bccf39 /m/demo?{query} 302
+	@oldDemo path_regexp oldDemo ^/p/hakaton-osen-2026-manezh-dgtu-bccf39/(.*)$
+	rewrite @oldDemo /p/demo/{re.oldDemo.1}
+
 	@api path /api/* /p/* /files/*
 	handle @api {
 		reverse_proxy api:8080
