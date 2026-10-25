@@ -10,7 +10,7 @@ export const users = pgTable('users', {
   name: text('name').notNull(),
   passwordHash: text('password_hash').notNull(),
   isGuest: boolean('is_guest').notNull().default(false),
-  /** admin — видит и правит все площадки; user — только свои. */
+  /** Старое поле для совместимости БД; права в запросе вычисляются из ADMIN_EMAILS. */
   role: text('role', { enum: ['user', 'admin'] }).notNull().default('user'),
   createdAt: createdAt(),
 });

@@ -1,5 +1,5 @@
 // Все запросы к серверу — в одном модуле.
-import { acceptSuggestions, demoVenue, type MapDocument, type PanoramaPlacement, type PlanOutline } from '@space-map/map-core';
+import { acceptSuggestions, demoVenue, DEMO_SLUG, type MapDocument, type PanoramaPlacement, type PlanOutline } from '@space-map/map-core';
 import { loadEditedDemo } from './demoStore.ts';
 
 export interface LoadedMap {
@@ -32,7 +32,7 @@ export async function loadPublishedMap(slug: string): Promise<LoadedMap> {
     const doc = await getJson<MapDocument>(latest.url);
     return { doc, version: latest.version, offlineDemo: false, edited: false };
   } catch (err) {
-    if (slug !== 'demo') throw err;
+    if (slug !== 'demo' && slug !== DEMO_SLUG) throw err;
     const edited = loadEditedDemo();
     return { doc: edited ?? builtInDemo(), version: null, offlineDemo: true, edited: !!edited };
   }
@@ -92,7 +92,10 @@ export function hasOrganizerSession(): boolean {
   return csrfToken() !== '';
 }
 
+export const SESSION_EXPIRED = 'space-map:session-expired';
+
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const sessionAtStart = csrfToken();
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (method !== 'GET') headers['x-csrf-token'] = csrfToken();
   let payload: BodyInit | undefined;
@@ -109,6 +112,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   }
   if (!res.ok || !res.headers.get('content-type')?.includes('json')) {
     const err = (await res.json().catch(() => null)) as { code?: string; message?: string; details?: unknown } | null;
+    if (res.status === 401 && !url.startsWith('/api/auth/') && csrfToken() === sessionAtStart) window.dispatchEvent(new Event(SESSION_EXPIRED));
     throw new ApiError(res.status, err?.code ?? 'http_error', err?.message ?? `Ошибка ${res.status}`, err?.details);
   }
   return (await res.json()) as T;
@@ -169,10 +173,8 @@ export const auth = {
   me: () => request<{ user: User }>('GET', '/api/auth/me').then((r) => r.user),
   login: (email: string, password: string) => request<{ user: User }>('POST', '/api/auth/login', { email, password }).then((r) => r.user),
   /** Администратор — с кодом от владельца сервиса. */
-  register: (name: string, email: string, password: string, role: User['role'] = 'user', adminCode?: string) =>
-    request<{ user: User }>('POST', '/api/auth/register', { name, email, password, role, ...(role === 'admin' ? { adminCode } : {}) }).then((r) => r.user),
-  /** Уже зарегистрированный становится администратором по коду. */
-  adminCode: (code: string) => request<{ user: User }>('POST', '/api/auth/admin-code', { code }).then((r) => r.user),
+  register: (name: string, email: string, password: string) =>
+    request<{ user: User }>('POST', '/api/auth/register', { name, email, password }).then((r) => r.user),
   logout: () => request<{ ok: true }>('POST', '/api/auth/logout'),
   /** Вход одной кнопкой: гостевой аккаунт и своя копия демо-площадки. */
   guest: () => request<{ user: User; venueId: string }>('POST', '/api/auth/guest'),

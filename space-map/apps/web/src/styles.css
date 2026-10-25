@@ -2019,6 +2019,29 @@ button.insp-row:hover {
   width: min(520px, 100%);
 }
 
+.publish-qr {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.publish-qr-code {
+  display: block;
+  width: 192px;
+  max-width: 100%;
+  height: auto;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.publish-qr > div {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
 .copy-row {
   display: flex;
   gap: 8px;

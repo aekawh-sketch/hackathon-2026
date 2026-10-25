@@ -6,7 +6,7 @@ export * from './validate.ts';
 export * from './search.ts';
 export * from './capture.ts';
 export * from './model3d.ts';
-export { demoVenue } from './demo.ts';
+export { demoVenue, DEMO_SLUG } from './demo.ts';
 export * from './edit.ts';
 export * from './doors.ts';
 export * from './rooms.ts';

@@ -47,7 +47,7 @@ export async function buildApp(config: Config) {
   });
   await app.register(swaggerUi, { routePrefix: '/api/docs' });
 
-  registerAuth(app, db);
+  registerAuth(app, db, config);
 
   app.get('/health', async () => {
     await db.execute(sql`select 1`);

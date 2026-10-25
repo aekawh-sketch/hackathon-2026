@@ -148,7 +148,7 @@ export default function VenuesPage() {
             </button>
           )}
           <ThemeToggle />
-          <button type="button" className="btn btn-ghost" onClick={() => void logout().then(() => navigate('/app/login'))}>
+          <button type="button" className="btn btn-ghost" onClick={() => void logout().then((ok) => { if (ok) navigate('/app/login'); })}>
             Выйти
           </button>
         </div>
@@ -173,16 +173,6 @@ export default function VenuesPage() {
         </form>
 
         {error && <p className="notice">{error}</p>}
-
-        {user && !user.isGuest && !admin && (
-          <AdminCodeEntry
-            onDone={(u) => {
-              setUser(u);
-              void reload();
-              showToast('Теперь вы администратор — видны все площадки');
-            }}
-          />
-        )}
 
         {user?.isGuest && (
           <GuestClaim
@@ -556,48 +546,6 @@ function plural(n: number, one: string, few: string, many: string): string {
  * Гость видит свои площадки только в этом браузере: пароля у него нет, с другого устройства не войти.
  * «Сохранить аккаунт» добавляет почту и пароль тому же пользователю — площадки остаются при нём.
  */
-/** Уже зарегистрированный пользователь становится администратором по коду от владельца сервиса. */
-function AdminCodeEntry({ onDone }: { onDone: (user: User) => void }) {
-  const [open, setOpen] = useState(false);
-  const [code, setCode] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      onDone(await auth.adminCode(code));
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Не удалось проверить код');
-      setBusy(false);
-    }
-  };
-
-  if (!open) {
-    return (
-      <button type="button" className="btn btn-ghost admin-code-open" onClick={() => setOpen(true)}>
-        Есть код администратора?
-      </button>
-    );
-  }
-  return (
-    <form className="admin-code" onSubmit={submit}>
-      <label className="field">
-        <span>Код администратора — администратор видит и правит все площадки</span>
-        <div className="copy-row">
-          <input type="password" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="off" required maxLength={200} autoFocus />
-          <button type="submit" className="btn btn-primary" disabled={busy || !code.trim()}>
-            {busy ? 'Проверяем…' : 'Ввести'}
-          </button>
-        </div>
-      </label>
-      {error && <p className="notice">{error}</p>}
-    </form>
-  );
-}
-
 function GuestClaim({ onClaimed }: { onClaimed: (user: User) => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');

@@ -10,7 +10,7 @@ import { buildApp } from '../src/app.ts';
 import { migrate } from '../src/db/migrate.ts';
 
 const DB_URL = process.env.TEST_DATABASE_URL ?? 'postgres://localhost/spacemap_test';
-const ADMIN_CODE = 'admin-code-for-tests';
+const ADMIN_EMAILS: string[] = [];
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let storageDir: string;
@@ -22,7 +22,7 @@ beforeAll(async () => {
   await client.end();
   await migrate(DB_URL);
   storageDir = await mkdtemp(join(tmpdir(), 'space-map-test-'));
-  app = await buildApp({ port: 0, databaseUrl: DB_URL, storageDir, cookieSecure: false, sessionDays: 14, logger: false, adminCode: ADMIN_CODE });
+  app = await buildApp({ port: 0, databaseUrl: DB_URL, storageDir, cookieSecure: false, sessionDays: 14, logger: false, adminEmails: ADMIN_EMAILS });
 });
 
 afterAll(async () => {
@@ -98,6 +98,47 @@ const image = (w: number, h: number) =>
     .toBuffer();
 
 describe('вход', () => {
+  it('восстанавливает потерянную CSRF-cookie действующей сессии', async () => {
+    const c = await newUser();
+    c.cookies.delete('sm_csrf');
+    expect((await c.req('GET', '/api/auth/me')).statusCode).toBe(200);
+    expect(c.cookies.get('sm_csrf')).toBeTruthy();
+    expect((await c.req('POST', '/api/venues', { name: 'После восстановления' })).statusCode).toBe(201);
+  });
+
+  it('после повторного входа старый токен браузера больше не действует', async () => {
+    const c = await newUser();
+    const old = new Client();
+    old.cookies = new Map(c.cookies);
+    const me = (await c.req('GET', '/api/auth/me')).json().user;
+    expect((await c.req('POST', '/api/auth/login', { email: me.email, password: 'correct-horse' })).statusCode).toBe(200);
+    expect((await old.req('GET', '/api/auth/me')).statusCode).toBe(401);
+    expect(old.cookies.has('sm_session')).toBe(false);
+    expect((await c.req('GET', '/api/auth/me')).statusCode).toBe(200);
+  });
+
+  it('истёкшая сессия без CSRF не блокирует новый вход', async () => {
+    const c = await newUser();
+    const me = (await c.req('GET', '/api/auth/me')).json().user;
+    const db = new pg.Client({ connectionString: DB_URL });
+    await db.connect();
+    try {
+      await db.query("UPDATE sessions SET expires_at = now() - interval '1 second' WHERE user_id = $1", [me.id]);
+    } finally {
+      await db.end();
+    }
+    c.cookies.delete('sm_csrf');
+    expect((await c.req('POST', '/api/auth/login', { email: me.email, password: 'correct-horse' })).statusCode).toBe(200);
+    expect((await c.req('GET', '/api/auth/me')).statusCode).toBe(200);
+  });
+
+  it('гостевой вход не заменяет зарегистрированный аккаунт', async () => {
+    const c = await newUser();
+    const me = (await c.req('GET', '/api/auth/me')).json().user;
+    expect((await c.req('POST', '/api/auth/guest')).statusCode).toBe(409);
+    expect((await c.req('GET', '/api/auth/me')).json().user.id).toBe(me.id);
+  });
+
   it('регистрация, «кто я», выход', async () => {
     const c = await newUser();
     expect((await c.req('GET', '/api/auth/me')).statusCode).toBe(200);
@@ -123,6 +164,17 @@ describe('вход', () => {
 });
 
 describe('гостевой вход одной кнопкой', () => {
+  it('повторный вход возвращает прежний аккаунт и его площадку', async () => {
+    const c = new Client();
+    const first = await c.req('POST', '/api/auth/guest', undefined, { ip: '10.0.2.1' });
+    const again = await c.req('POST', '/api/auth/guest', undefined, { ip: '10.0.2.1' });
+    expect(again.statusCode).toBe(200);
+    expect(again.json().user.id).toBe(first.json().user.id);
+    expect(again.json().venueId).toBe(first.json().venueId);
+    const list = (await c.req('GET', '/api/venues')).json().venues;
+    expect(list).toHaveLength(1);
+  });
+
   it('у каждого гостя своя копия демо-площадки, по паролю под гостем не войти, частота ограничена', async () => {
     const g1 = new Client();
     const r1 = await g1.req('POST', '/api/auth/guest');
@@ -380,9 +432,12 @@ describe('серия кадров для склейки', () => {
 describe('роли: пользователь и администратор', () => {
   async function newAdmin(name = 'Админ') {
     const c = new Client();
-    const res = await c.req('POST', '/api/auth/register', { email: `admin${++seq}@test.local`, password: 'correct-horse', name, role: 'admin', adminCode: ADMIN_CODE });
+    const email = `admin${++seq}@test.local`;
+    const res = await c.req('POST', '/api/auth/register', { email, password: 'correct-horse', name });
     expect(res.statusCode).toBe(201);
-    expect(res.json().user.role).toBe('admin');
+    expect(res.json().user.role).toBe('user');
+    ADMIN_EMAILS.push(email);
+    expect((await c.req('GET', '/api/auth/me')).json().user.role).toBe('admin');
     return c;
   }
 
@@ -412,25 +467,37 @@ describe('роли: пользователь и администратор', () 
     expect((await owner.req('GET', `/api/venues/${published.id}`)).statusCode).toBe(404);
   });
 
-  it('администратором без верного кода не стать', async () => {
+  it('роль и старый код в запросе регистрации не дают административных прав', async () => {
     const c = new Client();
-    const body = { email: `nocode${++seq}@test.local`, password: 'correct-horse', name: 'Без кода', role: 'admin' };
-    const none = await c.req('POST', '/api/auth/register', body, { ip: '10.0.1.1' });
-    expect(none.statusCode).toBe(403);
-    expect(none.json().code).toBe('bad_admin_code');
-    expect((await c.req('POST', '/api/auth/register', { ...body, adminCode: 'не тот код' }, { ip: '10.0.1.1' })).statusCode).toBe(403);
-    expect((await c.req('GET', '/api/auth/me')).statusCode).toBe(401);
+    const res = await c.req('POST', '/api/auth/register', { email: `spoof${++seq}@test.local`, password: 'correct-horse', name: 'Обычный', role: 'admin', adminCode: 'old-code' });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().user.role).toBe('user');
+    expect((await c.req('POST', '/api/auth/admin-code', { code: 'old-code' })).statusCode).toBe(404);
   });
 
-  it('уже зарегистрированный становится администратором по коду в кабинете', async () => {
+  it('права существующего аккаунта меняются только конфигурацией, в том числе у активной сессии', async () => {
     const owner = await newUser();
     const v = await newVenue(owner, 'Чужая');
     const c = await newUser();
-    expect((await c.req('POST', '/api/auth/admin-code', { code: 'мимо' }, { ip: '10.0.1.2' })).statusCode).toBe(403);
-    const ok = await c.req('POST', '/api/auth/admin-code', { code: ADMIN_CODE }, { ip: '10.0.1.2' });
-    expect(ok.statusCode).toBe(200);
-    expect(ok.json().user.role).toBe('admin');
+    const email = (await c.req('GET', '/api/auth/me')).json().user.email;
+    expect((await c.req('GET', `/api/venues/${v.id}`)).statusCode).toBe(404);
+    ADMIN_EMAILS.push(email);
     expect((await c.req('GET', `/api/venues/${v.id}`)).statusCode).toBe(200);
+    expect((await c.req('POST', '/api/auth/login', { email, password: 'correct-horse' })).json().user.role).toBe('admin');
+    ADMIN_EMAILS.splice(ADMIN_EMAILS.indexOf(email), 1);
+    expect((await c.req('GET', '/api/auth/me')).json().user.role).toBe('user');
+    expect((await c.req('GET', `/api/venues/${v.id}`)).statusCode).toBe(404);
+  });
+
+  it('зарезервированную почту администратора нельзя занять регистрацией или сохранением гостя', async () => {
+    const email = `reserved${++seq}@test.local`;
+    ADMIN_EMAILS.push(email);
+    const c = new Client();
+    const body = { email, password: 'correct-horse', name: 'Подмена' };
+    expect((await c.req('POST', '/api/auth/register', body)).statusCode).toBe(403);
+    await c.req('POST', '/api/auth/guest', undefined, { ip: '10.0.3.1' });
+    expect((await c.req('POST', '/api/auth/claim', body)).statusCode).toBe(403);
+    expect((await c.req('GET', '/api/auth/me')).json().user.role).toBe('user');
   });
 
   it('гость получает свою копию демо, а не общую площадку', async () => {
@@ -440,13 +507,18 @@ describe('роли: пользователь и администратор', () 
     expect(guest.json().shared).toBeUndefined();
   });
 
-  it('без кода на сервере администраторов не заводят', async () => {
+  it('без ADMIN_EMAILS все аккаунты обычные, даже если в БД осталась старая роль', async () => {
+    const c = await newAdmin();
+    const me = (await c.req('GET', '/api/auth/me')).json().user;
+    const db = new pg.Client({ connectionString: DB_URL });
+    await db.connect();
+    try { await db.query("UPDATE users SET role = 'admin' WHERE id = $1", [me.id]); } finally { await db.end(); }
     const dir = await mkdtemp(join(tmpdir(), 'space-map-noadmin-'));
-    const strict = await buildApp({ port: 0, databaseUrl: DB_URL, storageDir: dir, cookieSecure: false, sessionDays: 14, logger: false, adminCode: null });
+    const strict = await buildApp({ port: 0, databaseUrl: DB_URL, storageDir: dir, cookieSecure: false, sessionDays: 14, logger: false, adminEmails: [] });
     try {
-      const res = await new Client(() => strict).req('POST', '/api/auth/register', { email: `x${++seq}@test.local`, password: 'correct-horse', name: 'X', role: 'admin', adminCode: ADMIN_CODE });
-      expect(res.statusCode).toBe(403);
-      expect(res.json().code).toBe('admin_disabled');
+      const client = new Client(() => strict);
+      client.cookies = new Map(c.cookies);
+      expect((await client.req('GET', '/api/auth/me')).json().user.role).toBe('user');
     } finally {
       await strict.close();
       await rm(dir, { recursive: true, force: true });

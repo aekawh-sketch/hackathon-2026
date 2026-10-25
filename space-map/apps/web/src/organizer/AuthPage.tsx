@@ -1,38 +1,39 @@
 // Вход и регистрация организатора (ТЗ 6.1, 8.1).
 import { useRef, useState, type FormEvent } from 'react';
-import { Link, Navigate, useNavigate, useSearchParams } from 'react-router';
-import { ApiError, auth, type User } from '../api.ts';
+import { Link, Navigate, useSearchParams } from 'react-router';
+import { ApiError, auth } from '../api.ts';
 import { Icon } from '../ui/icons.tsx';
 import { ThemeToggle } from '../ui/theme.tsx';
-import { useSession } from './session.tsx';
+import { registrationError } from './registration.ts';
+import { authDestination } from './authRedirect.ts';
+import { SessionCheck, useSession } from './session.tsx';
 
 export default function AuthPage() {
-  const { user, setUser } = useSession();
+  const { user, loading, error: sessionError, setUser } = useSession();
   const [params] = useSearchParams();
-  const navigate = useNavigate();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<User['role']>('user');
-  const [adminCode, setAdminCode] = useState('');
+  const [confirmation, setConfirmation] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   // Только свои пути внутри кабинета — не уводим по ссылке на чужой сайт.
-  const next = params.get('next')?.startsWith('/app') ? params.get('next')! : '/app';
+  const next = authDestination(params.get('next'));
   // Куда уйти после входа гостем: задаём до setUser — перенаправление «вошёл» ниже срабатывает сразу.
   const after = useRef<string | null>(null);
+  if (loading || (!user && sessionError)) return <SessionCheck />;
   if (user) return <Navigate to={after.current ?? next} replace />;
 
-  // Одна кнопка — и сразу «Все площадки», без email и пароля.
+  // Гость сразу открывает свою копию в редакторе.
   const tryAsGuest = async () => {
     setBusy(true);
     setError(null);
     try {
-      const { user: guest } = await auth.guest();
-      // Гость — к списку площадок: там его копия демо и подсказка сохранить аккаунт.
-      after.current = '/app';
+      const { user: guest, venueId } = await auth.guest();
+      // Не теряем результат гостевого входа: открываем созданную площадку.
+      after.current = `/app/venues/${venueId}`;
       setUser(guest);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не удалось открыть редактор. Попробуйте ещё раз.');
@@ -42,12 +43,17 @@ export default function AuthPage() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (mode === 'login' && (!email.trim() || !password)) { setError('Укажите email и пароль.'); return; }
+    if (mode === 'register') {
+      const invalid = registrationError(name, email, password, confirmation);
+      if (invalid) { setError(invalid); return; }
+    }
     setBusy(true);
     setError(null);
     try {
-      const u = mode === 'login' ? await auth.login(email, password) : await auth.register(name, email, password, role, adminCode);
+      const u = mode === 'login' ? await auth.login(email.trim(), password) : await auth.register(name.trim(), email.trim(), password);
+      after.current = next;
       setUser(u);
-      navigate(next, { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не удалось. Попробуйте ещё раз.');
     } finally {
@@ -57,7 +63,7 @@ export default function AuthPage() {
 
   return (
     <div className="auth-page">
-      <form className="auth-card" onSubmit={submit}>
+      <form className="auth-card" onSubmit={submit} noValidate>
         <div className="brand">
           <span className="brand-mark" aria-hidden>
             <Icon name="building" size={20} />
@@ -73,41 +79,27 @@ export default function AuthPage() {
           <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void tryAsGuest()}>
             <Icon name="edit" size={18} /> Открыть редактор без регистрации
           </button>
-          <Link className="btn btn-secondary" to="/">
-            <Icon name="eye" size={18} /> Посмотреть как посетитель
+          <Link className="btn btn-secondary" to="/m/demo">
+            <Icon name="eye" size={18} /> Посмотреть демо-карту
           </Link>
         </div>
-        <p className="hint auth-guest-hint">Без почты и пароля. Аккаунт можно сохранить потом — в «Моих площадках».</p>
+        <p className="hint auth-guest-hint">Откроется ваша копия демо-карты с 12 панорамами. Сохраните аккаунт в «Моих площадках», чтобы вернуться с другого устройства.</p>
 
         <div className="auth-divider" role="separator">
           <span>или войдите</span>
         </div>
 
         <div className="segmented auth-tabs" role="tablist" aria-label="Вход или регистрация">
-          <button type="button" role="tab" aria-selected={mode === 'login'} aria-pressed={mode === 'login'} onClick={() => setMode('login')}>
+          <button type="button" role="tab" aria-selected={mode === 'login'} aria-pressed={mode === 'login'} disabled={busy} onClick={() => { setMode('login'); setError(null); }}>
             Вход
           </button>
-          <button type="button" role="tab" aria-selected={mode === 'register'} aria-pressed={mode === 'register'} onClick={() => setMode('register')}>
+          <button type="button" role="tab" aria-selected={mode === 'register'} aria-pressed={mode === 'register'} disabled={busy} onClick={() => { setMode('register'); setError(null); }}>
             Регистрация
           </button>
         </div>
 
         {mode === 'register' && (
           <>
-            <div className="field">
-              <span>Кто вы</span>
-              <div className="segmented auth-role" role="radiogroup" aria-label="Роль">
-                <button type="button" role="radio" aria-checked={role === 'user'} aria-pressed={role === 'user'} onClick={() => setRole('user')}>
-                  Пользователь
-                </button>
-                <button type="button" role="radio" aria-checked={role === 'admin'} aria-pressed={role === 'admin'} onClick={() => setRole('admin')}>
-                  Администратор
-                </button>
-              </div>
-              <small className="hint">
-                {role === 'user' ? 'Видите и правите только свои площадки.' : 'Видите и правите все площадки сервиса. Нужен код от владельца сервиса.'}
-              </small>
-            </div>
             <label className="field">
               <span>Имя</span>
               <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required maxLength={100} />
@@ -116,7 +108,7 @@ export default function AuthPage() {
         )}
         <label className="field">
           <span>Email</span>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required maxLength={200} />
         </label>
         <label className="field">
           <span>Пароль{mode === 'register' ? ' (от 8 символов)' : ''}</span>
@@ -125,15 +117,16 @@ export default function AuthPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+            maxLength={200}
             minLength={mode === 'register' ? 8 : undefined}
             required
           />
         </label>
 
-        {mode === 'register' && role === 'admin' && (
+        {mode === 'register' && (
           <label className="field">
-            <span>Код администратора</span>
-            <input type="password" value={adminCode} onChange={(e) => setAdminCode(e.target.value)} autoComplete="off" required maxLength={200} />
+            <span>Повторите пароль</span>
+            <input type="password" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} autoComplete="new-password" required maxLength={200} />
           </label>
         )}
 

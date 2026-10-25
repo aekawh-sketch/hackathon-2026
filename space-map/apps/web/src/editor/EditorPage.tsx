@@ -140,7 +140,7 @@ export function ServerEditorPage() {
   }, [id]);
 
   const switchAccount = async () => {
-    await logout();
+    if (!(await logout())) return;
     navigate(`/app/login?next=${encodeURIComponent(`/app/venues/${id}`)}`, { replace: true });
   };
 
