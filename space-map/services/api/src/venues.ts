@@ -2,6 +2,7 @@
 import { validateReferences, type MapDocument } from '@space-map/map-core';
 import { and, eq, max } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
+import { isAdmin, type SessionUser } from './auth.ts';
 import type { Db } from './db/client.ts';
 import { mapDrafts, mapVersions, venues } from './db/schema.ts';
 import { ApiError, notFound } from './errors.ts';
@@ -9,13 +10,13 @@ import type { Storage } from './storage.ts';
 
 export type Venue = typeof venues.$inferSelect;
 
-/** Площадка, которую этот пользователь может править: своя, а при общем доступе (`OPEN_ACCESS`) — любая. */
-export async function ownedVenue(db: Db, venueId: string, userId: string, openAccess = false): Promise<Venue> {
+/** Площадка, которую этот пользователь может править: своя, а администратору — любая. */
+export async function ownedVenue(db: Db, venueId: string, user: SessionUser): Promise<Venue> {
   if (!isUuid(venueId)) throw notFound('Площадка не найдена');
   const [venue] = await db
     .select()
     .from(venues)
-    .where(openAccess ? eq(venues.id, venueId) : and(eq(venues.id, venueId), eq(venues.ownerId, userId)))
+    .where(isAdmin(user) ? eq(venues.id, venueId) : and(eq(venues.id, venueId), eq(venues.ownerId, user.id)))
     .limit(1);
   if (!venue) throw notFound('Площадка не найдена');
   return venue;

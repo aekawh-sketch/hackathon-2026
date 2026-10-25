@@ -1,7 +1,7 @@
 // Вход и регистрация организатора (ТЗ 6.1, 8.1).
 import { useRef, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router';
-import { ApiError, auth } from '../api.ts';
+import { ApiError, auth, type User } from '../api.ts';
 import { Icon } from '../ui/icons.tsx';
 import { ThemeToggle } from '../ui/theme.tsx';
 import { useSession } from './session.tsx';
@@ -14,6 +14,8 @@ export default function AuthPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [role, setRole] = useState<User['role']>('user');
+  const [adminCode, setAdminCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -28,9 +30,9 @@ export default function AuthPage() {
     setBusy(true);
     setError(null);
     try {
-      const { user: guest, shared } = await auth.guest();
-      // Пришёл с «Редактировать план» на карте (общий доступ) — в редактор этой карты, иначе — к списку площадок.
-      after.current = shared && next.startsWith('/app/venues/') ? next : '/app';
+      const { user: guest } = await auth.guest();
+      // Гость — к списку площадок: там его копия демо и подсказка сохранить аккаунт.
+      after.current = '/app';
       setUser(guest);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не удалось открыть редактор. Попробуйте ещё раз.');
@@ -43,7 +45,7 @@ export default function AuthPage() {
     setBusy(true);
     setError(null);
     try {
-      const u = mode === 'login' ? await auth.login(email, password) : await auth.register(name, email, password);
+      const u = mode === 'login' ? await auth.login(email, password) : await auth.register(name, email, password, role, adminCode);
       setUser(u);
       navigate(next, { replace: true });
     } catch (err) {
@@ -91,10 +93,26 @@ export default function AuthPage() {
         </div>
 
         {mode === 'register' && (
-          <label className="field">
-            <span>Имя</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required maxLength={100} />
-          </label>
+          <>
+            <div className="field">
+              <span>Кто вы</span>
+              <div className="segmented auth-role" role="radiogroup" aria-label="Роль">
+                <button type="button" role="radio" aria-checked={role === 'user'} aria-pressed={role === 'user'} onClick={() => setRole('user')}>
+                  Пользователь
+                </button>
+                <button type="button" role="radio" aria-checked={role === 'admin'} aria-pressed={role === 'admin'} onClick={() => setRole('admin')}>
+                  Администратор
+                </button>
+              </div>
+              <small className="hint">
+                {role === 'user' ? 'Видите и правите только свои площадки.' : 'Видите и правите все площадки сервиса. Нужен код от владельца сервиса.'}
+              </small>
+            </div>
+            <label className="field">
+              <span>Имя</span>
+              <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required maxLength={100} />
+            </label>
+          </>
         )}
         <label className="field">
           <span>Email</span>
@@ -111,6 +129,13 @@ export default function AuthPage() {
             required
           />
         </label>
+
+        {mode === 'register' && role === 'admin' && (
+          <label className="field">
+            <span>Код администратора</span>
+            <input type="password" value={adminCode} onChange={(e) => setAdminCode(e.target.value)} autoComplete="off" required maxLength={200} />
+          </label>
+        )}
 
         {error && (
           <p className="notice" role="alert">

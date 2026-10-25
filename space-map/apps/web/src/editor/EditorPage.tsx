@@ -226,7 +226,7 @@ function Editor({ initial, server }: EditorProps) {
   const { doc } = history;
   const [venue, setVenue] = useState<VenueSummary | null>(server?.venue ?? null);
   const [publishOpen, setPublishOpen] = useState(false);
-  // Чужое сохранение (общий доступ — правят несколько человек, телефон снимает панорамы): показываем новый документ,
+  // Чужое сохранение (правят несколько человек — владелец и администраторы, телефон снимает панорамы): показываем новый документ,
   // история — с него: «Отменить» не должна откатить чужую правку.
   const remote = useServerSave(server?.venue.id ?? null, server?.revision ?? 0, doc, (theirs, by, merged) => {
     history.reset(theirs);
