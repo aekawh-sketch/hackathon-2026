@@ -107,6 +107,8 @@ export interface User {
   email: string;
   name: string;
   isGuest: boolean;
+  /** admin — видит и правит все площадки; user — только свои. */
+  role: 'user' | 'admin';
 }
 
 export interface VenueSummary {
@@ -124,9 +126,9 @@ export interface VenueListItem extends VenueSummary {
   editedAt: string;
   /** Моя площадка: удалить её могу только я. */
   isOwner: boolean;
-  /** Можно удалить: своя или (при общем доступе) чужой черновик. */
+  /** Можно удалить: своя, а администратору — любая. */
   canDelete: boolean;
-  /** Кто создал — при общем доступе, если не я. */
+  /** Кто создал — в списке администратора, если не я. */
   ownerName: string | null;
   stats: { units: number; places: number; panoramas: number };
   thumb: PlanOutline | null;
@@ -152,20 +154,22 @@ export interface PanoramaAsset {
 export const auth = {
   me: () => request<{ user: User }>('GET', '/api/auth/me').then((r) => r.user),
   login: (email: string, password: string) => request<{ user: User }>('POST', '/api/auth/login', { email, password }).then((r) => r.user),
-  register: (name: string, email: string, password: string) =>
-    request<{ user: User }>('POST', '/api/auth/register', { name, email, password }).then((r) => r.user),
+  /** Администратор — с кодом от владельца сервиса. */
+  register: (name: string, email: string, password: string, role: User['role'] = 'user', adminCode?: string) =>
+    request<{ user: User }>('POST', '/api/auth/register', { name, email, password, role, ...(role === 'admin' ? { adminCode } : {}) }).then((r) => r.user),
+  /** Уже зарегистрированный становится администратором по коду. */
+  adminCode: (code: string) => request<{ user: User }>('POST', '/api/auth/admin-code', { code }).then((r) => r.user),
   logout: () => request<{ ok: true }>('POST', '/api/auth/logout'),
   /** Вход одной кнопкой: гостевой аккаунт и своя копия демо-площадки. */
-  /** `shared` — общий доступ: гость правит общую демо-площадку, а не свою копию. */
-  guest: () => request<{ user: User; venueId: string; shared?: boolean }>('POST', '/api/auth/guest'),
+  guest: () => request<{ user: User; venueId: string }>('POST', '/api/auth/guest'),
   /** Гость сохраняет аккаунт: почта и пароль, площадки остаются при нём. */
   claim: (name: string, email: string, password: string) =>
     request<{ user: User }>('POST', '/api/auth/claim', { name, email, password }).then((r) => r.user),
 };
 
 export const venuesApi = {
-  /** Мои площадки; при общем доступе стенда (`openAccess`) — все. */
-  list: () => request<{ venues: VenueListItem[]; openAccess?: boolean }>('GET', '/api/venues'),
+  /** Мои площадки; администратору — все. */
+  list: () => request<{ venues: VenueListItem[] }>('GET', '/api/venues'),
   /** Копия с планом, местами и своими копиями панорам; не опубликована. */
   duplicate: (id: string) => request<{ venue: VenueSummary }>('POST', `/api/venues/${id}/duplicate`).then((r) => r.venue),
   /** Посетители больше не открывают карту по ссылке; черновик остаётся. */

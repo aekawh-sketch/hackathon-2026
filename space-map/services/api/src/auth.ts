@@ -18,6 +18,19 @@ export interface SessionUser {
   email: string;
   name: string;
   isGuest: boolean;
+  /** admin — видит и правит все площадки; user — только свои. */
+  role: 'user' | 'admin';
+}
+
+/** Какие поля пользователя отдаём странице и держим в запросе. */
+export const USER_FIELDS = { id: users.id, email: users.email, name: users.name, isGuest: users.isGuest, role: users.role };
+
+export const isAdmin = (user: SessionUser): boolean => user.role === 'admin';
+
+/** Код администратора совпал. Сравнение за постоянное время — по времени ответа код не подобрать. */
+export function adminCodeMatches(expected: string | null, given: string): boolean {
+  if (!expected) return false;
+  return timingSafeEqual(createHash('sha256').update(expected).digest(), createHash('sha256').update(given.trim()).digest());
 }
 
 /** У гостя нет пароля: это значение не разбирается как хэш argon2, поэтому вход по паролю невозможен. */
@@ -113,7 +126,7 @@ export function registerAuth(app: FastifyInstance, db: Db): void {
     const raw = req.cookies[SESSION_COOKIE];
     if (!raw) return;
     const [row] = await db
-      .select({ id: users.id, email: users.email, name: users.name, isGuest: users.isGuest })
+      .select(USER_FIELDS)
       .from(sessions)
       .innerJoin(users, eq(users.id, sessions.userId))
       .where(and(eq(sessions.tokenHash, sha256(raw)), gt(sessions.expiresAt, new Date())))

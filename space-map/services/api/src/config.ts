@@ -6,10 +6,10 @@ export interface Config {
   /** Срок сессии организатора. */
   sessionDays: number;
   /**
-   * Временный общий доступ (стенд команды): любой вошедший видит и правит все площадки.
-   * Выключен по умолчанию — включать только на демо-стенде, не в продакшене.
+   * Код администратора (`ADMIN_INVITE_CODE`): с ним регистрируются администраторы — они видят и правят все площадки.
+   * Нет кода (или короче 8 символов) — администратором не стать, у каждого только свои площадки.
    */
-  openAccess: boolean;
+  adminCode: string | null;
   logger: boolean;
 }
 
@@ -22,7 +22,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     storageDir: env.STORAGE_DIR ?? './data',
     cookieSecure: env.COOKIE_SECURE === 'true',
     sessionDays: 14,
-    openAccess: env.OPEN_ACCESS === 'true',
+    adminCode: env.ADMIN_INVITE_CODE && env.ADMIN_INVITE_CODE.trim().length >= 8 ? env.ADMIN_INVITE_CODE.trim() : null,
     logger: env.NODE_ENV !== 'test',
   };
 }

@@ -2923,3 +2923,24 @@ button.insp-row:hover {
   transform: translateX(-50%);
   animation: fade 0.2s ease-out;
 }
+
+/* «Мои площадки» → «Есть код администратора?»: незаметная ссылка, по нажатию — поле для кода. */
+.admin-code-open {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.admin-code {
+  margin-top: 12px;
+}
+
+/* Регистрация: роль — пользователь или администратор. */
+.auth-role {
+  display: flex;
+  width: 100%;
+}
+
+.auth-role button {
+  flex: 1;
+}

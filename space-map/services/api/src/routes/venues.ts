@@ -4,7 +4,7 @@ import { planOutline, validateReferences, type MapDocument } from '@space-map/ma
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { AppDeps } from '../app.ts';
-import { requireUser } from '../auth.ts';
+import { isAdmin, requireUser, type SessionUser } from '../auth.ts';
 import { captures, mapDrafts, mapVersions, panoramas, users, venues } from '../db/schema.ts';
 import { ApiError } from '../errors.ts';
 import { MapDocumentSchema } from '../mapSchema.ts';
@@ -13,13 +13,9 @@ import { isUuid, ownedVenue, publish, type Venue } from '../venues.ts';
 
 const VenueId = Type.Object({ id: Type.String() });
 
-/**
- * Удалить может создатель. При общем доступе — и любой вошедший, если это черновик: так команда чистит
- * гостевые копии. Опубликованную карту (её видят посетители) и общую демо-площадку — только создатель.
- */
-/** Удалить можно любую площадку, которую видишь: свою, а при общем доступе стенда — любую (решение владельца проекта). */
-function canDelete(v: Venue, userId: string, openAccess: boolean): boolean {
-  return v.ownerId === userId || openAccess;
+/** Удалить можно свою площадку, а администратору — любую (решение владельца проекта). */
+function canDelete(v: Venue, user: SessionUser): boolean {
+  return v.ownerId === user.id || isAdmin(user);
 }
 
 function venueView(v: Venue) {
@@ -39,20 +35,20 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
   // Список для «Мои площадки»: счётчики, миниатюра плана, обложка-панорама, кто создал и когда правили.
   app.get('/', async (req) => {
     const user = requireUser(req);
-    // Общий доступ (стенд команды) — все площадки, иначе только свои.
+    // Администратору — все площадки, остальным — только свои.
     const query = db
       .select({ venue: venues, doc: mapDrafts.doc, draftAt: mapDrafts.updatedAt, ownerName: users.name })
       .from(venues)
       .leftJoin(mapDrafts, eq(mapDrafts.venueId, venues.id))
       .leftJoin(users, eq(users.id, venues.ownerId));
-    const rows = await (config.openAccess ? query : query.where(eq(venues.ownerId, user.id))).orderBy(desc(venues.updatedAt));
+    const rows = await (isAdmin(user) ? query : query.where(eq(venues.ownerId, user.id))).orderBy(desc(venues.updatedAt));
     const list = rows.map(({ venue, doc, draftAt, ownerName }) => {
       const editedAt = draftAt && draftAt > venue.updatedAt ? draftAt : venue.updatedAt;
       return {
         ...venueView(venue),
         editedAt,
         isOwner: venue.ownerId === user.id,
-        canDelete: canDelete(venue, user.id, config.openAccess),
+        canDelete: canDelete(venue, user),
         ownerName: venue.ownerId === user.id ? null : (ownerName ?? null),
         stats: doc ? { units: doc.units.length, places: doc.places.length, panoramas: doc.panoramas.length } : { units: 0, places: 0, panoramas: 0 },
         thumb: doc ? planOutline(doc) : null,
@@ -60,7 +56,7 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
       };
     });
     list.sort((a, b) => b.editedAt.getTime() - a.editedAt.getTime());
-    return { venues: list, openAccess: config.openAccess };
+    return { venues: list };
   });
 
   app.post(
@@ -87,7 +83,7 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
 
   app.get('/:id', { schema: { params: VenueId } }, async (req) => {
     const user = requireUser(req);
-    return { venue: venueView(await ownedVenue(db, req.params.id, user.id, config.openAccess)) };
+    return { venue: venueView(await ownedVenue(db, req.params.id, user)) };
   });
 
   app.patch(
@@ -105,7 +101,7 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
     },
     async (req) => {
       const user = requireUser(req);
-      const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
+      const venue = await ownedVenue(db, req.params.id, user);
       const { slug, ...rest } = req.body;
       if (slug !== undefined && slug !== venue.slug) {
         if (!isValidSlug(slug)) throw new ApiError(422, 'bad_slug', 'Ссылка: латинские буквы, цифры и дефис, от 3 до 48 символов');
@@ -126,8 +122,8 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
     { schema: { params: VenueId, body: Type.Object({ confirmName: Type.String({ maxLength: 120 }) }) } },
     async (req) => {
       const user = requireUser(req);
-      const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
-      if (!canDelete(venue, user.id, config.openAccess)) throw new ApiError(403, 'not_owner', 'Удалить площадку может только её создатель');
+      const venue = await ownedVenue(db, req.params.id, user);
+      if (!canDelete(venue, user)) throw new ApiError(403, 'not_owner', 'Удалить площадку может только её создатель');
       if (req.body.confirmName.trim() !== venue.name) throw new ApiError(422, 'confirm_mismatch', 'Введите точное название площадки');
       const panoIds = (await db.select({ id: panoramas.id }).from(panoramas).where(eq(panoramas.venueId, venue.id))).map((r) => r.id);
       const captureIds = (await db.select({ id: captures.id }).from(captures).where(eq(captures.venueId, venue.id))).map((r) => r.id);
@@ -143,7 +139,7 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
   // Копия площадки с планом, местами и своими копиями панорам. Не опубликована, создатель — тот, кто копирует.
   app.post('/:id/duplicate', { schema: { params: VenueId } }, async (req, reply) => {
     const user = requireUser(req);
-    const source = await ownedVenue(db, req.params.id, user.id, config.openAccess);
+    const source = await ownedVenue(db, req.params.id, user);
     const [draft] = await db.select({ doc: mapDrafts.doc }).from(mapDrafts).where(eq(mapDrafts.venueId, source.id)).limit(1);
     if (!draft) throw new ApiError(404, 'not_found', 'Черновик площадки не найден');
     const name = `${source.name} (копия)`.slice(0, 120);
@@ -178,7 +174,7 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
   // Снять с публикации: посетители по ссылке больше не открывают карту, черновик и история версий остаются.
   app.post('/:id/unpublish', { schema: { params: VenueId } }, async (req) => {
     const user = requireUser(req);
-    const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
+    const venue = await ownedVenue(db, req.params.id, user);
     const [updated] = await db.update(venues).set({ publishedVersion: null, updatedAt: new Date() }).where(eq(venues.id, venue.id)).returning();
     return { venue: venueView(updated!) };
   });
@@ -187,7 +183,7 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
 
   app.get('/:id/draft', { schema: { params: VenueId } }, async (req) => {
     const user = requireUser(req);
-    const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
+    const venue = await ownedVenue(db, req.params.id, user);
     const [draft] = await db
       .select({ revision: mapDrafts.revision, doc: mapDrafts.doc, updatedAt: mapDrafts.updatedAt, updatedBy: users.name })
       .from(mapDrafts)
@@ -201,7 +197,7 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
   // а весь документ забирает, только когда ревизия выросла.
   app.get('/:id/draft/revision', { schema: { params: VenueId } }, async (req) => {
     const user = requireUser(req);
-    const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
+    const venue = await ownedVenue(db, req.params.id, user);
     const [row] = await db
       .select({ revision: mapDrafts.revision, updatedBy: users.name })
       .from(mapDrafts)
@@ -220,7 +216,7 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
     },
     async (req) => {
       const user = requireUser(req);
-      const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
+      const venue = await ownedVenue(db, req.params.id, user);
       const doc = { ...req.body.doc, venue: { ...req.body.doc.venue, id: venue.id } };
       const issues = validateReferences(doc);
       if (issues.length) throw new ApiError(422, 'invalid_map', 'В карте есть ошибки ссылок', issues);
@@ -249,14 +245,14 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
 
   app.post('/:id/publish', { schema: { params: VenueId } }, async (req) => {
     const user = requireUser(req);
-    const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
+    const venue = await ownedVenue(db, req.params.id, user);
     const version = await publish(db, storage, venue.id, user.id);
     return { version, url: `/m/${venue.slug}` };
   });
 
   app.get('/:id/versions', { schema: { params: VenueId } }, async (req) => {
     const user = requireUser(req);
-    const venue = await ownedVenue(db, req.params.id, user.id, config.openAccess);
+    const venue = await ownedVenue(db, req.params.id, user);
     const rows = await db
       .select({ version: mapVersions.version, createdAt: mapVersions.createdAt, createdBy: users.name })
       .from(mapVersions)
