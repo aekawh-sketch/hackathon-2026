@@ -15,6 +15,7 @@ import {
   refreshCapturePoints,
   refreshPanoramaMarkers,
   removeCapturePoint,
+  sortedLevels,
   translateUnit,
   overlappingUnits,
   validateReferences,
@@ -33,6 +34,8 @@ import { Icon, type IconName } from '../ui/icons.tsx';
 import { Sheet, useMediaQuery, type SheetMode } from '../ui/Sheet.tsx';
 import { setTheme, ThemeToggle, useTheme } from '../ui/theme.tsx';
 import { Tour, type TourStep } from '../ui/Tour.tsx';
+import { LevelSwitch } from '../ui/LevelSwitch.tsx';
+import { AddLevelDialog, type UnderlayApi } from './FloorsPanel.tsx';
 import { EditorCanvas, holeRef, type Selection, type Tool } from './EditorCanvas.tsx';
 import { Inspector } from './Inspector.tsx';
 import { useHistory } from './useHistory.ts';
@@ -66,6 +69,7 @@ const TOOL_HINT: Record<Tool, string> = {
   wall: 'Проведите линию — получится стена. От стены до стены — делит комнату на две',
   hole: 'Протяните прямоугольник внутри комнаты: колонна, шахта или перегородка',
   shot: 'Точки панорам рассчитаны по плану. Нажмите в помещении — своя точка; тяните точку, чтобы сдвинуть',
+  underlay: 'Тяните картинку плана, чтобы совместить её с рисунком. Закончили — «Готово» в панели',
 };
 
 /** Обучение по кнопке «?»: по очереди каждая кнопка редактора и что она делает. Кнопок не на этом экране — пропуск. */
@@ -82,8 +86,10 @@ const TOUR: TourStep[] = [
   { target: '[data-tour="theme"]', title: 'Тема', text: 'Светлая или тёмная — как удобнее глазам.' },
   { target: '[data-tour="qr"]', title: 'На телефон', text: 'QR-код проекта: наведите камеру телефона — проект откроется там, удобно снимать панорамы.' },
   { target: '[data-tour="view"]', title: 'План и 3D', text: 'Посмотрите площадку объёмно — так её увидит посетитель.' },
+  { target: '[data-tour="levels"]', title: 'Этажи', text: 'Переключайте этажи и добавляйте новые — пустые или копией плана. Лестницы и лифты друг над другом соединяют этажи в маршрутах.' },
   { target: '[data-tour="menu-layers"]', title: 'Сетка маршрутов', text: 'Показать линии, по которым строятся маршруты посетителей.' },
   { target: '[data-tour="menu-camera"]', title: 'Точки съёмки', text: 'Показать или скрыть точки панорам на плане.' },
+  { target: '[data-tour="menu-chart"]', title: 'Статистика', text: 'Сколько раз открывали карту, какие места смотрели, куда строили маршруты и что не нашли поиском.' },
   { target: '[data-tour="menu-download"]', title: 'Скачать карту', text: 'Вся карта одним файлом — для копии или переноса.' },
   { target: '[data-tour="menu-upload"]', title: 'Загрузить карту', text: 'Открыть карту из такого файла.' },
   { target: '[data-tour="visitor"]', title: 'Карта посетителя', text: 'Как карту увидят по ссылке.' },
@@ -221,6 +227,7 @@ interface EditorProps {
 
 function Editor({ initial, server }: EditorProps) {
   const desktop = useMediaQuery('(min-width: 900px)');
+  const navigate = useNavigate();
   // План съёмки считается сразу: у карт, сохранённых до него, точек ещё нет.
   const history = useHistory<MapDocument>(() => refreshCapturePoints(initial()));
   const { doc } = history;
@@ -233,7 +240,11 @@ function Editor({ initial, server }: EditorProps) {
     const who = by ? `: ${by}` : ' из другого окна';
     showToast(merged ? `Ваши правки объединены с изменениями${who}` : `Подтянули изменения${who}`);
   });
-  const level = doc.levels[0]?.id ?? 'L1';
+  const levels = sortedLevels(doc);
+  const [levelId, setLevelId] = useState(() => levels[0]?.id ?? 'L1');
+  // Этаж удалили (или его убрала чужая правка) — показываем нижний.
+  const level = doc.levels.some((l) => l.id === levelId) ? levelId : (levels[0]?.id ?? 'L1');
+  const [addLevelOpen, setAddLevelOpen] = useState(false);
   const [tool, setTool] = useState<Tool>('select');
   const [areaCategory, setAreaCategory] = useState(() => doc.categories.find((c) => c.id === 'food')?.id ?? doc.categories[0]?.id ?? '');
   const activeAreaCategory = doc.categories.some((c) => c.id === areaCategory) ? areaCategory : doc.categories[0]?.id ?? '';
@@ -529,6 +540,7 @@ function Editor({ initial, server }: EditorProps) {
       },
       pressed: showShots,
     },
+    ...(server ? [{ icon: 'chart' as IconName, label: 'Статистика просмотров', onClick: () => navigate(`/app/venues/${server.venue.id}/stats`) }] : []),
     { icon: 'download', label: 'Скачать карту (JSON)', onClick: download },
     { icon: 'upload', label: 'Загрузить карту из файла', onClick: () => fileRef.current?.click() },
     ...(server
@@ -537,6 +549,28 @@ function Editor({ initial, server }: EditorProps) {
   ];
 
   const visitorUrl = venue ? `/m/${venue.slug}` : '/m/demo';
+
+  const changeLevel = (id: string) => {
+    setLevelId(id);
+    setSelection(null);
+    if (tool === 'underlay') setTool('select');
+  };
+  const serverId = server?.venue.id ?? null;
+  const underlayApi = useMemo<UnderlayApi | undefined>(
+    () => (serverId ? { upload: (file) => venuesApi.uploadUnderlay(serverId, file), src: (asset) => venuesApi.underlayUrl(serverId, asset) } : undefined),
+    [serverId],
+  );
+  const floorProps = {
+    onLevel: changeLevel,
+    onAddLevel: () => setAddLevelOpen(true),
+    underlayApi,
+    underlayMoving: tool === 'underlay',
+    onUnderlayMove: (on: boolean) => {
+      setSelection(null);
+      setTool(on ? 'underlay' : 'select');
+      if (on && view === '3d') setView('plan');
+    },
+  };
 
   const resolveConflict = async (keep: 'mine' | 'theirs') => {
     try {
@@ -579,6 +613,7 @@ function Editor({ initial, server }: EditorProps) {
             }}
             onToolDone={() => setTool('select')}
             onToast={showToast}
+            underlaySrc={underlayApi?.src}
           />
         ) : (
           <ErrorBoundary fallback={<div className="screen-message">Не удалось загрузить 3D.</div>}>
@@ -588,6 +623,7 @@ function Editor({ initial, server }: EditorProps) {
           </ErrorBoundary>
         )}
         {view === 'plan' && <div className="tool-hint" style={desktop ? { left: 112, top: 88 } : { top: topHeight + 6 }}>{TOOL_HINT[tool]}</div>}
+        <LevelSwitch levels={levels} value={level} onChange={changeLevel} onAdd={() => setAddLevelOpen(true)} style={desktop ? { left: 112, bottom: 24 } : { left: 12, top: topHeight + 64 }} />
       </main>
 
       <header className="editor-top" ref={topRef}>
@@ -714,12 +750,12 @@ function Editor({ initial, server }: EditorProps) {
         <>
           <div className="tool-rail">{toolbar}</div>
           <aside className="inspector" aria-label="Свойства" data-tour="inspector">
-            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onShootForPlace={server && hasNativeCapture() ? shootForPlace : undefined} onUploadForPlace={server ? uploadForPlace : undefined} onOpenPanorama={openPreview} />
+            <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onShootForPlace={server && hasNativeCapture() ? shootForPlace : undefined} onUploadForPlace={server ? uploadForPlace : undefined} onOpenPanorama={openPreview} {...floorProps} />
           </aside>
         </>
       ) : (
         <Sheet mode={sheetMode} onModeChange={setSheetMode} desktop={false} peekHeight={118} topGap={64} onHeight={setSheetHeight} label="Инструменты и свойства" header={toolbar}>
-          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onShootForPlace={server && hasNativeCapture() ? shootForPlace : undefined} onUploadForPlace={server ? uploadForPlace : undefined} onOpenPanorama={openPreview} />
+          <Inspector doc={doc} level={level} selection={selection} onSelect={select} onCommit={commit} onToast={showToast} tool={tool} areaCategory={activeAreaCategory} onAreaCategory={setAreaCategory} doorPreset={doorPreset} onDoorPreset={setDoorPreset} onExitTool={() => setTool('select')} shotLabels={shotPlan.labels} onOpenGuide={openGuide} onUploadPanorama={server ? uploadPanoramaFor : undefined} onShootPanorama={server && hasNativeCapture() ? (id) => void shootPanoramaFor(id) : undefined} onShootForPlace={server && hasNativeCapture() ? shootForPlace : undefined} onUploadForPlace={server ? uploadForPlace : undefined} onOpenPanorama={openPreview} {...floorProps} />
         </Sheet>
       )}
 
@@ -747,6 +783,8 @@ function Editor({ initial, server }: EditorProps) {
       />
 
       {tourOpen && <Tour steps={TOUR} onClose={() => setTourOpen(false)} />}
+
+      {addLevelOpen && <AddLevelDialog doc={doc} level={level} onCommit={(next) => commit(next)} onLevel={changeLevel} onClose={() => setAddLevelOpen(false)} />}
 
       {toast && (
         <div key={toast.id} className="toast" role="status" style={!desktop ? { bottom: sheetHeight + 16 } : undefined}>

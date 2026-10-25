@@ -1,6 +1,6 @@
-// Демо-данные: организатор из DEMO_EMAIL / DEMO_PASSWORD и опубликованная площадка «demo».
-// Панорамы появятся после съёмки в манеже. Ничего не удаляет: что уже есть — пропускает.
-import { demoVenue } from '@space-map/map-core';
+// Демо-данные: организатор из DEMO_EMAIL / DEMO_PASSWORD, опубликованные площадки «demo» (манеж)
+// и «campus» (два корпуса по два этажа и двор между ними). Ничего не удаляет: что уже есть — пропускает.
+import { campusVenue, demoVenue } from '@space-map/map-core';
 import { eq } from 'drizzle-orm';
 import { hashPassword } from './auth.ts';
 import { loadConfig } from './config.ts';
@@ -59,6 +59,19 @@ if (!existing) {
     const version = await publish(db, storage, existing.id, user!.id);
     console.log(`стандартная демо-площадка обновлена и опубликована, версия ${version}: /m/demo`);
   }
+}
+
+// Пример из нескольких зданий: этажи, лестницы, территория между корпусами.
+const [campus] = await db.select().from(venues).where(eq(venues.slug, 'campus')).limit(1);
+if (!campus) {
+  const doc = campusVenue();
+  const [venue] = await db.insert(venues).values({ ownerId: user!.id, name: doc.venue.name, slug: 'campus' }).returning();
+  doc.venue.id = venue!.id;
+  await db.insert(mapDrafts).values({ venueId: venue!.id, doc, updatedBy: user!.id });
+  const version = await publish(db, storage, venue!.id, user!.id);
+  console.log(`площадка campus опубликована, версия ${version}: /m/campus`);
+} else {
+  console.log('площадка campus уже есть — пропускаю');
 }
 
 await pool.end();

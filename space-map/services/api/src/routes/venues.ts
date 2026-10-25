@@ -130,6 +130,7 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
       await db.delete(venues).where(eq(venues.id, venue.id));
       // Файлы — после удаления строк: если что-то не сотрётся, в базе на них уже никто не ссылается.
       await storage.delete(`versions/${venue.id}`);
+      await storage.delete(`underlays/${venue.id}`);
       for (const id of panoIds) await storage.delete(`panoramas/${id}`);
       for (const id of captureIds) await storage.delete(`captures/${id}`);
       return { ok: true };
@@ -157,6 +158,11 @@ export const venueRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db,
 
     const venue = await db.transaction(async (tx) => {
       const [created] = await tx.insert(venues).values({ ownerId: user.id, name, slug: slugWithSuffix(slugify(source.name)) }).returning();
+      // Подложки готового плана лежат по площадке — копия получает свои файлы с теми же именами.
+      for (const level of draft.doc.levels) {
+        const asset = level.underlay?.asset;
+        if (asset && isUuid(asset)) await storage.copy(`underlays/${source.id}/${asset}.jpg`, `underlays/${created!.id}/${asset}.jpg`);
+      }
       if (own.length) {
         await tx.insert(panoramas).values(
           own.map((p) => ({ id: mapping.get(p.id)!, venueId: created!.id, source: p.source, status: 'ready' as const, width: p.width, height: p.height, createdBy: user.id })),

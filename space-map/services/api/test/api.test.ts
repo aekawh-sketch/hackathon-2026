@@ -1,5 +1,5 @@
 // Сквозные проверки API на настоящей PostgreSQL (TEST_DATABASE_URL). ТЗ 13: владение, ревизии, публикация, загрузки.
-import { addLink, demoVenue, pinPanoramaPoint, refreshCapturePoints, visibleLandmarks, type MapDocument } from '@space-map/map-core';
+import { addLink, campusVenue, demoVenue, pinPanoramaPoint, refreshCapturePoints, visibleLandmarks, type MapDocument } from '@space-map/map-core';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -553,5 +553,101 @@ describe('инструменты списка площадок', () => {
     expect((await c.req('DELETE', `/api/venues/${v.id}`, { confirmName: 'Склад «Восток»' })).statusCode).toBe(200);
     expect(await stat(panoDir).then(() => true, () => false)).toBe(false);
     expect((await c.req('GET', `/api/venues/${v.id}`)).statusCode).toBe(404);
+  });
+});
+
+describe('несколько этажей и зданий', () => {
+  it('кампус — двор, два корпуса, два этажа — сохраняется и публикуется', async () => {
+    const c = await newUser();
+    const v = await newVenue(c, 'Кампус');
+    const { revision } = (await c.req('GET', `/api/venues/${v.id}/draft`)).json();
+    const doc = campusVenue();
+    const res = await c.req('PUT', `/api/venues/${v.id}/draft`, { revision, doc });
+    expect(res.statusCode, res.body).toBe(200);
+    await c.req('POST', `/api/venues/${v.id}/publish`);
+    const latest = (await new Client().req('GET', `/p/${v.slug}/latest.json`)).json();
+    const map = (await new Client().req('GET', latest.url)).json();
+    expect(map.levels).toHaveLength(2);
+    expect(map.graph.edges.some((e: { id: string }) => e.id.startsWith('ve-'))).toBe(true);
+  });
+});
+
+describe('готовый план картинкой', () => {
+  it('загрузка, файл — только тем, кто правит, копия площадки получает свой файл, удаление убирает', async () => {
+    const c = await newUser();
+    const v = await newVenue(c, 'Корпус «Юг»');
+    const png = await sharp({ create: { width: 900, height: 600, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+    const res = await c.upload(`/api/venues/${v.id}/underlays`, png);
+    expect(res.statusCode).toBe(201);
+    const underlay = res.json().underlay as { asset: string; width: number; height: number };
+    expect([underlay.width, underlay.height]).toEqual([900, 600]);
+    const file = await c.req('GET', `/api/venues/${v.id}/underlays/${underlay.asset}`);
+    expect(file.statusCode).toBe(200);
+    expect(file.headers['content-type']).toBe('image/jpeg');
+    // Прозрачное — на белом: распознаванию нужен светлый фон.
+    const { data } = await sharp(file.rawPayload).raw().toBuffer({ resolveWithObject: true });
+    expect(data[0]).toBeGreaterThan(240);
+    expect((await (await newUser()).req('GET', `/api/venues/${v.id}/underlays/${underlay.asset}`)).statusCode).toBe(404);
+    expect((await new Client().req('GET', `/api/venues/${v.id}/underlays/${underlay.asset}`)).statusCode).toBe(401);
+    expect((await c.upload(`/api/venues/${v.id}/underlays`, Buffer.from('not an image'))).statusCode).toBe(422);
+
+    const draft = (await c.req('GET', `/api/venues/${v.id}/draft`)).json();
+    draft.doc.levels[0].underlay = { asset: underlay.asset, pxPerM: 30, origin: [0, 20], rotation: 0, opacity: 0.6 };
+    expect((await c.req('PUT', `/api/venues/${v.id}/draft`, { revision: draft.revision, doc: draft.doc })).statusCode).toBe(200);
+    const copy = (await c.req('POST', `/api/venues/${v.id}/duplicate`)).json().venue;
+    expect((await c.req('GET', `/api/venues/${copy.id}/underlays/${underlay.asset}`)).statusCode).toBe(200);
+
+    expect((await c.req('DELETE', `/api/venues/${v.id}`, { confirmName: 'Корпус «Юг»' })).statusCode).toBe(200);
+    expect(await stat(join(storageDir, 'underlays', v.id)).then(() => true, () => false)).toBe(false);
+    expect((await c.req('GET', `/api/venues/${copy.id}/underlays/${underlay.asset}`)).statusCode).toBe(200);
+  });
+});
+
+describe('статистика просмотров', () => {
+  it('карта считает открытия, места, маршруты и поиск без результатов; отчёт — только владельцу', async () => {
+    const c = await newUser();
+    const v = await newVenue(c);
+    const anon = new Client();
+    // До публикации событий не принимаем.
+    expect((await anon.req('POST', `/p/${v.slug}/events`, { events: [{ kind: 'open' }] })).statusCode).toBe(404);
+    await c.req('POST', `/api/venues/${v.id}/publish`);
+
+    const send = (events: { kind: string; target?: string }[], ip = '10.0.0.1') => anon.req('POST', `/p/${v.slug}/events`, { events }, { ip });
+    expect((await send([{ kind: 'open' }, { kind: 'place', target: 'pl-1' }, { kind: 'place', target: 'pl-1' }, { kind: 'place', target: 'pl-2' }])).statusCode).toBe(204);
+    expect((await send([{ kind: 'open' }, { kind: 'route', target: 'pl-2' }, { kind: 'search_miss', target: '  Банкомат!! ' }, { kind: 'panorama', target: 'pa-1' }])).statusCode).toBe(204);
+    // Мусор не записывается, неизвестный вид события — 400.
+    expect((await send([{ kind: 'place', target: '<script>' }])).statusCode).toBe(204);
+    expect((await send([{ kind: 'hack' }])).statusCode).toBe(400);
+    // Владелец с сессией тоже может смотреть свою карту — события проходят с CSRF-заголовком.
+    expect((await c.req('POST', `/p/${v.slug}/events`, { events: [{ kind: 'open' }] })).statusCode).toBe(204);
+
+    const report = await c.req('GET', `/api/venues/${v.id}/stats?days=7`);
+    expect(report.statusCode).toBe(200);
+    const r = report.json();
+    const total = (kind: string) => r.daily.filter((d: { kind: string }) => d.kind === kind).reduce((s: number, d: { count: number }) => s + d.count, 0);
+    expect(total('open')).toBe(3);
+    expect(total('place')).toBe(3);
+    expect(r.places).toEqual([
+      { target: 'pl-1', count: 2 },
+      { target: 'pl-2', count: 1 },
+    ]);
+    expect(r.routes).toEqual([{ target: 'pl-2', count: 1 }]);
+    expect(r.panoramas).toEqual([{ target: 'pa-1', count: 1 }]);
+    expect(r.misses).toEqual([{ target: 'банкомат', count: 1 }]);
+    expect(r.daily[0].day).toBe(r.today);
+
+    expect((await (await newUser()).req('GET', `/api/venues/${v.id}/stats`)).statusCode).toBe(404);
+    expect((await anon.req('GET', `/api/venues/${v.id}/stats`)).statusCode).toBe(401);
+  });
+
+  it('накрутка с одного адреса упирается в лимит', async () => {
+    const c = await newUser();
+    const v = await newVenue(c);
+    await c.req('POST', `/api/venues/${v.id}/publish`);
+    const anon = new Client();
+    const batch = Array.from({ length: 20 }, () => ({ kind: 'open' }));
+    const codes = [];
+    for (let i = 0; i < 4; i++) codes.push((await anon.req('POST', `/p/${v.slug}/events`, { events: batch }, { ip: '10.9.9.9' })).statusCode);
+    expect(codes).toEqual([204, 204, 204, 429]);
   });
 });

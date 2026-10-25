@@ -32,7 +32,8 @@ export function buildModel3D(doc: MapDocument, level: string, options: Model3DOp
 
   const lines = new Map<string, { origin: Vec2; dir: Vec2; intervals: [number, number][] }>();
   for (const unit of doc.units) {
-    if (unit.level !== level) continue;
+    // Территория (двор между зданиями) — без стен по краю: стены корпусов дают сами корпуса.
+    if (unit.level !== level || unit.kind === 'outdoor') continue;
     for (const ring of unitRings(unit)) for (let i = 0; i < ring.length; i++) {
       const a = ring[i]!;
       const b = ring[(i + 1) % ring.length]!;
