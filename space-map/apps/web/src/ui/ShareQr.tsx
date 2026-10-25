@@ -43,7 +43,7 @@ export default function ShareQr({ url, title, fileName, closed }: { url: string;
       </svg>
       <div className="share-qr-side">
         <p>
-          <b>QR-код карты.</b> Гость наводит камеру телефона — карта открывается без входа и установки. Распечатайте у входа или отправьте в чат.
+          <b>QR-код карты.</b> Наведите камеру телефона — карта откроется без входа и установки. Код можно распечатать у входа или отправить в чат.
         </p>
         {closed && <p className="hint">Карта закрыта: по коду её откроют только вы и администраторы.</p>}
         <div className="row">
@@ -52,7 +52,7 @@ export default function ShareQr({ url, title, fileName, closed }: { url: string;
           </button>
           {canShare && (
             <button type="button" className="btn btn-secondary" onClick={() => void share()}>
-              <Icon name="external" size={17} /> Поделиться
+              <Icon name="share" size={17} /> Поделиться
             </button>
           )}
         </div>
