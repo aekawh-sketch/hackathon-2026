@@ -30,6 +30,7 @@ space-map/
 ```bash
 cd space-map
 cp .env.example .env        # задать DEMO_PASSWORD — появится демо-площадка
+                            # и ADMIN_INVITE_CODE — код для регистрации администраторов (видят все площадки)
 docker compose up -d --build
 ```
 

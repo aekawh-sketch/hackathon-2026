@@ -2,7 +2,6 @@
 // (снимать фотосферы, ставить места на месте). Отдельный чанк вместе с кодировщиком QR: редактор его не качает,
 // пока окно не открыли. В коде только адрес — без входа по нему ничего не открыть.
 import { useEffect, useMemo, useState } from 'react';
-import { venuesApi } from '../api.ts';
 import { useSession } from '../organizer/session.tsx';
 import { Icon } from '../ui/icons.tsx';
 import { qrPath } from '../ui/qr.ts';
@@ -11,11 +10,6 @@ export default function PhoneQrDialog({ venueId, onClose }: { venueId: string; o
   const { user } = useSession();
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Гостю подсказка зависит от стенда: при общем доступе гость на телефоне тоже попадёт в проект, без него — нет.
-  const [openAccess, setOpenAccess] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (user?.isGuest) void venuesApi.list().then((r) => setOpenAccess(!!r.openAccess), () => setOpenAccess(null));
-  }, [user?.isGuest]);
 
   const url = `${location.origin}/app/venues/${venueId}`;
   const qr = useMemo(() => qrPath(url), [url]);
@@ -48,12 +42,8 @@ export default function PhoneQrDialog({ venueId, onClose }: { venueId: string; o
           <path d={qr.d} fill="#000" />
         </svg>
         {local && <p className="notice">Адрес {location.host} с телефона не откроется — откройте редактор по адресу компьютера в сети или на стенде.</p>}
-        {user?.isGuest && openAccess !== null && (
-          <p className="hint">
-            {openAccess
-              ? 'На телефоне войдите тоже без регистрации — проект откроется.'
-              : 'Вход без регистрации — только в этом браузере: сохраните аккаунт в «Моих площадках» и войдите на телефоне по почте.'}
-          </p>
+        {user?.isGuest && (
+          <p className="hint">Вход без регистрации — только в этом браузере: сохраните аккаунт в «Моих площадках» и войдите на телефоне по почте.</p>
         )}
         <label className="field">
           <span>Ссылка</span>

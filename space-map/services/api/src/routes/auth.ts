@@ -3,7 +3,7 @@ import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
 import { acceptSuggestions, demoVenue, type MapDocument } from '@space-map/map-core';
 import { eq } from 'drizzle-orm';
 import { randomBytes } from 'node:crypto';
-import { endSession, GUEST_PASSWORD_HASH, hashPassword, LoginThrottle, RateWindow, requireUser, startSession, verifyPassword } from '../auth.ts';
+import { adminCodeMatches, endSession, GUEST_PASSWORD_HASH, hashPassword, LoginThrottle, RateWindow, requireUser, startSession, USER_FIELDS, verifyPassword } from '../auth.ts';
 import type { Db } from '../db/client.ts';
 import { mapDrafts, users, venues } from '../db/schema.ts';
 import { ApiError } from '../errors.ts';
@@ -12,6 +12,8 @@ import type { AppDeps } from '../app.ts';
 
 const Email = Type.String({ format: 'email', maxLength: 200 });
 const Password = Type.String({ minLength: 8, maxLength: 200 });
+const Role = Type.Union([Type.Literal('user'), Type.Literal('admin')]);
+const AdminCode = Type.String({ maxLength: 200 });
 
 /** Шаблон гостевой площадки: черновик опубликованной демо-площадки (с её панорамами) или встроенная демо-карта. */
 async function demoTemplate(db: Db): Promise<MapDocument> {
@@ -30,29 +32,27 @@ async function demoTemplate(db: Db): Promise<MapDocument> {
 export const authRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db, config }) => {
   const throttle = new LoginThrottle();
   const guestLimit = new RateWindow(10, 60 * 60_000);
+  // Код администратора не подобрать перебором: 10 попыток в час с адреса.
+  const adminTries = new RateWindow(10, 60 * 60_000);
+
+  /** Проверка кода администратора; неверный — 403 с понятной причиной. */
+  const checkAdminCode = (ip: string, code: string | undefined) => {
+    adminTries.hit(ip, 'Слишком много попыток кода администратора. Попробуйте через час.');
+    if (!config.adminCode) throw new ApiError(403, 'admin_disabled', 'На этом сервере администраторов не заводят — зарегистрируйтесь как пользователь.');
+    if (!adminCodeMatches(config.adminCode, code ?? '')) throw new ApiError(403, 'bad_admin_code', 'Неверный код администратора. Его выдаёт владелец сервиса.');
+  };
 
   // Вход одной кнопкой: свой гостевой аккаунт и своя копия демо-площадки — гости не правят одну карту на всех.
   app.post('/guest', async (req, reply) => {
     guestLimit.hit(req.ip, 'Слишком много гостевых входов с этого адреса. Попробуйте через час или зарегистрируйтесь.');
     const guestUser = () => ({ email: `guest-${randomBytes(6).toString('hex')}@guest.space-map`, name: 'Гость', passwordHash: GUEST_PASSWORD_HASH, isGuest: true });
 
-    // Общий доступ (стенд команды): гость правит общую демо-площадку — её видят посетители /m/demo,
-    // а не личную копию, которую никто, кроме него, не увидит. Без общего доступа — своя копия.
-    if (config.openAccess) {
-      const [shared] = await db.select({ id: venues.id }).from(venues).where(eq(venues.slug, 'demo')).limit(1);
-      if (shared) {
-        const [user] = await db.insert(users).values(guestUser()).returning({ id: users.id, email: users.email, name: users.name, isGuest: users.isGuest });
-        await startSession(db, config, reply, user!.id);
-        return reply.status(201).send({ user: user!, venueId: shared.id, shared: true });
-      }
-    }
-
     const name = 'Демо-площадка — ваша копия';
     const { user, venueId } = await db.transaction(async (tx) => {
       const [user] = await tx
         .insert(users)
         .values(guestUser())
-        .returning({ id: users.id, email: users.email, name: users.name, isGuest: users.isGuest });
+        .returning(USER_FIELDS);
       const [venue] = await tx.insert(venues).values({ ownerId: user!.id, name, slug: slugWithSuffix('demo-copy') }).returning({ id: venues.id });
       const doc = await demoTemplate(db);
       doc.venue = { ...doc.venue, id: venue!.id, name };
@@ -63,17 +63,24 @@ export const authRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db, 
     return reply.status(201).send({ user, venueId });
   });
 
+  // Регистрация пользователем (видит только свои площадки) или администратором — по коду, видит и правит все.
   app.post(
     '/register',
-    { schema: { body: Type.Object({ email: Email, password: Password, name: Type.String({ minLength: 1, maxLength: 100 }) }) } },
+    {
+      schema: {
+        body: Type.Object({ email: Email, password: Password, name: Type.String({ minLength: 1, maxLength: 100 }), role: Type.Optional(Role), adminCode: Type.Optional(AdminCode) }),
+      },
+    },
     async (req, reply) => {
+      const role = req.body.role ?? 'user';
+      if (role === 'admin') checkAdminCode(req.ip, req.body.adminCode);
       const email = req.body.email.trim().toLowerCase();
       const existing = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
       if (existing.length) throw new ApiError(409, 'email_taken', 'Этот email уже зарегистрирован. Войдите.');
       const [user] = await db
         .insert(users)
-        .values({ email, name: req.body.name.trim(), passwordHash: await hashPassword(req.body.password) })
-        .returning({ id: users.id, email: users.email, name: users.name, isGuest: users.isGuest });
+        .values({ email, name: req.body.name.trim(), passwordHash: await hashPassword(req.body.password), role })
+        .returning(USER_FIELDS);
       await startSession(db, config, reply, user!.id);
       return reply.status(201).send({ user });
     },
@@ -94,10 +101,19 @@ export const authRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db, 
         .update(users)
         .set({ email, name: req.body.name.trim(), passwordHash: await hashPassword(req.body.password), isGuest: false })
         .where(eq(users.id, me.id))
-        .returning({ id: users.id, email: users.email, name: users.name, isGuest: users.isGuest });
+        .returning(USER_FIELDS);
       return { user: user! };
     },
   );
+
+  // Уже зарегистрированный становится администратором по коду: его площадки остаются при нём.
+  app.post('/admin-code', { schema: { body: Type.Object({ code: AdminCode }) } }, async (req) => {
+    const me = requireUser(req);
+    if (me.isGuest) throw new ApiError(409, 'guest', 'Сначала сохраните аккаунт — гостевой вход есть только в этом браузере.');
+    checkAdminCode(req.ip, req.body.code);
+    const [user] = await db.update(users).set({ role: 'admin' }).where(eq(users.id, me.id)).returning(USER_FIELDS);
+    return { user: user! };
+  });
 
   app.post('/login', { schema: { body: Type.Object({ email: Email, password: Type.String({ maxLength: 200 }) }) } }, async (req, reply) => {
     const email = req.body.email.trim().toLowerCase();
@@ -111,7 +127,7 @@ export const authRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db, 
     }
     throttle.success(key);
     await startSession(db, config, reply, user.id);
-    return { user: { id: user.id, email: user.email, name: user.name, isGuest: user.isGuest } };
+    return { user: { id: user.id, email: user.email, name: user.name, isGuest: user.isGuest, role: user.role } };
   });
 
   app.post('/logout', async (req, reply) => {

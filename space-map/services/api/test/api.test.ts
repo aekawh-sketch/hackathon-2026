@@ -10,6 +10,7 @@ import { buildApp } from '../src/app.ts';
 import { migrate } from '../src/db/migrate.ts';
 
 const DB_URL = process.env.TEST_DATABASE_URL ?? 'postgres://localhost/spacemap_test';
+const ADMIN_CODE = 'admin-code-for-tests';
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let storageDir: string;
@@ -21,7 +22,7 @@ beforeAll(async () => {
   await client.end();
   await migrate(DB_URL);
   storageDir = await mkdtemp(join(tmpdir(), 'space-map-test-'));
-  app = await buildApp({ port: 0, databaseUrl: DB_URL, storageDir, cookieSecure: false, sessionDays: 14, logger: false, openAccess: false });
+  app = await buildApp({ port: 0, databaseUrl: DB_URL, storageDir, cookieSecure: false, sessionDays: 14, logger: false, adminCode: ADMIN_CODE });
 });
 
 afterAll(async () => {
@@ -376,50 +377,78 @@ describe('серия кадров для склейки', () => {
   });
 });
 
-describe('общий доступ (OPEN_ACCESS — стенд команды)', () => {
-  it('любой вошедший видит и правит чужую площадку; без флага — 404', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'space-map-open-'));
-    const open = await buildApp({ port: 0, databaseUrl: DB_URL, storageDir: dir, cookieSecure: false, sessionDays: 14, logger: false, openAccess: true });
+describe('роли: пользователь и администратор', () => {
+  async function newAdmin(name = 'Админ') {
+    const c = new Client();
+    const res = await c.req('POST', '/api/auth/register', { email: `admin${++seq}@test.local`, password: 'correct-horse', name, role: 'admin', adminCode: ADMIN_CODE });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().user.role).toBe('admin');
+    return c;
+  }
+
+  it('пользователь видит только свои площадки, чужая — 404', async () => {
+    const owner = await newUser();
+    const v = await newVenue(owner, 'Своя площадка');
+    const other = await newUser();
+    expect((await other.req('GET', '/api/auth/me')).json().user.role).toBe('user');
+    expect((await other.req('GET', '/api/venues')).json().venues.map((x: { id: string }) => x.id)).not.toContain(v.id);
+    expect((await other.req('GET', `/api/venues/${v.id}`)).statusCode).toBe(404);
+    expect((await other.req('DELETE', `/api/venues/${v.id}`, { confirmName: 'Своя площадка' })).statusCode).toBe(404);
+  });
+
+  it('администратор видит, правит и удаляет все площадки', async () => {
+    const owner = await newUser();
+    const v = await newVenue(owner, 'Площадка команды');
+    const admin = await newAdmin('Сокомандник');
+    const item = (await admin.req('GET', '/api/venues')).json().venues.find((x: { id: string }) => x.id === v.id);
+    expect(item).toMatchObject({ isOwner: false, canDelete: true });
+    const draft = (await admin.req('GET', `/api/venues/${v.id}/draft`)).json();
+    expect((await admin.req('PUT', `/api/venues/${v.id}/draft`, { revision: draft.revision, doc: draft.doc })).statusCode).toBe(200);
+    // Ревизия черновика — без самого документа: так редакторы узнают о чужих сохранениях.
+    expect((await admin.req('GET', `/api/venues/${v.id}/draft/revision`)).json()).toMatchObject({ revision: draft.revision + 1, updatedBy: 'Сокомандник' });
+    const published = await newVenue(owner, 'Опубликованная');
+    expect((await owner.req('POST', `/api/venues/${published.id}/publish`)).statusCode).toBe(200);
+    expect((await admin.req('DELETE', `/api/venues/${published.id}`, { confirmName: 'Опубликованная' })).statusCode).toBe(200);
+    expect((await owner.req('GET', `/api/venues/${published.id}`)).statusCode).toBe(404);
+  });
+
+  it('администратором без верного кода не стать', async () => {
+    const c = new Client();
+    const body = { email: `nocode${++seq}@test.local`, password: 'correct-horse', name: 'Без кода', role: 'admin' };
+    const none = await c.req('POST', '/api/auth/register', body, { ip: '10.0.1.1' });
+    expect(none.statusCode).toBe(403);
+    expect(none.json().code).toBe('bad_admin_code');
+    expect((await c.req('POST', '/api/auth/register', { ...body, adminCode: 'не тот код' }, { ip: '10.0.1.1' })).statusCode).toBe(403);
+    expect((await c.req('GET', '/api/auth/me')).statusCode).toBe(401);
+  });
+
+  it('уже зарегистрированный становится администратором по коду в кабинете', async () => {
+    const owner = await newUser();
+    const v = await newVenue(owner, 'Чужая');
+    const c = await newUser();
+    expect((await c.req('POST', '/api/auth/admin-code', { code: 'мимо' }, { ip: '10.0.1.2' })).statusCode).toBe(403);
+    const ok = await c.req('POST', '/api/auth/admin-code', { code: ADMIN_CODE }, { ip: '10.0.1.2' });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().user.role).toBe('admin');
+    expect((await c.req('GET', `/api/venues/${v.id}`)).statusCode).toBe(200);
+  });
+
+  it('гость получает свою копию демо, а не общую площадку', async () => {
+    const guest = await new Client().req('POST', '/api/auth/guest', undefined, { ip: '10.0.1.3' });
+    expect(guest.statusCode).toBe(201);
+    expect(guest.json().user).toMatchObject({ isGuest: true, role: 'user' });
+    expect(guest.json().shared).toBeUndefined();
+  });
+
+  it('без кода на сервере администраторов не заводят', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'space-map-noadmin-'));
+    const strict = await buildApp({ port: 0, databaseUrl: DB_URL, storageDir: dir, cookieSecure: false, sessionDays: 14, logger: false, adminCode: null });
     try {
-      const owner = await newUser();
-      const v = await newVenue(owner, 'Общая площадка');
-
-      const teammate = new Client(() => open);
-      expect((await teammate.req('POST', '/api/auth/register', { email: 'teammate@test.local', password: 'correct-horse', name: 'Сокомандник' })).statusCode).toBe(201);
-      const list = (await teammate.req('GET', '/api/venues')).json();
-      expect(list.openAccess).toBe(true);
-      expect(list.venues.map((x: { id: string }) => x.id)).toContain(v.id);
-      const draft = (await teammate.req('GET', `/api/venues/${v.id}/draft`)).json();
-      expect((await teammate.req('PUT', `/api/venues/${v.id}/draft`, { revision: draft.revision, doc: draft.doc })).statusCode).toBe(200);
-
-      // При общем доступе удалить можно любую чужую — и черновик, и опубликованную (решение владельца проекта).
-      const copy = await newVenue(owner, 'Копия гостя');
-      expect((await teammate.req('GET', '/api/venues')).json().venues.find((x: { id: string }) => x.id === copy.id)?.canDelete).toBe(true);
-      expect((await teammate.req('DELETE', `/api/venues/${copy.id}`, { confirmName: 'Копия гостя' })).statusCode).toBe(200);
-      const published = await newVenue(owner, 'Опубликованная');
-      expect((await owner.req('POST', `/api/venues/${published.id}/publish`)).statusCode).toBe(200);
-      expect((await teammate.req('GET', '/api/venues')).json().venues.find((x: { id: string }) => x.id === published.id)?.canDelete).toBe(true);
-      expect((await teammate.req('DELETE', `/api/venues/${published.id}`, { confirmName: 'Опубликованная' })).statusCode).toBe(200);
-      expect((await owner.req('GET', `/api/venues/${published.id}`)).statusCode).toBe(404);
-
-      // Ревизия черновика — без самого документа: так редакторы узнают о чужих сохранениях.
-      const rev = (await teammate.req('GET', `/api/venues/${v.id}/draft/revision`)).json();
-      expect(rev).toMatchObject({ revision: draft.revision + 1, updatedBy: 'Сокомандник' });
-
-      // Гость при общем доступе попадает в общую демо-площадку, а не в личную копию.
-      let demoId = (await teammate.req('GET', '/api/venues')).json().venues.find((x: { slug: string }) => x.slug === 'demo')?.id;
-      if (!demoId) demoId = (await owner.req('POST', '/api/venues', { name: 'Демо', slug: 'demo' })).json().venue.id;
-      const guest = await new Client(() => open).req('POST', '/api/auth/guest', undefined, { ip: '10.0.0.9' });
-      expect(guest.statusCode).toBe(201);
-      expect(guest.json().venueId).toBe(demoId);
-
-      // Тот же сокомандник на API без флага — чужую площадку не видит.
-      const strict = new Client();
-      strict.cookies = teammate.cookies;
-      expect((await strict.req('GET', `/api/venues/${v.id}`)).statusCode).toBe(404);
-      expect((await strict.req('GET', '/api/venues')).json().openAccess).toBe(false);
+      const res = await new Client(() => strict).req('POST', '/api/auth/register', { email: `x${++seq}@test.local`, password: 'correct-horse', name: 'X', role: 'admin', adminCode: ADMIN_CODE });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('admin_disabled');
     } finally {
-      await open.close();
+      await strict.close();
       await rm(dir, { recursive: true, force: true });
     }
   });

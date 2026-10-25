@@ -12,8 +12,8 @@ import { isUuid, versionKey, type Venue } from '../venues.ts';
 const IMMUTABLE = 'public, max-age=31536000, immutable';
 
 /** Кто может смотреть опубликованную карту. Чужим — 404, а не 403: не подсказываем, что карта есть. */
-function canView(venue: Venue, req: FastifyRequest, openAccess: boolean): boolean {
-  const editor = !!req.user && (openAccess || req.user.id === venue.ownerId);
+function canView(venue: Venue, req: FastifyRequest): boolean {
+  const editor = !!req.user && (req.user.role === 'admin' || req.user.id === venue.ownerId);
   if (venue.publishedVersion === null) return editor;
   return venue.visibility === 'public' || editor;
 }
@@ -50,7 +50,7 @@ export const publicRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db
 
   app.get('/p/:slug/latest.json', { schema: { params: Type.Object({ slug: Type.String({ maxLength: 48 }) }) } }, async (req, reply) => {
     const venue = await venueBySlug(req.params.slug);
-    if (!venue || venue.publishedVersion === null || !canView(venue, req, config.openAccess)) throw notFound('Карта не найдена или закрыта');
+    if (!venue || venue.publishedVersion === null || !canView(venue, req)) throw notFound('Карта не найдена или закрыта');
     // Короткий кэш: после сохранения посетители увидят новую версию в пределах минуты.
     reply.header('cache-control', venue.visibility === 'public' ? 'public, max-age=30' : 'private, no-store');
     return { version: venue.publishedVersion, url: `/p/${venue.slug}/v/${venue.publishedVersion}/map.json` };
@@ -61,7 +61,7 @@ export const publicRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db
     { schema: { params: Type.Object({ slug: Type.String({ maxLength: 48 }), version: Type.Integer({ minimum: 1 }) }) } },
     async (req, reply) => {
       const venue = await venueBySlug(req.params.slug);
-      if (!venue || venue.publishedVersion === null || req.params.version > venue.publishedVersion || !canView(venue, req, config.openAccess)) {
+      if (!venue || venue.publishedVersion === null || req.params.version > venue.publishedVersion || !canView(venue, req)) {
         throw notFound('Версия карты не найдена');
       }
       const file = await storage.read(versionKey(venue.id, req.params.version));
@@ -82,7 +82,7 @@ export const publicRoutes: FastifyPluginAsyncTypebox<AppDeps> = async (app, { db
         .innerJoin(venues, eq(venues.id, panoramas.venueId))
         .where(and(eq(panoramas.id, req.params.id), eq(panoramas.status, 'ready')))
         .limit(1);
-      if (!row || !canView(row.venue, req, config.openAccess)) throw notFound('Панорама не найдена');
+      if (!row || !canView(row.venue, req)) throw notFound('Панорама не найдена');
       const file = await storage.read(`panoramas/${req.params.id}/${req.params.file}`);
       if (!file) throw notFound('Панорама не найдена');
       const isPublic = row.venue.publishedVersion !== null && row.venue.visibility === 'public';
