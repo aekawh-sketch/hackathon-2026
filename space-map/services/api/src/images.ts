@@ -45,6 +45,18 @@ export async function processPanorama(data: Buffer, maxWidth = 4096): Promise<{ 
   return { pano, preview, width, height: width / 2 };
 }
 
+/** Готовый план (подложка в редакторе): до 4096 px по длинной стороне, прозрачное — на белом, без метаданных. */
+export async function processUnderlay(data: Buffer): Promise<{ jpeg: Buffer; width: number; height: number }> {
+  await inspectImage(data, FRAME_MAX_PIXELS);
+  const { data: jpeg, info } = await sharp(data, { limitInputPixels: FRAME_MAX_PIXELS })
+    .rotate()
+    .resize(4096, 4096, { fit: 'inside', withoutEnlargement: true })
+    .flatten({ background: '#ffffff' })
+    .jpeg({ quality: 88, mozjpeg: true })
+    .toBuffer({ resolveWithObject: true });
+  return { jpeg, width: info.width, height: info.height };
+}
+
 /**
  * Кадр съёмки для склейки: поворот по EXIF применён, EXIF оставлен — по фокусному расстоянию Hugin считает поле зрения.
  * Кадры лежат только в закрытой части хранилища и наружу не отдаются.

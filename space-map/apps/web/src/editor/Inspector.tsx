@@ -56,6 +56,7 @@ import { CategoryDialog } from './CategoryDialog.tsx';
 import { useTheme } from '../ui/theme.tsx';
 import { CategoryBadge, Icon } from '../ui/icons.tsx';
 import { holeRef, type Selection, type Tool } from './EditorCanvas.tsx';
+import { FloorsSection, UnderlaySection, type UnderlayApi } from './FloorsPanel.tsx';
 
 export interface InspectorProps {
   doc: MapDocument;
@@ -85,6 +86,14 @@ export interface InspectorProps {
   /** Открыть панораму на весь экран — проверить, как она снята и повёрнута. */
   /** Открыть панораму; yaw — куда смотреть (у места — на само место). */
   onOpenPanorama: (panoId: string, yaw?: number) => void;
+  /** Перейти на этаж. */
+  onLevel: (levelId: string) => void;
+  onAddLevel: () => void;
+  /** Загрузка готового плана картинкой; нет — демо без сервера. */
+  underlayApi?: UnderlayApi;
+  /** Идёт сдвиг подложки на плане. */
+  underlayMoving: boolean;
+  onUnderlayMove: (on: boolean) => void;
 }
 
 export function Inspector(props: InspectorProps) {
@@ -156,6 +165,8 @@ function Overview(props: InspectorProps) {
           {count(units.length, 'помещение', 'помещения', 'помещений')} · {count(places, 'место', 'места', 'мест')} · {count(doors, 'проход', 'прохода', 'проходов')} · {Math.round(area)} м²
         </p>
       </Section>
+      <FloorsSection doc={doc} level={level} onLevel={props.onLevel} onCommit={(next) => onCommit(next)} onAdd={props.onAddLevel} />
+      <UnderlaySection doc={doc} level={level} api={props.underlayApi} moving={props.underlayMoving} onMove={props.onUnderlayMove} onCommit={(next) => onCommit(next)} onToast={props.onToast} />
       <CaptureSummary {...props} />
       <Section title="Помещения">
         <ul className="insp-list">
@@ -822,7 +833,7 @@ function PanelHead({ icon, kicker, title, onClose }: { icon: ReactNode; kicker: 
   );
 }
 
-function Section({ title, children }: { title?: string; children: ReactNode }) {
+export function Section({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <section className="insp-section">
       {title && <h3>{title}</h3>}
@@ -832,7 +843,7 @@ function Section({ title, children }: { title?: string; children: ReactNode }) {
 }
 
 /** Поле правится локально и уходит в историю один раз — по Enter или потере фокуса. */
-function TextField(props: { label: string; value: string; onCommit: (v: string) => void; multiline?: boolean; placeholder?: string }) {
+export function TextField(props: { label: string; value: string; onCommit: (v: string) => void; multiline?: boolean; placeholder?: string }) {
   const [draft, setDraft] = useState(props.value);
   useEffect(() => setDraft(props.value), [props.value]);
   const commit = () => {
@@ -860,7 +871,7 @@ function TextField(props: { label: string; value: string; onCommit: (v: string) 
 }
 
 /** Число с шагом step (по умолчанию 0,5 м — размеры помещений), digits — знаков после запятой на экране. */
-function NumberField(props: { label: string; value: number; onCommit: (v: number) => void; step?: number; digits?: number }) {
+export function NumberField(props: { label: string; value: number; onCommit: (v: number) => void; step?: number; digits?: number }) {
   const step = props.step ?? 0.5;
   const show = (n: number) => fmt(n, props.digits);
   const [draft, setDraft] = useState(show(props.value));

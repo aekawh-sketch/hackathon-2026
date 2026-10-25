@@ -1,6 +1,6 @@
-// Демо-данные: организатор из DEMO_EMAIL / DEMO_PASSWORD и опубликованная карта манежа.
-// План и панорамы — сохранённый снимок стенда. Существующие правки не перезаписываем.
-import { demoVenue, DEMO_SLUG } from '@space-map/map-core';
+// Демо-организатор, карта манежа с 12 панорамами и пример campus.
+// Существующие планы и версии не перезаписываем.
+import { campusVenue, demoVenue, DEMO_SLUG } from '@space-map/map-core';
 import { eq } from 'drizzle-orm';
 import { hashPassword } from './auth.ts';
 import { loadConfig } from './config.ts';
@@ -64,6 +64,19 @@ if (!existing) {
     const version = await publish(db, storage, existing.id, user!.id);
     console.log(`стандартная демо-площадка обновлена и опубликована, версия ${version}: /m/${DEMO_SLUG}`);
   }
+}
+
+// Пример из нескольких зданий: этажи, лестницы, территория между корпусами.
+const [campus] = await db.select().from(venues).where(eq(venues.slug, 'campus')).limit(1);
+if (!campus) {
+  const doc = campusVenue();
+  const [venue] = await db.insert(venues).values({ ownerId: user!.id, name: doc.venue.name, slug: 'campus' }).returning();
+  doc.venue.id = venue!.id;
+  await db.insert(mapDrafts).values({ venueId: venue!.id, doc, updatedBy: user!.id });
+  const version = await publish(db, storage, venue!.id, user!.id);
+  console.log(`площадка campus опубликована, версия ${version}: /m/campus`);
+} else {
+  console.log('площадка campus уже есть — пропускаю');
 }
 
 await pool.end();

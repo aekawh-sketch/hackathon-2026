@@ -208,4 +208,64 @@ export const venuesApi = {
     form.append('file', file);
     return request<{ panorama: PanoramaAsset }>('POST', `/api/venues/${id}/panoramas`, form).then((r) => r.panorama);
   },
+  /** Готовый план картинкой — подложка этажа в редакторе. */
+  uploadUnderlay: (id: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<{ underlay: UnderlayAsset }>('POST', `/api/venues/${id}/underlays`, form).then((r) => r.underlay);
+  },
+  underlayUrl: (id: string, asset: string) => `/api/venues/${id}/underlays/${asset}`,
+  /** Статистика просмотров за последние days дней. */
+  stats: (id: string, days: number) => request<VenueStats>('GET', `/api/venues/${id}/stats?days=${days}`),
 };
+
+export type StatKind = 'open' | 'place' | 'route' | 'panorama' | 'search_miss';
+
+export interface VenueStats {
+  days: number;
+  /** Сегодня по Москве, YYYY-MM-DD. */
+  today: string;
+  daily: { day: string; kind: StatKind; count: number }[];
+  places: { target: string; count: number }[];
+  routes: { target: string; count: number }[];
+  panoramas: { target: string; count: number }[];
+  misses: { target: string; count: number }[];
+}
+
+// ── Статистика просмотров: события копятся и уходят пачкой раз в несколько секунд и при уходе со страницы ──
+
+const statQueue = new Map<string, { kind: StatKind; target?: string }[]>();
+let statTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Посетитель открыл карту, место, маршрут, панораму или не нашёл, что искал. Ни cookies, ни данных о человеке. */
+export function trackView(slug: string, kind: StatKind, target?: string): void {
+  const list = statQueue.get(slug) ?? [];
+  list.push(target ? { kind, target } : { kind });
+  statQueue.set(slug, list);
+  statTimer ??= setTimeout(flushStats, 3000);
+}
+
+function flushStats(): void {
+  if (statTimer) clearTimeout(statTimer);
+  statTimer = null;
+  for (const [slug, events] of statQueue) {
+    statQueue.delete(slug);
+    for (let i = 0; i < events.length; i += 20) {
+      void fetch(`/p/${encodeURIComponent(slug)}/events`, {
+        method: 'POST',
+        keepalive: true,
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken() },
+        body: JSON.stringify({ events: events.slice(i, i + 20) }),
+      }).catch(() => {});
+    }
+  }
+}
+
+if (typeof window !== 'undefined') window.addEventListener('pagehide', flushStats);
+
+export interface UnderlayAsset {
+  asset: string;
+  width: number;
+  height: number;
+}

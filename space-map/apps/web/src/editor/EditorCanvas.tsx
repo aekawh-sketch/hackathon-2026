@@ -29,6 +29,7 @@ import {
   unitRings,
   rectPolygon,
   roomPlacement,
+  setUnderlay,
   setUnitPolygon,
   sharedUnitWalls,
   snap,
@@ -39,14 +40,16 @@ import {
   type Vec2,
 } from '@space-map/map-core';
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
-import { Circle, Layer, Line, Rect, Stage, Text } from 'react-konva';
+import { Circle, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva';
 import { BasePlan, CapturePointMark, CaptureRouteLine, flatPoints, gridStyle, PanoDot, pinchView, PlaceArea, PlacePin, UnitLabels, useElementSize } from '../plan/draw.tsx';
 import { useTheme } from '../ui/theme.tsx';
 import { ROUTE } from '../plan/style.ts';
 import { fitBoundsInset, levelBounds, screenToWorld, worldToScreen, zoomAt, type Insets, type Viewport } from '../plan/viewport.ts';
 import { Icon } from '../ui/icons.tsx';
+import { invertedCanvas, useImage } from '../ui/useImage.ts';
 
-export type Tool = 'select' | 'room' | 'zone' | 'place' | 'door' | 'wall' | 'hole' | 'shot';
+/** underlay — сдвиг подложки (готового плана картинкой): включается из панели «Готовый план». */
+export type Tool = 'select' | 'room' | 'zone' | 'place' | 'door' | 'wall' | 'hole' | 'shot' | 'underlay';
 /** Вырез выбирается как `{ kind: 'hole', id: '<unitId>#<номер>' }`; `shot` — точка съёмки панорамы. */
 export type Selection = { kind: 'unit' | 'place' | 'opening' | 'hole' | 'shot'; id: string } | null;
 
@@ -78,6 +81,8 @@ export interface EditorCanvasProps {
   onCommit: (doc: MapDocument, select?: Selection) => void;
   onToolDone: () => void;
   onToast: (message: string) => void;
+  /** Адрес картинки подложки; нет — подложку не показываем (демо без сервера). */
+  underlaySrc?: (asset: string) => string;
 }
 
 type Drag =
@@ -93,7 +98,8 @@ type Drag =
   | { kind: 'doorSlide'; id: string; start: Vec2 }
   | { kind: 'cut'; start: Vec2 }
   | { kind: 'holeDraw'; start: Vec2; unitId: string }
-  | { kind: 'holeMove'; unitId: string; index: number; start: Vec2 };
+  | { kind: 'holeMove'; unitId: string; index: number; start: Vec2 }
+  | { kind: 'underlay'; start: Vec2; origin: Vec2 };
 
 interface Preview {
   doc?: MapDocument;
@@ -123,7 +129,7 @@ const ZOOM_ROOM = 230;
 const FIT_ROOM = 110;
 
 export function EditorCanvas(props: EditorCanvasProps) {
-  useTheme(); // палитра плана — из темы: перерисовка при её смене
+  const theme = useTheme(); // палитра плана — из темы: перерисовка при её смене
   const { doc, level, tool, selection, showGraph, insets } = props;
   const wrapRef = useRef<HTMLDivElement>(null);
   const size = useElementSize(wrapRef);
@@ -143,7 +149,16 @@ export function EditorCanvas(props: EditorCanvasProps) {
   const doorHit = coarse ? 18 : 10;
 
   const insetKey = `${insets.top ?? 0}:${insets.right ?? 0}:${insets.bottom ?? 0}:${insets.left ?? 0}`;
-  const fit = () => size && setView(fitBoundsInset(levelBounds(doc, level), size.w, size.h, insets, 40));
+  // Подложка этажа: на пустом этаже «Показать всё» показывает картинку плана — иначе её не найти.
+  const levelUnderlay = doc.levels.find((l) => l.id === level)?.underlay ?? null;
+  const underlayImage = useImage(levelUnderlay && props.underlaySrc ? props.underlaySrc(levelUnderlay.asset) : null);
+  const emptyLevel = !doc.units.some((u) => u.level === level);
+  const bounds = () => {
+    if (!emptyLevel || !levelUnderlay || !underlayImage) return levelBounds(doc, level);
+    const [x, y] = levelUnderlay.origin;
+    return { minX: x, maxX: x + underlayImage.naturalWidth / levelUnderlay.pxPerM, minY: y - underlayImage.naturalHeight / levelUnderlay.pxPerM, maxY: y };
+  };
+  const fit = () => size && setView(fitBoundsInset(bounds(), size.w, size.h, insets, 40));
   const touched = useRef(false);
   useEffect(() => {
     touched.current = false;
@@ -152,6 +167,9 @@ export function EditorCanvas(props: EditorCanvasProps) {
   useEffect(() => {
     if (!touched.current) fit();
   }, [size?.w, size?.h, insetKey]);
+  useEffect(() => {
+    if (emptyLevel) fit();
+  }, [underlayImage, levelUnderlay?.pxPerM]);
 
   const shown = preview?.doc ?? doc;
   const local = (e: { clientX: number; clientY: number }): Vec2 => {
@@ -318,6 +336,11 @@ export function EditorCanvas(props: EditorCanvasProps) {
         const r = moveHole(doc, d.unitId, d.index, delta);
         return r.ok ? { doc: r.doc } : { invalidUnit: d.unitId };
       });
+    } else if (d.kind === 'underlay') {
+      const underlay = doc.levels.find((l) => l.id === level)?.underlay;
+      if (!underlay) return;
+      const origin: Vec2 = [snap(d.origin[0] + w[0] - d.start[0], FINE), snap(d.origin[1] + w[1] - d.start[1], FINE)];
+      updatePreview(`ul:${origin}`, () => ({ doc: setUnderlay(doc, level, { ...underlay, origin }) }));
     } else if (d.kind === 'draw') {
       const p = snapPoint(w);
       const polygon = rectPolygon(d.start, p);
@@ -367,6 +390,10 @@ export function EditorCanvas(props: EditorCanvasProps) {
             ? 'Стена поставлена. Убрать — выберите её и «Убрать стену»'
             : 'Стена поставлена. Передумали — «Отменить» вверху',
       );
+    }
+    if (d.kind === 'underlay') {
+      if (p?.doc) props.onCommit(p.doc, props.selection);
+      return;
     }
     if (d.kind === 'holeDraw') {
       const draft = p?.draft;
@@ -440,6 +467,7 @@ export function EditorCanvas(props: EditorCanvasProps) {
     if (tool === 'zone') return props.onToast('Протяните прямоугольник внутри помещения, чтобы нарисовать зону');
     if (tool === 'wall') return props.onToast('Проведите линию — получится стена');
     if (tool === 'hole') return props.onToast('Протяните прямоугольник внутри комнаты');
+    if (tool === 'underlay') return props.onToast('Тяните картинку, чтобы совместить её с рисунком');
     if (tool === 'shot') {
       if (d.kind === 'shot') return props.onSelect({ kind: 'shot', id: d.id });
       const r = addCapturePoint(doc, level, snapPoint(w, GRID / 2));
@@ -517,6 +545,10 @@ export function EditorCanvas(props: EditorCanvasProps) {
       if (shot) mode = { kind: 'shot', id: shot.id, start: w, origin: shot.pos };
     }
     else if (tool === 'wall') mode = { kind: 'cut', start: snapPoint(w, FINE) };
+    else if (tool === 'underlay') {
+      const underlay = doc.levels.find((l) => l.id === level)?.underlay;
+      if (underlay) mode = { kind: 'underlay', start: w, origin: underlay.origin };
+    }
     else if (tool === 'hole') {
       const unit = doc.units.find((u) => u.level === level && pointInUnit(w, u));
       if (unit) mode = { kind: 'holeDraw', start: snapPoint(w, FINE), unitId: unit.id };
@@ -608,7 +640,12 @@ export function EditorCanvas(props: EditorCanvasProps) {
     return `${fmt(polygonArea(u.polygon))} м²`;
   };
   const cursor =
-    tool === 'room' || tool === 'zone' ? 'crosshair' : tool === 'place' || tool === 'door' || tool === 'shot' ? 'copy' : hover ? 'move' : 'grab';
+    tool === 'room' || tool === 'zone' ? 'crosshair' : tool === 'place' || tool === 'door' || tool === 'shot' ? 'copy' : hover || tool === 'underlay' ? 'move' : 'grab';
+
+  // Подложка — поверх заливки помещений с умножением цвета: белое прозрачно, видны линии плана. В тёмной теме — негатив с осветлением.
+  const underlay = shown.levels.find((l) => l.id === level)?.underlay ?? null;
+  const dark = theme === 'dark';
+  const underlaySource = useMemo(() => (underlayImage && dark ? invertedCanvas(underlayImage) : underlayImage), [underlayImage, dark]);
 
   return (
     <div className="plan-wrap">
@@ -636,6 +673,17 @@ export function EditorCanvas(props: EditorCanvasProps) {
                 selectedHole={selection?.kind === 'hole' ? selection.id : null}
                 invalidUnit={preview?.invalidUnit ?? null}
               />
+              {underlay && underlayImage && underlaySource && (
+                <KonvaImage
+                  image={underlaySource}
+                  x={toScreen(underlay.origin)[0]}
+                  y={toScreen(underlay.origin)[1]}
+                  width={(underlayImage.naturalWidth / underlay.pxPerM) * view.scale}
+                  height={(underlayImage.naturalHeight / underlay.pxPerM) * view.scale}
+                  opacity={underlay.opacity}
+                  globalCompositeOperation={dark ? 'screen' : 'multiply'}
+                />
+              )}
               {shown.places.filter((p) => p.level === level && p.polygon).map((p) => (
                 <PlaceArea
                   key={p.id}

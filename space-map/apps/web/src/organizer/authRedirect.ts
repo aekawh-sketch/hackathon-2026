@@ -5,7 +5,7 @@ export function authDestination(value: string | null): string {
     const url = new URL(value, 'https://space-map.local');
     if (url.origin !== 'https://space-map.local') return '/app';
     const path = url.pathname;
-    if (path !== '/app' && path !== '/app/' && path !== '/app/editor' && !/^\/app\/venues\/[0-9a-f-]{36}$/i.test(path)) return '/app';
+    if (path !== '/app' && path !== '/app/' && path !== '/app/editor' && !/^\/app\/venues\/[0-9a-f-]{36}(?:\/stats)?$/i.test(path)) return '/app';
     return `${path}${url.search}${url.hash}`;
   } catch {
     return '/app';

@@ -12,6 +12,7 @@ import { errorHandler } from './errors.ts';
 import { authRoutes } from './routes/auth.ts';
 import { mediaRoutes } from './routes/media.ts';
 import { publicRoutes } from './routes/public.ts';
+import { statsRoutes } from './routes/stats.ts';
 import { venueRoutes } from './routes/venues.ts';
 import { LocalStorage, type Storage } from './storage.ts';
 
@@ -58,6 +59,7 @@ export async function buildApp(config: Config) {
   await app.register(venueRoutes, { prefix: '/api/venues', ...deps });
   await app.register(mediaRoutes, { prefix: '/api/venues', ...deps });
   await app.register(publicRoutes, deps);
+  await app.register(statsRoutes, deps);
 
   return app;
 }

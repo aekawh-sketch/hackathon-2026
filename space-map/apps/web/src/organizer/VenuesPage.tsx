@@ -254,6 +254,7 @@ export default function VenuesPage() {
                   </div>
                     <CardMenu
                       items={[
+                        { icon: 'chart', label: 'Статистика просмотров', onClick: () => navigate(`/app/venues/${v.id}/stats`) },
                         { icon: 'edit', label: 'Переименовать', onClick: () => setRenaming(v) },
                         { icon: 'copy', label: 'Копировать ссылку', onClick: () => void copyLink(v) },
                         { icon: 'plus', label: 'Дублировать', onClick: () => void run(() => venuesApi.duplicate(v.id), `Копия «${v.name}» создана`) },

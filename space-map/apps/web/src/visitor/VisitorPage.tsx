@@ -7,25 +7,29 @@ import {
   panoramaPointName,
   normalize180,
   routeDirectionInPanorama,
-  routePolyline,
+  routeLegs,
   searchPlaces,
+  sortedLevels,
   unitAt,
   walkthrough,
   type Category,
   type MapDocument,
   type PanoramaPlacement,
   type Place,
+  type RouteLeg,
   type Vec2,
 } from '@space-map/map-core';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { loadPublishedMap, panoramaUrls, publishedVersion, type LoadedMap } from '../api.ts';
+import { loadPublishedMap, panoramaUrls, publishedVersion, trackView, type LoadedMap, type StatKind } from '../api.ts';
 import type { PanoMarker } from '../panorama/PanoramaViewer.tsx';
 import { PlanCanvas } from '../plan/PlanCanvas.tsx';
 import { ErrorBoundary } from '../ui/ErrorBoundary.tsx';
 import { CategoryBadge, Icon } from '../ui/icons.tsx';
 import { Sheet, useMediaQuery, type SheetMode } from '../ui/Sheet.tsx';
 import { ThemeToggle } from '../ui/theme.tsx';
+import { LevelSwitch } from '../ui/LevelSwitch.tsx';
+import { OfflineSave, useOnline } from './OfflineSave.tsx';
 
 const PanoramaViewer = lazy(() => import('../panorama/PanoramaViewer.tsx'));
 const Model3DView = lazy(() => import('../three/Model3DView.tsx'));
@@ -38,7 +42,7 @@ const TURN_PENALTY = 1;
 const DESKTOP = '(min-width: 900px)';
 const PANEL_WIDTH = 392;
 
-type Endpoint = { kind: 'place'; id: string } | { kind: 'point'; pos: Vec2; label: string };
+type Endpoint = { kind: 'place'; id: string } | { kind: 'point'; pos: Vec2; label: string; level: string };
 
 interface PanoState {
   ids: string[];
@@ -104,12 +108,37 @@ export function VisitorPage() {
         <div className="loader" aria-label="Загружаем карту" />
       </div>
     );
-  return <Visitor doc={loaded.doc} anchorCode={search.get('a')} offlineDemo={loaded.offlineDemo} edited={loaded.edited} />;
+  return (
+    <Visitor
+      doc={loaded.doc}
+      anchorCode={search.get('a')}
+      offlineDemo={loaded.offlineDemo}
+      edited={loaded.edited}
+      statsSlug={loaded.offlineDemo ? null : slug}
+      slug={slug}
+      version={loaded.version}
+    />
+  );
 }
 
-function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; anchorCode: string | null; offlineDemo: boolean; edited: boolean }) {
-  const level = doc.levels[0]?.id ?? 'L1';
-  const levelName = doc.levels[0]?.name ?? '';
+interface VisitorProps {
+  doc: MapDocument;
+  anchorCode: string | null;
+  offlineDemo: boolean;
+  edited: boolean;
+  /** Куда слать статистику просмотров; null — карта не с сервера. */
+  statsSlug: string | null;
+  slug: string;
+  version: number | null;
+}
+
+function Visitor({ doc, anchorCode, offlineDemo, edited, statsSlug, slug, version }: VisitorProps) {
+  const online = useOnline();
+  const levels = useMemo(() => sortedLevels(doc), [doc]);
+  const [levelId, setLevelId] = useState(() => levels[0]?.id ?? 'L1');
+  const level = doc.levels.some((l) => l.id === levelId) ? levelId : (levels[0]?.id ?? 'L1');
+  const nameOfLevel = (id: string) => doc.levels.find((l) => l.id === id)?.name ?? '';
+  const levelName = nameOfLevel(level);
   const graph = useMemo(() => new NavGraph(doc, { turnPenalty: TURN_PENALTY }), [doc]);
   const placesById = useMemo(() => new Map(doc.places.map((p) => [p.id, p])), [doc]);
   const categories = useMemo(() => new Map(doc.categories.map((c) => [c.id, c])), [doc]);
@@ -132,14 +161,32 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
   const [sheetMode, setSheetMode] = useState<SheetMode>('peek');
   const [sheetHeight, setSheetHeight] = useState(0);
 
+  // Статистика для организатора: только счётчики, без сведений о посетителе. Открытие карты — раз за сеанс вкладки.
+  const track = (kind: StatKind, target?: string) => statsSlug && trackView(statsSlug, kind, target);
+  useEffect(() => {
+    if (!statsSlug) return;
+    const key = `space-map:opened:${statsSlug}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, '1');
+    } catch {
+      // Хранилище недоступно — считаем каждое открытие.
+    }
+    trackView(statsSlug, 'open');
+  }, [statsSlug]);
+
   // QR-якорь «Вы здесь»: точка «откуда» уже стоит (ТЗ 5.19, слой 1).
   useEffect(() => {
     const anchor = anchorCode ? doc.anchors.find((a) => a.code === anchorCode) : undefined;
-    if (anchor) setFrom({ kind: 'point', pos: anchor.pos, label: 'Вы здесь' });
+    if (anchor) {
+      setFrom({ kind: 'point', pos: anchor.pos, label: 'Вы здесь', level: anchor.level });
+      setLevelId(anchor.level);
+    }
   }, [doc, anchorCode]);
 
   const endpointNode = (e: Endpoint): string | null =>
-    e.kind === 'place' ? (placesById.get(e.id)?.node ?? null) : (nearestVisibleNode(doc, level, e.pos)?.id ?? null);
+    e.kind === 'place' ? (placesById.get(e.id)?.node ?? null) : (nearestVisibleNode(doc, e.level, e.pos)?.id ?? null);
+  const endpointLevel = (e: Endpoint): string | null => (e.kind === 'place' ? (placesById.get(e.id)?.level ?? null) : e.level);
   const endpointPos = (e: Endpoint): Vec2 | null => (e.kind === 'place' ? (placesById.get(e.id)?.pos ?? null) : e.pos);
   const endpointLabel = (e: Endpoint) => (e.kind === 'place' ? (placesById.get(e.id)?.name ?? '') : e.label);
 
@@ -151,13 +198,25 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
     return graph.route(a, b);
   }, [from, to, graph]);
 
-  const routeLine = useMemo(() => {
+  // Маршрут по этажам: участок на каждом этаже и переход по лестнице или лифту на следующий.
+  const legs = useMemo<RouteLeg[] | null>(() => {
     if (!route?.ok || !from || !to) return null;
+    const out = routeLegs(doc, graph, route.nodes).map((l) => ({ ...l, points: [...l.points] }));
     const start = endpointPos(from);
     const end = endpointPos(to);
-    const line = routePolyline(graph, route.nodes);
-    return dedupe([...(start ? [start] : []), ...line, ...(end ? [end] : [])]);
+    if (start && out[0]) out[0].points.unshift(start);
+    if (end && out.length) out[out.length - 1]!.points.push(end);
+    return out.map((l) => ({ ...l, points: dedupe(l.points) }));
   }, [route]);
+  const lineOn = (lv: string): Vec2[] | null => {
+    const pts = legs?.filter((l) => l.level === lv).flatMap((l) => l.points) ?? [];
+    return pts.length >= 2 ? pts : null;
+  };
+  const routeLine = useMemo(() => lineOn(level), [legs, level]);
+  // Новый маршрут начинается на этаже «откуда».
+  useEffect(() => {
+    if (legs?.[0]) setLevelId(legs[0].level);
+  }, [legs]);
 
   // Новый маршрут — сразу показать его целиком.
   useEffect(() => {
@@ -169,10 +228,28 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
 
   const walk = useMemo(() => (route?.ok ? walkthrough(doc, graph, route.nodes) : null), [route]);
 
+  // Маршрут считаем один раз на пару «откуда — куда»: обновление карты пересчитывает маршрут, но это не новый.
+  const trackedRoute = useRef('');
+  useEffect(() => {
+    if (!route?.ok || !from || !to) return;
+    const key = JSON.stringify([from, to]);
+    if (trackedRoute.current === key) return;
+    trackedRoute.current = key;
+    track('route', to.kind === 'place' ? to.id : '');
+  }, [route]);
+
   const results = useMemo(() => {
     if (query.trim()) return searchPlaces(doc, query);
     return doc.places.filter((p) => !p.hidden && (!category || p.category === category));
   }, [doc, query, category]);
+
+  // Искали и не нашли — организатору подсказка, каких мест или слов не хватает. Ждём, пока человек допечатает.
+  const searchMiss = query.trim().length >= 3 && results.length === 0 ? query.trim() : null;
+  useEffect(() => {
+    if (!searchMiss) return;
+    const t = setTimeout(() => track('search_miss', searchMiss), 1500);
+    return () => clearTimeout(t);
+  }, [searchMiss]);
 
   const selectedPlace = selected ? placesById.get(selected) : undefined;
   const roomOf = (p: Place) => {
@@ -210,16 +287,21 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
   };
 
   const current = pano ? panoById.get(pano.ids[pano.index]!) : undefined;
+  useEffect(() => {
+    if (current) track('panorama', current.id);
+  }, [current?.id]);
   const currentRoom = current ? unitAt(doc, current.level, current.pos)?.name : undefined;
 
   // Соседи по маршруту: в прогулке — по её порядку, в одиночной панораме — если она стоит на маршруте.
+  // Линия маршрута на этаже открытой панорамы: по ней стрелки «дальше по маршруту».
+  const panoLine = current ? lineOn(current.level) : null;
   const routeNeighbours = useMemo(() => {
-    if (!current || !routeLine) return null;
+    if (!current || !legs) return null;
     const ids = pano?.tour ? pano.ids : (walk?.segments.flat() ?? []);
     const i = pano?.tour ? pano.index : ids.indexOf(current.id);
     if (i < 0) return { next: null, prev: null };
     return { next: ids[i + 1] ?? null, prev: ids[i - 1] ?? null };
-  }, [current, routeLine, pano, walk]);
+  }, [current, legs, pano, walk]);
 
   const panoMarkers: PanoMarker[] = useMemo(() => {
     if (!current) return [];
@@ -244,9 +326,9 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
         return { id: `link:${l.to}`, kind: 'link', yaw: l.yaw, pitch: -22, label, route: routeNeighbours ? (l.to === prev ? 'prev' : 'off') : undefined };
       });
     // Маршрут идёт дальше, а перехода туда нет (разрыв в панорамах или конец куска) — стрелка по линии маршрута.
-    if (routeNeighbours && routeLine && !links.some((l) => l.route === 'next')) {
-      const yaw = routeDirectionInPanorama(doc, current, routeLine);
-      const end = routeLine[routeLine.length - 1]!;
+    if (routeNeighbours && panoLine && !links.some((l) => l.route === 'next')) {
+      const yaw = routeDirectionInPanorama(doc, current, panoLine);
+      const end = panoLine[panoLine.length - 1]!;
       if (yaw !== null && dist(current.pos, end) > 2) {
         links.push({
           id: 'route-next',
@@ -259,7 +341,7 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
       }
     }
     return [...places, ...links];
-  }, [current, routeNeighbours, routeLine]);
+  }, [current, routeNeighbours, legs]);
 
   const onPanoMarker = (m: PanoMarker) => {
     if (!current) return;
@@ -272,7 +354,8 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
       if (!nextId) return setPano(null); // дальше панорам нет — показываем путь на плане
       if (pano?.tour) return tourStep(1);
       const nextPano = panoById.get(nextId);
-      return openPanorama(nextId, (nextPano && routeLine && routeDirectionInPanorama(doc, nextPano, routeLine)) ?? 0);
+      const nextLine = nextPano ? lineOn(nextPano.level) : null;
+      return openPanorama(nextId, (nextPano && nextLine && routeDirectionInPanorama(doc, nextPano, nextLine)) ?? 0);
     }
     const target = panoById.get(m.id.slice('link:'.length));
     if (!target) return;
@@ -288,6 +371,9 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
 
   // ── Действия ──
   const choosePlace = (id: string) => {
+    const place = placesById.get(id);
+    if (place) setLevelId(place.level);
+    if (id !== selected) track('place', id);
     setSelected(id);
     setQuery('');
     setSheetMode('auto');
@@ -320,7 +406,7 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
 
   const pointEndpoint = (pos: Vec2): Endpoint => {
     const room = unitAt(doc, level, pos);
-    return { kind: 'point', pos, label: room ? `Точка: ${room.name}` : 'Точка на карте' };
+    return { kind: 'point', pos, label: room ? `Точка: ${room.name}` : 'Точка на карте', level };
   };
 
   /** Какой конец заполнить касанием: явно выбранный, иначе недостающий, пока маршрут открыт. */
@@ -357,6 +443,7 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
         <p className="brand-sub">
           {levelName}
           {offlineDemo && <span className="pill">{edited ? 'Демо · изменено' : 'Демо'}</span>}
+          {!online && <span className="pill">Без интернета</span>}
         </p>
       </div>
     </div>
@@ -437,6 +524,21 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
             )}
           </div>
         )}
+        {legs &&
+          legs.map(
+            (leg, i) =>
+              leg.change && (
+                <div key={i} className="route-floor">
+                  <Icon name={leg.change.kind} size={19} />
+                  <span>{floorStep(leg, nameOfLevel)}</span>
+                  {leg.change.to !== level && (
+                    <button type="button" className="btn btn-secondary" onClick={() => setLevelId(leg.change!.to)}>
+                      Показать
+                    </button>
+                  )}
+                </div>
+              ),
+          )}
         {walk && walk.segments.length > 0 && (
           <>
             <button type="button" className="btn btn-primary btn-block" onClick={startTour}>
@@ -538,6 +640,7 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
                     <small>
                       {cat?.name}
                       {room ? ` · ${room}` : ''}
+                      {levels.length > 1 ? ` · ${nameOfLevel(p.level)}` : ''}
                     </small>
                   </span>
                   <Icon name="back" size={18} className="row-chevron" />
@@ -548,11 +651,10 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
           {results.length === 0 && <li className="hint empty-row">Ничего не нашлось. Попробуйте другое слово.</li>}
         </ul>
         {/* На телефоне в шапке место нужно названию — переключатель темы внизу списка. */}
-        {!desktop && (
-          <div className="sheet-foot">
-            <ThemeToggle labeled className="btn btn-ghost" />
-          </div>
-        )}
+        <div className="sheet-foot">
+          <OfflineSave slug={slug} doc={doc} version={version} />
+          {!desktop && <ThemeToggle labeled className="btn btn-ghost" />}
+        </div>
       </div>
     );
   }
@@ -566,8 +668,8 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
             level={level}
             route={routeLine}
             selectedPlace={selected ?? (to?.kind === 'place' ? to.id : null)}
-            fromPoint={from ? endpointPos(from) : null}
-            toPoint={to?.kind === 'point' ? to.pos : null}
+            fromPoint={from && endpointLevel(from) === level ? endpointPos(from) : null}
+            toPoint={to?.kind === 'point' && to.level === level ? to.pos : null}
             category={query.trim() ? null : category}
             insets={insets}
             fitKey={fitKey}
@@ -582,6 +684,23 @@ function Visitor({ doc, anchorCode, offlineDemo, edited }: { doc: MapDocument; a
             </Suspense>
           </ErrorBoundary>
         )}
+        {levels.length > 1 && <LevelSwitch levels={levels} value={level} onChange={setLevelId} style={desktop ? { left: PANEL_WIDTH + 48, bottom: 24 } : { left: 12, top: 136 }} />}
+        {!picking && legs && (() => {
+          // Маршрут уходит с этого этажа (или проходит не здесь) — подсказка, куда дальше.
+          const here = legs.find((l) => l.level === level && l.change);
+          const onRoute = legs.some((l) => l.level === level);
+          if (!here && onRoute) return null;
+          const target = here ? here.change!.to : legs[0]!.level;
+          return (
+            <div className="map-banner" role="status" style={desktop ? { left: PANEL_WIDTH + 48 } : undefined}>
+              <Icon name={here ? here.change!.kind : 'route'} size={18} />
+              {here ? floorStep(here, nameOfLevel) : 'Маршрут — на другом этаже'}
+              <button type="button" className="map-banner-btn" onClick={() => setLevelId(target)}>
+                {here ? 'Дальше' : 'Показать'}
+              </button>
+            </div>
+          );
+        })()}
         {picking && (
           <div className="map-banner" role="status" style={desktop ? { left: PANEL_WIDTH + 48 } : undefined}>
             <Icon name={picking === 'from' ? 'from' : 'pin'} size={18} />
@@ -761,4 +880,12 @@ function dist(a: Vec2, b: Vec2) {
 /** Соседние совпадающие точки (место стоит ровно на узле) — убираем, чтобы линия не ломалась. */
 function dedupe(points: Vec2[]): Vec2[] {
   return points.filter((p, i) => i === 0 || dist(p, points[i - 1]!) > 0.01);
+}
+
+/** «По лестнице вверх на «3 этаж»» — переход с участка маршрута на следующий этаж. */
+function floorStep(leg: RouteLeg, nameOf: (id: string) => string): string {
+  const change = leg.change!;
+  const how = change.kind === 'elevator' ? 'На лифте' : 'По лестнице';
+  const dir = change.floors > 0 ? 'вверх' : 'вниз';
+  return `${how} ${dir} на «${nameOf(change.to)}»`;
 }

@@ -6,6 +6,8 @@ describe('возврат после входа', () => {
     const path = '/app/venues/da8b007e-c29d-4896-8d8d-efca6976ec62?capture=1#plan';
     expect(authDestination(path)).toBe(path);
     expect(authDestination('/app')).toBe('/app');
+    const stats = '/app/venues/da8b007e-c29d-4896-8d8d-efca6976ec62/stats?days=30';
+    expect(authDestination(stats)).toBe(stats);
   });
 
   it.each([null, '/app/login', '/app/login?next=/app/login', '/application', '//example.com/app', 'https://example.com/app', '/app/../app/login', '/app/venues/unknown', '/app\\login'])(
