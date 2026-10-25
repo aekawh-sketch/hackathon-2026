@@ -35,11 +35,13 @@ describe('QR-код проекта', () => {
 describe('сканер на телефоне', () => {
   const site = 'https://193-233-88-64.sslip.io';
 
-  it('открывает только проекты своего сайта', () => {
+  it('открывает только проекты и карты своего сайта', () => {
     expect(projectPath(`${site}/app/venues/abc`, site)).toBe('/app/venues/abc');
     expect(projectPath(`${site}/app/venues/abc?x=1`, site)).toBe('/app/venues/abc?x=1');
     expect(projectPath('https://evil.example/app/venues/abc', site)).toBeNull();
-    expect(projectPath(`${site}/m/demo`, site)).toBeNull();
+    // Опубликованная карта своего сайта — тоже: гость сканирует код у входа.
+    expect(projectPath(`${site}/m/demo`, site)).toBe('/m/demo');
+    expect(projectPath('https://evil.example/m/demo', site)).toBeNull();
     expect(projectPath('просто текст', site)).toBeNull();
   });
 

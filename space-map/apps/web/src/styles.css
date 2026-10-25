@@ -3271,3 +3271,51 @@ li,
 .auth-role button {
   flex: 1;
 }
+
+/* Окно публикации: QR-код карты для гостей — код слева, пояснение и кнопки справа; на телефоне — друг под другом. */
+.share-qr {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  margin: 12px 0 4px;
+}
+
+.share-qr-code {
+  flex: none;
+  width: 132px;
+  height: 132px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.share-qr-side {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.share-qr-side p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.share-qr-side .row {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 480px) {
+  .share-qr {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .share-qr-code {
+    width: min(200px, 60vw);
+    height: auto;
+  }
+
+  .share-qr-side .row {
+    justify-content: center;
+  }
+}

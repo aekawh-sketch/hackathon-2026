@@ -1,7 +1,10 @@
-// Публикация: постоянная ссылка и код для сайта (ТЗ 5.11). Ссылка не меняется при правках.
-import { useEffect, useState } from 'react';
+// Публикация: постоянная ссылка, QR-код и код для сайта (ТЗ 5.11). Ссылка не меняется при правках.
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { ApiError, venuesApi, type VenueSummary } from '../api.ts';
+import { ErrorBoundary } from '../ui/ErrorBoundary.tsx';
 import { Icon } from '../ui/icons.tsx';
+
+const ShareQr = lazy(() => import('../ui/ShareQr.tsx'));
 
 export function PublishDialog({ venue, onClose, onPublished }: { venue: VenueSummary; onClose: () => void; onPublished: (v: VenueSummary) => void }) {
   const [busy, setBusy] = useState(false);
@@ -69,6 +72,11 @@ export function PublishDialog({ venue, onClose, onPublished }: { venue: VenueSum
                 </button>
               </div>
             </label>
+            <ErrorBoundary fallback={null}>
+              <Suspense fallback={null}>
+                <ShareQr url={url} title={venue.name} fileName={venue.slug} closed={venue.visibility === 'private'} />
+              </Suspense>
+            </ErrorBoundary>
             <label className="field">
               <span>Код для сайта</span>
               <textarea readOnly rows={4} value={iframe} onFocus={(e) => e.currentTarget.select()} />

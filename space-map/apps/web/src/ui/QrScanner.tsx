@@ -1,12 +1,12 @@
-// Сканер QR-кода проекта на телефоне: компьютер показывает код (редактор → кнопка с QR-кодом), телефон его читает
-// и открывает этот проект здесь — в приложении для Android или в браузере. Камера — getUserMedia, распознаёт jsQR:
+// Сканер QR-кода на телефоне: компьютер показывает код проекта (редактор → кнопка с QR-кодом) или карты (окно публикации),
+// телефон его читает и открывает здесь — в приложении для Android или в браузере. Камера — getUserMedia, распознаёт jsQR:
 // работает везде, где странице дают камеру. Отдельный чанк — открывается по кнопке.
 import jsQR from 'jsqr';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Icon } from './icons.tsx';
 
-/** Путь кабинета на этом же сайте из прочитанного кода; чужие ссылки и любой другой текст — null. */
+/** Путь на этом же сайте из прочитанного кода — проект в кабинете или опубликованная карта; чужие ссылки и любой другой текст — null. */
 export function projectPath(text: string, origin: string): string | null {
   let url: URL;
   try {
@@ -14,7 +14,8 @@ export function projectPath(text: string, origin: string): string | null {
   } catch {
     return null;
   }
-  return url.origin === origin && url.pathname.startsWith('/app/') ? url.pathname + url.search : null;
+  const ours = url.pathname.startsWith('/app/') || url.pathname.startsWith('/m/');
+  return url.origin === origin && ours ? url.pathname + url.search : null;
 }
 
 type CameraState = 'starting' | 'scanning' | 'denied' | 'unavailable';
@@ -110,7 +111,7 @@ export default function QrScanner({ onClose }: { onClose: () => void }) {
         ) : camera === 'unavailable' ? (
           <p>Камера недоступна. Откройте ссылку на проект вручную — её можно скопировать в окне QR-кода на компьютере.</p>
         ) : foreign ? (
-          <p>Это не код проекта. Наведите на QR-код из редактора на компьютере.</p>
+          <p>Это не код карты или проекта. Наведите на QR-код из редактора или из окна публикации.</p>
         ) : (
           <p>Наведите камеру на QR-код на экране компьютера: редактор → кнопка с QR-кодом рядом с «Отменить».</p>
         )}
